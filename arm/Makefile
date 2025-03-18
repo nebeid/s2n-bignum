@@ -385,7 +385,10 @@ UNOPT_OBJ = p256/unopt/bignum_montmul_p256_base.o \
             fastmul/unopt/bignum_mul_8_16_base.o \
             fastmul/unopt/bignum_sqr_8_16_base.o
 
-OBJ = $(POINT_OBJ) $(BIGNUM_OBJ)
+AES_XTS_OBJ = aes-xts/aes-xts-armv8.o
+
+# OBJ = $(POINT_OBJ) $(BIGNUM_OBJ) $(AES_XTS_OBJ)
+OBJ = $(AES_XTS_OBJ)
 
 # Tutorial assembly files
 
@@ -398,9 +401,9 @@ TUTORIAL_OBJ = $(TUTORIAL_PROOFS:.ml=.o) tutorial/rel_loop2.o tutorial/rel_simp2
 # x18 should not be used for Apple platforms. Check this using grep.
 
 %.o : %.S
-	cat $< | $(PREPROCESS) | $(SPLIT) | grep -v -E '^\s+.quad\s+0x[0-9a-f]+$$' | $(ASSEMBLE) -o $@ -
+	cat $< | $(PREPROCESS) | $(SPLIT) | grep -v -E '^\s+.quad\s+0x[0-9a-f]+$$' | $(ASSEMBLE) -march=armv8-a+crypto -o $@ -
 	$(OBJDUMP) $@ | ( ( ! grep --ignore-case -E 'w18|[^0]x18' ) || ( rm $@ ; exit 1 ) )
-	cat $< | $(PREPROCESS) | $(SPLIT) | $(ASSEMBLE) -o $@ -
+	cat $< | $(PREPROCESS) | $(SPLIT) | $(ASSEMBLE) -march=armv8-a+crypto -o $@ -
 
 libs2nbignum.a: $(OBJ) ; ar -rc libs2nbignum.a $(OBJ)
 
