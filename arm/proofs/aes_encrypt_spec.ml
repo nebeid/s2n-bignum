@@ -7,6 +7,10 @@ let pp_print_num fmt tm =
 install_user_printer("pp_print_num",pp_print_num);;
 
 (*
+// NIST FIPS 197 - Advanced Encryption Standard (AES)
+// `Nb` = number of columns in the state (4 for AES)
+// `Nr` = number of rounds (14 for AES-256)
+
 Cipher(byte in[4*Nb], byte out[4*Nb], word w[Nb*(Nr+1)])
 
 begin
@@ -78,15 +82,15 @@ let aes256_encrypt = new_definition
 let PRINT_TERM_CONV t = Format.printf "%a\n" pp_print_qterm t; ALL_CONV t;;
 
 let AESENC_ROUND_HELPER_CONV =
-    PRINT_TERM_CONV THENC
+  (*  PRINT_TERM_CONV THENC *)
   REWRITE_CONV [aes256_encrypt_round] THENC
   (*PRINT_TERM_CONV THENC*)
   AES_SHIFT_ROWS_CONV THENC
   (*PRINT_TERM_CONV THENC*)
   AES_SUB_BYTES_CONV THENC
-    PRINT_TERM_CONV THENC
+    (* PRINT_TERM_CONV THENC *)
   AES_MIX_COLUMNS_CONV THENC
-    PRINT_TERM_CONV THENC
+    (* PRINT_TERM_CONV THENC *)
   DEPTH_CONV (WORD_RED_CONV ORELSEC NUM_RED_CONV);;
 
 let AESENC_REDUCE_CONV tm =
@@ -183,7 +187,7 @@ REWRITE_CONV [ROUND_KEYS]
   word_xor res15 (EL 14 ROUND_KEYS)`;;
 
 let AESENC_HELPER_CONV =
-  PRINT_TERM_CONV THENC
+(*  PRINT_TERM_CONV THENC *)
   REWR_CONV aes256_encrypt THENC
 (*  PRINT_TERM_CONV THENC *)
   REWRITE_CONV [ROUND_KEYS] THENC
@@ -195,7 +199,7 @@ let AESENC_HELPER_CONV =
   DEPTH_CONV AESENC_REDUCE_CONV THENC
   AES_SHIFT_ROWS_CONV THENC
   AES_SUB_BYTES_CONV THENC
-  PRINT_TERM_CONV THENC
+  (*PRINT_TERM_CONV THENC*)
   DEPTH_CONV (WORD_RED_CONV ORELSEC NUM_RED_CONV)
   ;;
 
