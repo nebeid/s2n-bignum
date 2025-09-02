@@ -94,6 +94,10 @@ let arm_ldstp_2q = new_definition `arm_ldstp_2q ld Rt =
 let arm_ldst2 = new_definition `arm_ldst2 ld Rt =
   let Rtt:(5 word) = word ((val Rt + 1) MOD 32) in
   (if ld then arm_LD2 else arm_ST2) (QREG' Rt) (QREG' Rtt)`;;
+let arm_ldst3 = new_definition `arm_ldst3 ld Rt1 =
+  let Rt2:(5 word) = word ((val Rt1 + 1) MOD 32) in
+  let Rt3:(5 word) = word ((val Rt1 + 2) MOD 32) in
+  (if ld then arm_LD3 else arm_ST3) [QREG' Rt1; QREG' Rt2; QREG' Rt3]`;;
 
 (* The 'AdvSimdExpandImm' shared function in the A64 ISA specification.
    This definition takes one 8-bit word and expands it to 64 bit according to
@@ -320,7 +324,10 @@ let decode = new_definition `!w:int32. decode w =
   // Post-immediate offset, size 128 only
   | [0b00:2; 0b1111001:7; is_ld; 0:1; imm9:9; 0b01:2; Rn:5; Rt:5] ->
     SOME (arm_ldst_q is_ld Rt (XREG_SP Rn) (Postimmediate_Offset (word_sx imm9)))
-
+  // Shifted register, size 128 only, no extensions (i.e. only UXTX)
+  | [0b00:2; 0b1111001:7; is_ld; 1:1; Rm:5; 0b011:3; S; 0b10:2;  Rn:5; Rt:5] ->
+    SOME (arm_ldst_q is_ld Rt (XREG_SP Rn)
+      (if S then Shiftreg_Offset (XREG' Rm) 4 else Register_Offset (XREG' Rm)))
   // LDP/STP (signed offset, SIMD&FP), only sizes 128 and 64
   | [0b10:2; 0b1011010:7; is_ld; imm7:7; Rt2:5; Rn:5; Rt:5] ->
     SOME (arm_ldstp_q is_ld Rt Rt2 (XREG_SP Rn)
@@ -422,6 +429,17 @@ let decode = new_definition `!w:int32. decode w =
     let datasize = if q then 128 else 64 in
     let off = word (esize DIV 8) in
     SOME (arm_LD1R (QREG' Rt) (XREG_SP Rn) (Postimmediate_Offset off) esize datasize)
+
+  // LD3/ST3 (multiple structures), 3 registers, Post-immediate and register offset
+  | [0:1; q; 0b0011001:7; is_ld; 0:1; Rm:5; 0b0100:4; size:2; Rn:5; Rt:5] ->
+    if size = word 0b11 /\ ~q then NONE else
+    let esize = 8 * 2 EXP (val size) in
+    let datasize = if q then 128 else 64 in
+    let offset = if q then word 48 else word 24 in
+    SOME (arm_ldst3 is_ld Rt (XREG_SP Rn)
+           (if val Rm = 31 then (Postimmediate_Offset offset)
+                           else Postreg_Offset (XREG' Rm))
+           datasize esize)
 
   // SIMD operations
   | [0:1; q; u; 0b01110:5; size:2; 1:1; Rm:5; 0b100001:6; Rn:5; Rd:5] ->
@@ -1244,7 +1262,7 @@ let PURE_DECODE_CONV =
     add_thms [arm_adcop; arm_addop; arm_adv_simd_expand_imm;
               arm_bfmop; arm_ccop; arm_csop;
               arm_ldst; arm_ldst_q; arm_ldst_d; arm_ldstb; arm_ldstp; arm_ldstp_q; arm_ldstp_d;
-              arm_ldst2; arm_ldstp_2q] rw;
+              arm_ldst2; arm_ldstp_2q; arm_ldst3] rw;
     (* .. that have bitmatch exprs inside *)
     List.iter (fun def_th ->
         let Some (conceal_th, opaque_const, opaque_arity, opaque_def, opaque_conv) =
@@ -1574,14 +1592,19 @@ define_assert_from_elf "bignum_madd_subroutine" "arm/generic/bignum_madd.o" [
 let bignum_madd_mc = define_word_list "bignum_madd_mc"
   (trim_ret' (rhs (concl bignum_madd_subroutine)));; *)
 
-(*** term_of_relocs_arm returns a pair
-    (a list of new HOL Light variables that represent the symbolic addresses,
-     a HOL Light term that represents the 'symbolic' byte list).
+(*** term_of_relocs_arm takes a tuple
+    (.text bytes,
+      (readonly symbol name, its bytes) list,
+      relocation entries list)
+    The function returns a pair:
+      (a list of new HOL Light variables that represent the symbolic addresses,
+       a HOL Light term that represents the 'symbolic' byte list).
 
     assert_relocs takes a pair
     (a list of HOL Light vars for the symbolic addresses,
      the symbolic byte list term)
-    as well as the large OCaml function printed by print_literal_relocs_from_elf, and checks whether the OCaml function
+    as well as the large OCaml function printed by
+    print_literal_relocs_from_elf, and checks whether the OCaml function
     matches the symbolic byte list term.
  ***)
 let term_of_relocs_arm, assert_relocs =
@@ -1683,7 +1706,14 @@ let term_of_relocs_arm, assert_relocs =
         (* Reproduce the symbolic opcode using the append_reloc fn and
            compare whether it is syntactically equal to the already
            embedded one *)
-        append_reloc_fn arg next_insns = reloc_opcode;
+        let lhs, _ = dest_comb (append_reloc_fn arg next_insns) in
+        let _ = if not (lhs = reloc_opcode) then
+         (Printf.eprintf "assertion failed: symbolic opcodes are not equal\n";
+          Printf.eprintf "  actual opcode: `%s`\n" (string_of_term reloc_opcode);
+          Printf.eprintf "  asserting opcode: `%s`\n" (string_of_term lhs);
+          Printf.eprintf "  PC: %d (0x%x)\n" pc pc;
+          assert false)
+        in
         pc+4, next_insns
       with _ -> failwith ("could not check opcode " ^ (string_of_term reloc_opcode)) in
 
@@ -1718,34 +1748,58 @@ let define_assert_relocs name (tm:term list * term) printed_opcodes_fn
   (mc_def_canonicalized,
    map (fun (name,data) ->
       let dataterm = term_of_bytes data in (* returns (8)word list *)
-      let defname = name ^ "_data" in
-      (try new_definition(mk_eq(mk_var(defname,datatype), dataterm))
+      (try new_definition(mk_eq(mk_var(name,datatype), dataterm))
         with Failure _ ->
-            new_definition(mk_eq(mk_mconst(defname,datatype), dataterm)))
+            new_definition(mk_eq(mk_mconst(name,datatype), dataterm)))
     ) constants);;
 
-let assert_relocs_from_elf (file:string) printed_opcodes_fn =
+let assert_relocs_from_elf
+    ?(map_symbol_name=(fun str -> str ^ "_data"))
+    (file:string) printed_opcodes_fn =
   let filebytes = load_file file in
   let text,constants,rel = load_elf_arm filebytes in
-  assert_relocs (term_of_relocs_arm (text,constants,rel)) printed_opcodes_fn;;
 
-let define_assert_relocs_from_elf name (file:string) printed_opcodes_fn =
+  let constants = map (fun (name,y) -> (map_symbol_name name, y)) constants in
+  let rel = map (fun (a,(b,name,c)) -> (a,(b,map_symbol_name name,c))) rel in
+
+  assert_relocs (term_of_relocs_arm (text,constants,rel))
+      printed_opcodes_fn;;
+
+let define_assert_relocs_from_elf
+    ?(map_symbol_name=(fun str -> str ^ "_data"))
+    name (file:string) printed_opcodes_fn =
   let filebytes = load_file file in
   let text,constants,rel = load_elf_arm filebytes in
+
+  let constants = map (fun (name,y) -> (map_symbol_name name, y)) constants in
+  let rel = map (fun (a,(b,name,c)) -> (a,(b,map_symbol_name name,c))) rel in
+
   let mc_def,constants_data_defs = define_assert_relocs
       name (term_of_relocs_arm (text,constants,rel)) printed_opcodes_fn
       constants in
   (mc_def,constants_data_defs);;
 
-let print_literal_relocs_from_elf (file:string) =
+let print_literal_relocs_from_elf
+    ?(map_symbol_name=(fun str -> str ^ "_data"))
+    (file:string) =
   let filebytes = load_file file in
-  let bs = load_elf_arm filebytes in
-  print_string (make_fn_word_list_reloc bs
-    (decode_all (snd (term_of_relocs_arm bs))));;
+  let text,constants,rel = load_elf_arm filebytes in
 
-let save_literal_relocs_from_elf (deffile:string) (objfile:string) =
+  let constants = map (fun (name,y) -> (map_symbol_name name, y)) constants in
+  let rel = map (fun (a,(b,name,c)) -> (a,(b,map_symbol_name name,c))) rel in
+
+  print_string (make_fn_word_list_reloc (text,constants,rel)
+    (decode_all (snd (term_of_relocs_arm (text,constants,rel)))));;
+
+let save_literal_relocs_from_elf 
+    ?(map_symbol_name=(fun str -> str ^ "_data"))
+    (deffile:string) (objfile:string) =
   let filebytes = load_file objfile in
-  let bs = load_elf_arm filebytes in
-  let ls = make_fn_word_list_reloc bs
-    (decode_all (snd (term_of_relocs_arm bs))) in
+  let text,constants,rel = load_elf_arm filebytes in
+
+  let constants = map (fun (name,y) -> (map_symbol_name name, y)) constants in
+  let rel = map (fun (a,(b,name,c)) -> (a,(b,map_symbol_name name,c))) rel in
+
+  let ls = make_fn_word_list_reloc (text,constants,rel)
+    (decode_all (snd (term_of_relocs_arm (text,constants,rel)))) in
   file_of_string deffile ls;;

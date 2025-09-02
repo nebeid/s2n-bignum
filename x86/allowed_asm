@@ -61,6 +61,7 @@
 : movaps$
 : movdqa$
 : movdqu$
+: movd$
 : movups$
 : mul$
 : mulq$
@@ -120,10 +121,16 @@
 : testq$
 : vpxor$
 : vpaddw$
+: vpaddd$
 : vpand$
+: vpbroadcastd$
+: vpmuldq$
+: vmovdqa$
 : vpmulhw$
+: vpmulld$
 : vpmullw$
 : vpsrad$
+: vpsubd$
 : vpsubw$
 : vpsraw$
 : vpsrlw$

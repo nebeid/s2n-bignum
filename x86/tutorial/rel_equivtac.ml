@@ -126,8 +126,7 @@ let equiv_goal = mk_equiv_statement_simple
 let EQUIV = prove(equiv_goal,
 
   (* Rewrite SOME_FLAGS, ALL, nonoverlapping, and LENGTH * *)
-  REWRITE_TAC[SOME_FLAGS; ALL;NONOVERLAPPING_CLAUSES;
-              fst EXEC; fst EXEC2] THEN
+  REWRITE_TAC[SOME_FLAGS; ALL; fst EXEC; fst EXEC2] THEN
   REPEAT STRIP_TAC THEN
 
   (** Initialize **)
@@ -162,7 +161,7 @@ let EQUIV = prove(equiv_goal,
     ("equal",4,5,4,5)
   ] EXEC EXEC2 THEN
 
-  REPEAT_N 2 ENSURES_N_FINAL_STATE_TAC THEN
+  REPEAT_N 2 ENSURES_FINAL_STATE_TAC THEN
   (* Prove remaining clauses from the postcondition *)
   ASM_REWRITE_TAC[] THEN
   (* This tactic below is typically fixed and probably you will want to reuse. :) *)
@@ -278,7 +277,7 @@ let EQUIV = prove(equiv_goal,
     ("equal",0,2,0,2);
   ] PXOR_EXEC PXOR_EXEC THEN
 
-  REPEAT_N 2 ENSURES_N_FINAL_STATE_TAC THEN
+  REPEAT_N 2 ENSURES_FINAL_STATE_TAC THEN
   (* Prove remaining clauses from the postcondition *)
   ASM_REWRITE_TAC[] THEN
 

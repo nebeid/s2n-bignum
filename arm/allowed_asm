@@ -3,6 +3,7 @@
 : add$
 : adds$
 : adr$
+: adrp$
 : and$
 : and.16b$
 : ands$
@@ -43,6 +44,7 @@
 : fmov$
 : ld1r$
 : ld1r.2d$
+: ld3$
 : ldp$
 : ldr$
 : ldrb$
@@ -112,6 +114,7 @@
 : srshr.8h$
 : sshr$
 : sshr.8h$
+: st3$
 : stp$
 : str$
 : strb$

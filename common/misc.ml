@@ -15,8 +15,16 @@ needs "Library/rstc.ml";;
 needs "Library/words.ml";;
 
 (* ------------------------------------------------------------------------- *)
-(* Additional list operations and conversions on them.                       *)
+(* Additional list lemmas, operations and conversions.                       *)
 (* ------------------------------------------------------------------------- *)
+
+let LIST_OF_SEQ_CLAUSES = prove
+ (`(!(f:num->A). list_of_seq f 0 = []) /\
+   (!(f:num->A). list_of_seq f 1 = [f 0]) /\
+   (!(f:num->A). list_of_seq f 2 = [f 0; f 1]) /\
+   (!(f:num->A). list_of_seq f 3 = [f 0; f 1; f 2]) /\
+   (!(f:num->A). list_of_seq f 4 = [f 0; f 1; f 2; f 3])`,
+  CONV_TAC(ONCE_DEPTH_CONV LIST_OF_SEQ_CONV) THEN REWRITE_TAC[]);;
 
 let SUB_LIST = define
  `SUB_LIST (0,0) l = [] /\
@@ -110,17 +118,31 @@ let SUB_LIST_MIN = prove(
     ]
   ]);;
 
+let SUB_LIST_REFL = prove
+ (`!(l:A list) n. LENGTH l <= n ==> SUB_LIST(0,n) l = l`,
+  LIST_INDUCT_TAC THEN ASM_REWRITE_TAC[SUB_LIST_CLAUSES] THEN
+  INDUCT_TAC THEN ASM_SIMP_TAC[SUB_LIST_CLAUSES; LE_SUC; LENGTH] THEN
+  ARITH_TAC);;
 
+let SUB_LIST_1 = prove
+ (`!(l:A list) n. SUB_LIST(n,1) l = if n < LENGTH l then [EL n l] else []`,
+  MATCH_MP_TAC list_INDUCT THEN
+  REWRITE_TAC[LENGTH; CONJUNCT1 LT; SUB_LIST_CLAUSES] THEN
+  MAP_EVERY X_GEN_TAC [`h:A`; `t:A list`] THEN DISCH_TAC THEN
+  MATCH_MP_TAC num_INDUCTION THEN
+  REWRITE_TAC[SUB_LIST_CLAUSES; LT_0; num_CONV `1`; EL; TL] THEN
+  ASM_REWRITE_TAC[GSYM(num_CONV `1`); LT_SUC; HD]);;
+
+let SUB_LIST_APPEND_LEFT = prove
+ (`!(l:A list) m n.
+        n <= LENGTH l ==> SUB_LIST(0,n) (APPEND l m) = SUB_LIST(0,n) l`,
+  LIST_INDUCT_TAC THEN
+  SIMP_TAC[LENGTH; CONJUNCT1 LE; SUB_LIST_CLAUSES] THEN
+  ONCE_REWRITE_TAC[SWAP_FORALL_THM] THEN
+  INDUCT_TAC THEN ASM_SIMP_TAC[SUB_LIST_CLAUSES; APPEND; LE_SUC]);;
 
 let TRIM_LIST = define
  `TRIM_LIST (h,t) l = SUB_LIST (h,LENGTH l - (h + t)) l`;;
-
-let rec LENGTH_CONV =
-  let conv0 = GEN_REWRITE_CONV I [CONJUNCT1 LENGTH]
-  and conv1 = GEN_REWRITE_CONV I [CONJUNCT2 LENGTH] in
-  let rec conv tm =
-   (conv0 ORELSEC (conv1 THENC RAND_CONV conv THENC NUM_SUC_CONV)) tm in
-  conv;;
 
 let SUB_LIST_CONV =
   let [cth1;cth2;cth3;cth4] = CONJUNCTS SUB_LIST_CLAUSES in
@@ -1385,6 +1407,99 @@ let ASSERT_USING_ASM_ARITH_TAC t =
   SUBGOAL_THEN t ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC];;
 
 (* ------------------------------------------------------------------------- *)
+(* General interleaving and de-interleaving functions on words.              *)
+(* These are poorly supported at the moment, but useful for stating some     *)
+(* more intricate SIMD operations.                                           *)
+(* ------------------------------------------------------------------------- *)
+
+let word_interleave = define
+ `(word_interleave:num->(N word)list->M word) n inps =
+    let l = LENGTH inps in
+    word_of_bits { i | let q = i DIV n and r = i MOD n in
+                       bit (n * q DIV l + r) (EL (q MOD l) inps)}`;;
+
+let word_subdeinterleave = define
+ `(word_subdeinterleave:num->num->M word->num->N word) l n z j =
+        word_of_bits {i | let q = i DIV n and r = i MOD n in
+                          bit ((l * q + j) * n + r) z}`;;
+
+let word_deinterleave = define
+ `(word_deinterleave:num->num->M word->(N word)list) l n z =
+    list_of_seq (word_subdeinterleave l n z) l`;;
+
+let WORD_DEINTERLEAVE_CLAUSES = prove
+ (`(word_deinterleave:num->num->M word->(N word)list) 2 n z =
+   [word_subdeinterleave 2 n z 0; word_subdeinterleave 2 n z 1] /\
+   (word_deinterleave:num->num->M word->(N word)list) 3 n z =
+   [word_subdeinterleave 3 n z 0;
+    word_subdeinterleave 3 n z 1;
+    word_subdeinterleave 3 n z 2]`,
+  REWRITE_TAC[word_deinterleave; LIST_OF_SEQ_CLAUSES]);;
+
+(* ------------------------------------------------------------------------- *)
+(* Conversion for word_subdeinterleave and word_interleave. These are very   *)
+(* naively implemented and could be made much more efficient.                *)
+(* ------------------------------------------------------------------------- *)
+
+let WORD_OF_BITS_AS_WORD_ALT = prove
+ (`!s. word_of_bits s : N word =
+       word(nsum (0..dimindex (:N) - 1) (\i. 2 EXP i * bitval(i IN s)))`,
+  REWRITE_TAC[bitval; COND_RAND; MULT_CLAUSES; GSYM NSUM_RESTRICT_SET] THEN
+  REWRITE_TAC[WORD_OF_BITS_AS_WORD] THEN
+  SIMP_TAC[IN_NUMSEG; LE_0; DIMINDEX_NONZERO;
+           ARITH_RULE `~(d = 0) ==> (i <= d - 1 <=> i < d)`]);;
+
+let WORD_SUBDEINTERLEAVE_CONV =
+  let pth = prove
+   (`!P. word_of_bits {i | P i}:N word =
+         word(nsum (0..dimindex (:N) - 1) (\i. 2 EXP i * bitval(P i)))`,
+    REWRITE_TAC[WORD_OF_BITS_AS_WORD_ALT; IN_ELIM_THM]) in
+  let conv =
+    GEN_REWRITE_CONV I [word_subdeinterleave] THENC
+    GEN_REWRITE_CONV I [pth] THENC
+    ONCE_DEPTH_CONV let_CONV THENC
+    RAND_CONV(LAND_CONV(RAND_CONV
+      (LAND_CONV DIMINDEX_CONV THENC NUM_SUB_CONV))) THENC
+    RAND_CONV EXPAND_NSUM_CONV THENC
+    DEPTH_CONV WORD_NUM_RED_CONV in
+  fun tm ->
+    match tm with
+      Comb(Comb(Comb(Comb(Const("word_subdeinterleave",_),e),n),
+                Comb(Const("word",_),w)),j) ->
+      if is_numeral e && is_numeral n && is_numeral w && is_numeral j
+      then conv tm else failwith "WORD_SUBDEINTERLEAVE_CONV"
+    | _ -> failwith "WORD_SUBDEINTERLEAVE_CONV";;
+
+let WORD_INTERLEAVE_CONV =
+  let pth = prove
+   (`!P. word_of_bits {i | P i}:N word =
+         word(nsum (0..dimindex (:N) - 1) (\i. 2 EXP i * bitval(P i)))`,
+    REWRITE_TAC[WORD_OF_BITS_AS_WORD_ALT; IN_ELIM_THM]) in
+  let conv =
+    GEN_REWRITE_CONV I [word_interleave] THENC
+    ONCE_DEPTH_CONV LENGTH_CONV THENC let_CONV THENC
+    GEN_REWRITE_CONV I [pth] THENC
+    ONCE_DEPTH_CONV let_CONV THENC
+    RAND_CONV(LAND_CONV(RAND_CONV
+      (LAND_CONV DIMINDEX_CONV THENC NUM_SUB_CONV))) THENC
+    RAND_CONV EXPAND_NSUM_CONV THENC
+    DEPTH_CONV(WORD_NUM_RED_CONV ORELSEC EL_CONV) in
+  let is_wordlit t =
+   match t with
+     Comb(Const("word",_),n) -> is_numeral n
+   | _ -> false in
+  let is_wordlist t = is_list t && forall is_wordlit (dest_list t) in
+  fun tm ->
+    match tm with
+      Comb(Comb(Const("word_interleave",_),n),l) ->
+        if is_numeral n && is_wordlist l then conv tm
+        else failwith "WORD_INTERLEAVE_CONV"
+    | _ -> failwith "WORD_INTERLEAVE_CONV";;
+
+extra_word_CONV :=
+  WORD_INTERLEAVE_CONV::WORD_SUBDEINTERLEAVE_CONV::(!extra_word_CONV);;
+
+(* ------------------------------------------------------------------------- *)
 (* A few more lemmas about words.                                            *)
 (* ------------------------------------------------------------------------- *)
 
@@ -1684,6 +1799,70 @@ let COMPUTE_LENGTH_RULE th =
   let ltm = mk_const("LENGTH",
     [hd(snd(dest_type(type_of(lhand(concl th))))),aty]) in
   CONV_RULE(RAND_CONV LENGTH_CONV) (AP_TERM ltm th);;
+
+(* ------------------------------------------------------------------------- *)
+(* Normalize (x + m) + n -> x + [m+n] for numerals m and n                   *)
+(* ------------------------------------------------------------------------- *)
+
+let NORMALIZE_ADD_ADD_CONV =
+  GEN_REWRITE_CONV I [ARITH_RULE
+   `(pc + NUMERAL m) + NUMERAL n = pc + NUMERAL m + NUMERAL n`] THENC
+  RAND_CONV NUM_ADD_CONV;;
+
+(* ------------------------------------------------------------------------- *)
+(* Prove byte list l2 is an initial sublist of l1, as `?r. l1 = APPEND l2 r` *)
+(* modulo some normalization of arithmetic subexpressions if necessary.      *)
+(* ------------------------------------------------------------------------- *)
+
+let BYTELIST_SUBLIST_CONV =
+  let pth_base = prove
+   (`l:byte list = APPEND [] r <=> l = r`,
+    REWRITE_TAC[APPEND])
+  and pth_step = prove
+   (`CONS h t1 = APPEND (CONS h t2) r <=>
+      t1:byte list = APPEND t2 r`,
+    REWRITE_TAC[APPEND; CONS_11])
+  and pth_fin = prove
+   (`(?r:byte list. l = r) <=> T`,
+    MESON_TAC[]) in
+  let baseconv = GEN_REWRITE_CONV I [pth_base]
+  and stepconv = GEN_REWRITE_CONV I [pth_step]
+  and simpconv = ONCE_DEPTH_CONV NORMALIZE_ADD_ADD_CONV THENC
+                 GEN_REWRITE_CONV ONCE_DEPTH_CONV
+                   [ARITH_RULE `n + 0 = n /\ 0 + n = n`]
+  and finrule = GEN_REWRITE_RULE RAND_CONV [pth_fin] in
+  let simpstep_conv =
+    stepconv ORELSEC
+    (BINOP2_CONV (LAND_CONV simpconv) (LAND_CONV(LAND_CONV simpconv)) THENC
+     stepconv) in
+  let rec rule th =
+    try CONV_RULE(RAND_CONV baseconv) th with Failure _ ->
+    let th' = CONV_RULE(RAND_CONV simpstep_conv) th in
+    rule th' in
+  fun tm ->
+    let ev,bod = dest_exists tm in
+    let th1 = rule(REFL bod) in
+    let th2 = AP_TERM (rator tm) (ABS ev th1) in
+    EQT_ELIM(finrule th2);;
+
+(* ------------------------------------------------------------------------- *)
+(* Tweak [aligned_]bytes_loaded s (word pc) mc to use word(pc + 0)           *)
+(* ------------------------------------------------------------------------- *)
+
+let TWEAK_PC_OFFSET_CONV =
+  let conv =
+   GEN_REWRITE_CONV (LAND_CONV o RAND_CONV) [ARITH_RULE `pc = pc + 0`] in
+  fun tm ->
+  match tm with
+    Comb(Comb(Comb(Const("bytes_loaded",_),Var(_,_)),
+              Comb(Const("word",_),Var(_,_))),_) ->
+        conv tm
+  | Comb(Comb(Comb(Const("aligned_bytes_loaded",_),Var(_,_)),
+              Comb(Const("word",_),Var(_,_))),_) ->
+        conv tm
+  | _ -> failwith "TWEAK_PC_OFFSET_CONV";;
+
+let TWEAK_PC_OFFSET = CONV_RULE(ONCE_DEPTH_CONV TWEAK_PC_OFFSET_CONV);;
 
 (* ------------------------------------------------------------------------- *)
 (* Tactics for using labeled assumtions                                      *)
