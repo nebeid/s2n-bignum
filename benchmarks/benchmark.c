@@ -822,6 +822,8 @@ void call_sm2_montjscalarmul_alt(void) repeatfewer(10,sm2_montjscalarmul_alt(b1,
 
 #ifdef __x86_64__
 
+void call_mldsa_poly_reduce(void) repeat(mldsa_poly_reduce((int32_t*)b0))
+
 void call_bignum_copy_row_from_table_8n__32_16(void) {}
 void call_bignum_copy_row_from_table_8n__32_32(void) {}
 void call_bignum_copy_row_from_table_16__32(void) {}
@@ -839,6 +841,7 @@ void call_mlkem_tobytes(void) {}
 void call_mlkem_tomont(void) {}
 void call_mlkem_rej_uniform(void) {}
 void call_sha3_keccak_f1600_alt(void) {}
+void call_sha3_keccak_f1600_alt2(void) {}
 void call_sha3_keccak2_f1600(void) {}
 void call_sha3_keccak2_f1600_alt(void) {}
 void call_sha3_keccak4_f1600(void) {}
@@ -846,6 +849,8 @@ void call_sha3_keccak4_f1600_alt(void) {}
 void call_sha3_keccak4_f1600_alt2(void) {}
 
 #else
+
+void call_mldsa_poly_reduce(void) {}
 
 // mlkem_rej_uniform_VARIABLE_TIME is a non-constant-time function and so
 // we need to make the last argument the correct constant table, or the
@@ -1132,6 +1137,7 @@ void call_mlkem_tobytes(void) repeat(mlkem_tobytes((uint8_t*)b0,(int16_t*)b1))
 void call_mlkem_tomont(void) repeat(mlkem_tomont((int16_t*)b0))
 void call_mlkem_rej_uniform(void) repeat(mlkem_rej_uniform_VARIABLE_TIME((int16_t*)b0,(uint8_t*)b1,1200,mlkem_rej_uniform_table))
 void call_sha3_keccak_f1600_alt(void) repeat(sha3_keccak_f1600_alt(b0,b1))
+void call_sha3_keccak_f1600_alt2(void) repeat(sha3_keccak_f1600_alt2(b0,b1))
 void call_sha3_keccak2_f1600(void) repeat(sha3_keccak2_f1600(b0,b1))
 void call_sha3_keccak2_f1600_alt(void) repeat(sha3_keccak2_f1600_alt(b0,b1))
 void call_sha3_keccak4_f1600(void) repeat(sha3_keccak4_f1600(b0,b1))
@@ -1529,6 +1535,7 @@ int main(int argc, char *argv[])
   timingtest(arm,"mlkem_tobytes",call_mlkem_tobytes);
   timingtest(arm,"mlkem_tomont",call_mlkem_tomont);
   timingtest(arm,"mlkem_rej_uniform_VARIABLE_TIME (1200 bytes)",call_mlkem_rej_uniform);
+  timingtest(!arm,"mldsa_poly_reduce",call_mldsa_poly_reduce);
   timingtest(bmi,"p256_montjadd",call_p256_montjadd);
   timingtest(all,"p256_montjadd_alt",call_p256_montjadd_alt);
   timingtest(bmi,"p256_montjdouble",call_p256_montjdouble);
@@ -1569,10 +1576,11 @@ int main(int argc, char *argv[])
   timingtest(all,"secp256k1_jmixadd_alt",call_secp256k1_jmixadd_alt);
   timingtest(all,"sha3_keccak_f1600",call_sha3_keccak_f1600);
   timingtest(sha3,"sha3_keccak_f1600_alt",call_sha3_keccak_f1600_alt);
+  timingtest(arm,"sha3_keccak_f1600_alt2",call_sha3_keccak_f1600_alt2);
   timingtest(sha3,"sha3_keccak2_f1600",call_sha3_keccak2_f1600);
   timingtest(sha3,"sha3_keccak2_f1600_alt",call_sha3_keccak2_f1600_alt);
   timingtest(sha3,"sha3_keccak4_f1600",call_sha3_keccak4_f1600);
-  timingtest(sha3,"sha3_keccak4_f1600_alt",call_sha3_keccak4_f1600_alt);
+  timingtest(arm,"sha3_keccak4_f1600_alt",call_sha3_keccak4_f1600_alt);
   timingtest(sha3,"sha3_keccak4_f1600_alt2",call_sha3_keccak4_f1600_alt2);
   timingtest(bmi,"sm2_montjadd",call_sm2_montjadd);
   timingtest(all,"sm2_montjadd_alt",call_sm2_montjadd_alt);

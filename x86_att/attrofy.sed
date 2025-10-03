@@ -15,6 +15,7 @@
  ############################################################################
 
 s/\.intel_syntax *noprefix//
+s/_internal_s2n_bignum_x86/_internal_s2n_bignum_x86_att/
 
 # Don't make any transforms on lines with the argument-taking macros
 
@@ -77,6 +78,7 @@ s/([[(,.;: ])(r8d*)/\1\%\2/g
 s/([[(,.;: ])(r9d*)/\1\%\2/g
 s/([[(,.;: ])(r1[0-5]d*)/\1\%\2/g
 s/([[(,.;: ])([re]ip)/\1\%\2/g
+s/([[(,.;: ])([xyz]mm[0-9]*)/\1\%\2/g
 
 # Add explicit sizes to instructions
 
