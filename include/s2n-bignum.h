@@ -858,7 +858,7 @@ extern void bignum_tolebytes_4 (uint8_t z[S2N_BIGNUM_STATIC 32], const uint64_t 
 extern void bignum_tolebytes_6 (uint8_t z[S2N_BIGNUM_STATIC 48], const uint64_t x[S2N_BIGNUM_STATIC 6]);
 
 // Convert 9-digit 528-bit bignum to little-endian bytes
-// Input x[6]; output z[66] (bytes)
+// Input x[9]; output z[66] (bytes)
 extern void bignum_tolebytes_p521 (uint8_t z[S2N_BIGNUM_STATIC 66], const uint64_t x[S2N_BIGNUM_STATIC 9]);
 
 // Convert to Montgomery form z := (2^256 * x) mod p_256
@@ -978,6 +978,10 @@ extern void edwards25519_scalarmulbase_alt(uint64_t res[S2N_BIGNUM_STATIC 8],con
 extern void edwards25519_scalarmuldouble(uint64_t res[S2N_BIGNUM_STATIC 8],const uint64_t scalar[S2N_BIGNUM_STATIC 4], const uint64_t point[S2N_BIGNUM_STATIC 8],const uint64_t bscalar[S2N_BIGNUM_STATIC 4]);
 extern void edwards25519_scalarmuldouble_alt(uint64_t res[S2N_BIGNUM_STATIC 8],const uint64_t scalar[S2N_BIGNUM_STATIC 4], const uint64_t point[S2N_BIGNUM_STATIC 8],const uint64_t bscalar[S2N_BIGNUM_STATIC 4]);
 
+// Forward number-theoretic transform for ML-DSA
+// Input a[256], zetas[624] (signed 32-bit words); output a[256] (signed 32-bit words)
+extern void mldsa_ntt(int32_t a[S2N_BIGNUM_STATIC 256], const int32_t zetas[S2N_BIGNUM_STATIC 624]);
+
 // Canonical reduction of polynomial coefficients for ML-DSA
 // Input a[256] (signed 32-bit words); output a[256] (signed 32-bit words)
 extern void mldsa_poly_reduce(int32_t a[S2N_BIGNUM_STATIC 256]);
@@ -1001,6 +1005,10 @@ extern void mlkem_intt(int16_t a[S2N_BIGNUM_STATIC 256],const int16_t z_01234[S2
 // Precompute the mulcache data for a polynomial in the NTT domain
 // Inputs a[256], z[128] and t[128] (signed 16-bit words); output x[128] (signed 16-bit words)
 extern void mlkem_mulcache_compute(int16_t x[S2N_BIGNUM_STATIC 128],const int16_t a[S2N_BIGNUM_STATIC 256],const int16_t z[S2N_BIGNUM_STATIC 128],const int16_t t[S2N_BIGNUM_STATIC 128]);
+
+// Forward number-theoretic transform from ML-KEM x86 implementation
+// Input a[256] (signed 16-bit words), qdata[624]; output a[256] (signed 16-bit words)
+extern void mlkem_ntt_x86(int16_t a[S2N_BIGNUM_STATIC 256],const int16_t qdata[S2N_BIGNUM_STATIC 624]);
 
 // Forward number-theoretic transform from ML-KEM
 // Input a[256] (signed 16-bit words), z_01234[80] (signed 16-bit words), z_56[384] (signed 16-bit words); output a[256] (signed 16-bit words)

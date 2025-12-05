@@ -648,11 +648,15 @@ let ARM_QUICKSIM_TAC execth pats snums =
 (* More convenient wrappings of basic simulation flow.                       *)
 (* ------------------------------------------------------------------------- *)
 
-let ARM_SIM_TAC execth snums =
+let ARM_SIM_TAC ?(preprocess_tac=ALL_TAC) ?(canonicalize_pc_diff=true)
+    execth snums =
   REWRITE_TAC(!simulation_precanon_thms) THEN
-  ENSURES_INIT_TAC "s0" THEN ARM_STEPS_TAC execth snums THEN
+  ENSURES_INIT_TAC "s0" THEN preprocess_tac THEN
+  ARM_STEPS_TAC execth snums THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-  REWRITE_TAC[VAL_WORD_SUB_EQ_0] THEN ASM_REWRITE_TAC[];;
+  (if canonicalize_pc_diff then
+    REWRITE_TAC[VAL_WORD_SUB_EQ_0] THEN ASM_REWRITE_TAC[]
+   else ALL_TAC);;
 
 let ARM_ACCSIM_TAC execth anums snums =
   REWRITE_TAC(!simulation_precanon_thms) THEN
@@ -1311,27 +1315,3 @@ let ADRP_ADD_FOLD = prove(`forall (pc:int64) (x:int64).
 
   REWRITE_TAC[adrp_within_bounds] THEN
   BITBLAST_TAC);;
-
-
-(* ------------------------------------------------------------------------- *)
-(* In-bound-ness of memory access                                            *)
-(* ------------------------------------------------------------------------- *)
-
-let memaccess_inbounds = new_definition `
-  memaccess_inbounds (e2:(armevent)list) (readable_ranges:(int64#num)list)
-                  (writable_ranges:(int64#num)list) <=>
-    ALL (\(e:armevent). match e with
-      | EventLoad (adr,sz) ->
-        EX (\range. contained_modulo
-            (2 EXP 64) (val adr, sz) (val (FST range), SND range))
-           readable_ranges
-      | EventStore (adr,sz) ->
-        EX (\range. contained_modulo
-            (2 EXP 64) (val adr, sz) (val (FST range), SND range))
-           writable_ranges
-      | _ -> true) e2`;;
-
-let MEMACCESS_INBOUNDS_APPEND = prove(
-  `forall e1 e2 rr wr. memaccess_inbounds (APPEND e1 e2) rr wr
-    <=> memaccess_inbounds e1 rr wr /\ memaccess_inbounds e2 rr wr`,
-  REWRITE_TAC[memaccess_inbounds;ALL_APPEND]);;

@@ -196,7 +196,7 @@ let random_instruction iclasses =
 
 loadt "x86/x86-insns.ml";;
 
-let iclasses = iclasses @
+let iclasses = iclasses_regreg @
 
 (*** The elements here were added manually for additional checks. ***)
 
@@ -288,6 +288,7 @@ let iclasses = iclasses @
  [0x66; 0x49; 0x0f; 0x7e; 0xe3]; (* MOVQ (% r11) (%_% xmm4) *)
  [0x66; 0x4c; 0x0f; 0x7e; 0xd2]; (* MOVQ (% rdx) (%_% xmm10) *)
  [0x66; 0x4d; 0x0f; 0x7e; 0xf4]; (* MOVQ (% r12) (%_% xmm14) *)
+ [0x66; 0x41; 0x0f; 0xd6; 0xc7]; (* MOVQ (%_% xmm15) (%_% xmm0) [nonstandard encoding] *)
  [0xc5; 0xe9; 0xeb; 0xcb];       (* VPOR (%_% xmm1) (%_% xmm2) (%_% xmm3) *)
  [0xc5; 0xd5; 0xeb; 0xe6];       (* VPOR (%_% ymm4) (%_% ymm5) (%_% ymm6) *)
  [0xc4; 0xc1; 0x39; 0xeb; 0xf9]; (* VPOR (%_% xmm7) (%_% xmm8) (%_% xmm9) *)
@@ -384,6 +385,15 @@ let iclasses = iclasses @
  [0x66; 0x0f; 0x1f; 0x84; 0x00; 0x00; 0x00; 0x00; 0x00]; (* NOP_N (Memop Word (%%%% (rax,0,rax))) *)
  [0x66; 0x2e; 0x0f; 0x1f; 0x84; 0x00; 0x00; 0x00; 0x00; 0x00]; (* NOP_N (Memop Word (%%%% (rax,0,rax))) *)
  [0x66; 0x66; 0x2e; 0x0f; 0x1f; 0x84; 0x00; 0x00; 0x00; 0x00; 0x00]; (* NOP_N (Memop Word (%%%% (rax,0,rax))) *)
+ [0xc5; 0xf9; 0x6e; 0xc0];  (* VMOVD (%_% xmm0) (% eax) *)
+ [0xc5; 0xf9; 0x6e; 0xcb];  (* VMOVD (%_% xmm1) (% ebx) *)
+ [0xc5; 0x79; 0x7e; 0xf1];  (* VMOVD (% ecx) (%_% xmm14) *)
+ [0xc5; 0x79; 0x7e; 0xfa];  (* VMOVD (% edx) (%_% xmm15) *)
+ [0xc4; 0xc1; 0xf9; 0x6e; 0xd0]; (* VMOVQ (%_% xmm2) (% r8) *)
+ [0xc4; 0xc1; 0xf9; 0x6e; 0xd9]; (* VMOVQ (%_% xmm3) (% r9) *)
+ [0xc4; 0x41; 0xf9; 0x7e; 0xe6]; (* VMOVQ (% r14) (%_% xmm12) *)
+ [0xc4; 0x41; 0xf9; 0x7e; 0xef]; (* VMOVQ (% r15) (%_% xmm13) *)
+ [0xc5; 0xfa; 0x7e; 0xca]; (* VMOVQ (%_% xmm2) (%_% xmm1) *)
  [0xc5; 0xf9; 0x6f; 0xca]; (* VMOVDQA xmm1, xmm2 *)
  [0xc5; 0xf9; 0x6f; 0xd3]; (* VMOVDQA xmm2, xmm3 *)
  [0xc5; 0xf9; 0x6f; 0xdc]; (* VMOVDQA xmm3, xmm4 *)
@@ -533,6 +543,26 @@ let iclasses = iclasses @
  [0xc4; 0xe3; 0x75; 0x46; 0xd3; 0x08]; (* VPERM2I128 ymm2, ymm1, ymm3, 0x08 (zero low lane) *)
  [0xc4; 0xe3; 0x6d; 0x46; 0xe4; 0x18]; (* VPERM2I128 ymm4, ymm2, ymm4, 0x18 (zero high lane) *)
  [0xc4; 0xe3; 0x65; 0x46; 0xed; 0x88]; (* VPERM2I128 ymm5, ymm3, ymm5, 0x88 (zero both lanes) *)
+ [0xc4; 0xe3; 0x41; 0x22; 0xf8; 0x03]; (* VPINSRD xmm7, xmm7, eax, 0x3  *)
+ [0xc4; 0xe3; 0xf9; 0x22; 0xc0; 0x91]; (* VPINSRQ xmm0, xmm0, rax, 0x91 *)
+ [0xc4; 0x63; 0x39; 0x22; 0xc1; 0x17]; (* VPINSRD xmm8, xmm8, ecx, 0x17 *)
+ [0xc4; 0x63; 0xb1; 0x22; 0xca; 0x76]; (* VPINSRQ xmm9, xmm9, rdx, 0x76 *)
+ [0xc4; 0xc3; 0x69; 0x22; 0xd0; 0x19]; (* VPINSRD xmm2, xmm2, r8d, 0x19 *)
+ [0xc4; 0xc3; 0xe1; 0x22; 0xdf; 0xff]; (* VPINSRQ xmm3, xmm3, r15, 0xff *)
+ [0xc4; 0xc3; 0x69; 0x22; 0xc8; 0xff]; (* VPINSRD (%_% xmm1) (%_% xmm2) (% r8d) (Imm8 (word 255)) *)
+ [0xc4; 0x63; 0x79; 0x22; 0xf0; 0x0c]; (* VPINSRD (%_% xmm14) (%_% xmm0) (% eax) (Imm8 (word 12)) *)
+ [0xc4; 0xe3; 0x99; 0x22; 0xf1; 0x0b]; (* VPINSRQ (%_% xmm6) (%_% xmm12) (% rcx) (Imm8 (word 11)) *)
+ [0xc4; 0x43; 0xe1; 0x22; 0xc4; 0x05]; (* VPINSRQ (%_% xmm8) (%_% xmm3) (% r12) (Imm8 (word 5)) *)
+ [0xc4; 0xe3; 0x79; 0x16; 0xf8; 0x03]; (* VPEXTRD eax, xmm7, 0x3  *)
+ [0xc4; 0xe3; 0xf9; 0x16; 0xc0; 0x91]; (* VPEXTRQ rax, xmm0, 0x91 *)
+ [0xc4; 0x63; 0x79; 0x16; 0xc1; 0x17]; (* VPEXTRD ecx, xmm8, 0x17 *)
+ [0xc4; 0x63; 0xf9; 0x16; 0xca; 0x76]; (* VPEXTRQ rdx, xmm9, 0x76 *)
+ [0xc4; 0xc3; 0x79; 0x16; 0xd0; 0x19]; (* VPEXTRD r8d, xmm2, 0x19 *)
+ [0xc4; 0xc3; 0xf9; 0x16; 0xdf; 0xff]; (* VPEXTRQ r15, xmm3, 0xff *)
+ [0xc4; 0xe3; 0x75; 0x38; 0xca; 0x00]; (* VINSERTI128 (%_% ymm1) (%_% ymm1) (%_% xmm2) (Imm8 (word 0)) *)
+ [0xc4; 0xe3; 0x75; 0x38; 0xda; 0x01]; (* VINSERTI128 (%_% ymm3) (%_% ymm1) (%_% xmm2) (Imm8 (word 1)) *)
+ [0xc4; 0xe3; 0x7d; 0x39; 0xca; 0x00]; (* VEXTRACTI128 (%_% xmm2) (%_% ymm1) (Imm8 (word 0)) *)
+ [0xc4; 0xe3; 0x7d; 0x39; 0xdb; 0x01]; (* VEXTRACTI128 (%_% xmm3) (%_% ymm3) (Imm8 (word 1)) *)
  [0xc4; 0x62; 0x09; 0x00; 0xec]; (* VPSHUFB (%_% xmm13) (%_% xmm14) (%_% xmm4) *)
  [0xc4; 0xc2; 0x5d; 0x00; 0xde]; (* VPSHUFB (%_% ymm3) (%_% ymm4) (%_% ymm14) *)
  [0xc4; 0xc2; 0x31; 0x00; 0xf8]; (* VPSHUFB (%_% xmm7) (%_% xmm9) (%_% xmm8) *)
@@ -583,6 +613,8 @@ let iclasses = iclasses @
  [0xc4; 0xc1; 0x79; 0xd5; 0xc9]; (* VPMULLW (%_% xmm1) (%_% xmm0) (%_% xmm9) *)
  [0xc5; 0xa1; 0xdb; 0xd2]; (* VPAND (%_% xmm2) (%_% xmm11) (%_% xmm2) *)
  [0xc5; 0xa5; 0xdb; 0xd2]; (* VPAND (%_% ymm2) (%_% ymm11) (%_% ymm2) *)
+ [0xc5; 0xa1; 0xdf; 0xd2]; (* VPANDN (%_% xmm2) (%_% xmm11) (%_% xmm2) *)
+ [0xc5; 0xa5; 0xdf; 0xd2]; (* VPANDN (%_% ymm2) (%_% ymm11) (%_% ymm2) *)
  [0xc5; 0xfd; 0x73; 0xd1; 0x01;]; (* VPSRLQ (%_% ymm0) (%_% ymm1) (Imm8 (word 1)) *)
  [0xc4; 0xc1; 0x7d; 0x73; 0xd0; 0x08;]; (* VPSRLQ (%_% ymm0) (%_% ymm8) (Imm8 (word 8)) *)
  [0xc5; 0xf5; 0x73; 0xd0; 0x10;]; (* VPSRLQ (%_% ymm1) (%_% ymm0) (Imm8 (word 16)) *)
@@ -696,7 +728,7 @@ let template =
       MAYCHANGE [ZMM0; ZMM1; ZMM2; ZMM3; ZMM4; ZMM5; ZMM6; ZMM7;
                  ZMM8; ZMM9; ZMM10; ZMM11; ZMM12; ZMM13; ZMM14; ZMM15] ,,
       MAYCHANGE [memory :> bytes(stackpointer,256)] ,,
-      MAYCHANGE SOME_FLAGS)`;;
+      MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events])`;;
 
 let num_two_to_64 = Num.num_of_string "18446744073709551616";;
 
@@ -795,7 +827,7 @@ let decode_inst ibytes =
  *** it can be modified in between.
  ***)
 
-let cosimulate_instructions (memopidx: int option) (add_assum: bool) ibytes_list =
+let cosimulate_instructions (memopidx: int option) (add_assum: int) ibytes_list =
   let ibyte_to_icode_fn =
     fun ibyte -> (itlist (fun h t -> num h +/ num 256 */ t) (List.rev ibyte) num_0) in
   let icodes = map ibyte_to_icode_fn ibytes_list in
@@ -836,8 +868,9 @@ let cosimulate_instructions (memopidx: int option) (add_assum: bool) ibytes_list
     let output_state = output_state_raw in
 
     let add_assum_subst =
-      if add_assum
-      then `aligned 16 (stackpointer:int64):bool`,`additional_assumptions:bool`
+      if add_assum = 32
+      then `aligned 32 stackpointer /\ aligned 16 (stackpointer:int64):bool`,`additional_assumptions:bool`
+      else if add_assum = 16 then `aligned 16 (stackpointer:int64):bool`,`additional_assumptions:bool`
       else `T:bool`,`additional_assumptions:bool` in
     let goal = subst
       [ibyteterm,`ibytes:byte list`;
@@ -880,7 +913,7 @@ let cosimulate_instructions (memopidx: int option) (add_assum: bool) ibytes_list
 
 let run_random_regsimulation () =
   let ibytes:int list = random_instruction iclasses in
-  cosimulate_instructions None false [ibytes];;
+  cosimulate_instructions None 0 [ibytes];;
 
 (* ------------------------------------------------------------------------- *)
 (* Setting up safe self-contained tests for memory accessing instructions.   *)
@@ -1248,38 +1281,87 @@ let run_random_memopsimulation() =
   let l = length icodes in
   let _ = assert (l >= 2) in
   let memop_index = if l >= 6 then l - 4 else l - 2 in
-  cosimulate_instructions (Some memop_index) add_assum icodes;;
+  cosimulate_instructions (Some memop_index)  (if add_assum then 16 else 0) icodes;;
+
+(* ------------------------------------------------------------------------- *)
+(* Cosimulation of simple memory instructions with uniform [rsp+32] address  *)
+(* ------------------------------------------------------------------------- *)
+
+let simple_memory_iclasses = iclasses_simplemem @
+[
+  (*** these were added manually for extra checks ***)
+
+  [0x66; 0x0f; 0x3a; 0x22; 0x7c; 0x24; 0x07; 0x04]; (* pinsrd xmm7, [rsp + 0x7], 0x4 *)
+  [0x66; 0x44; 0x0f; 0x3a; 0x22; 0x74; 0x24; 0x06; 0x63]; (* pinsrd xmm14, [rsp + 0x6], 0x63 *)
+  [0x66; 0x48; 0x0f; 0x3a; 0x22; 0x44; 0x24; 0x05; 0x2a]; (* pinsrq xmm0, [rsp + 0x5], 0x2a *)
+  [0x66; 0x4c; 0x0f; 0x3a; 0x22; 0x44; 0x24; 0x04; 0x0d]; (* pinsrq xmm8, [rsp + 0x4], 0xd *)
+  [0xc4; 0xe3; 0x69; 0x22; 0x4c; 0x24; 0x07; 0xff]; (* vpinsrd xmm1, xmm2, [rsp + 0x7], 0xff *)
+  [0xc4; 0x63; 0x79; 0x22; 0x74; 0x24; 0x06; 0x0c]; (* vpinsrd xmm14, xmm0, [rsp + 0x6], 0xc *)
+  [0xc4; 0xe3; 0x99; 0x22; 0x74; 0x24; 0x05; 0x0b]; (* vpinsrq xmm6, xmm12, [rsp + 0x5], 0xb *)
+  [0xc4; 0x63; 0xb9; 0x22; 0x44; 0x24; 0x04; 0x05]; (* vpinsrq xmm8, xmm8, [rsp + 0x4], 0x5 *)
+  [0xc4; 0x63; 0x79; 0x16; 0x5c; 0x24; 0x03; 0x13]; (* vpextrd [rsp + 0x3], xmm11, 0x13 *)
+  [0xc4; 0xe3; 0x79; 0x16; 0x4c; 0x24; 0x02; 0x07]; (* vpextrd [rsp + 0x2], xmm1, 0x7 *)
+  [0xc4; 0xe3; 0xf9; 0x16; 0x74; 0x24; 0x01; 0x13]; (* vpextrq [rsp + 0x1], xmm6, 0x13 *)
+  [0xc4; 0x63; 0xf9; 0x16; 0x3c; 0x24; 0x07]; (* vpextrq [rsp], xmm15, 0x7 *)
+  [0x66; 0x0f; 0x6e; 0x0c; 0x24]; (* movd xmm1, [rsp] *)
+  [0x66; 0x0f; 0x7e; 0x0c; 0x24]; (* movd [rsp], xmm1 *)
+  [0xf3; 0x0f; 0x7e; 0x0c; 0x24]; (* movq xmm1, [rsp] *)
+  [0x66; 0x48; 0x0f; 0x7e; 0x0c; 0x24]; (* movq [rsp], xmm1 [nonstandard encoding] *)
+  [0xc5; 0xf9; 0x6e; 0x0c; 0x24]; (* vmovd xmm1, [rsp] *)
+  [0xc5; 0xf9; 0x7e; 0x0c; 0x24]; (* vmovd [rsp], xmm1 *)
+  [0xc5; 0xfa; 0x7e; 0x0c; 0x24]; (* vmovq xmm1, [rsp] *)
+  [0xc4; 0xe1; 0xf9; 0x7e; 0x0c; 0x24]; (* vmovq [rsp], xmm1 [nonstandard encoding] *)
+  [0x66; 0x44; 0x0f; 0xd6; 0x3c; 0x24]; (* movq [rsp], xmm15 *)
+  [0xf3; 0x44; 0x0f; 0x7e; 0x3c; 0x24]; (* movq xmm15, [rsp] *)
+  [0xc5; 0xf9; 0xd6; 0x04; 0x24]; (* vmovq [rsp], xmm0 *)
+  [0xc5; 0xfa; 0x7e; 0x04; 0x24]; (* vmovq xmm0, [rsp] *)
+];;
+
+let simplemem_iclasses =
+  map (fun l -> [l],true) simple_memory_iclasses;;
+
+let run_random_simplememopsimulation() =
+  let icodes,add_assum =
+    el (Random.int (length simplemem_iclasses)) simplemem_iclasses in
+  let memop_index = 0 in
+  cosimulate_instructions (Some memop_index) 32 icodes;;
 
 (* ------------------------------------------------------------------------- *)
 (* Keep running tests till a failure happens then return it.                 *)
 (* ------------------------------------------------------------------------- *)
 
 let run_random_simulation() =
-  if Random.int 100 < 90 then
+  let rn = Random.int 100 in
+  if rn < 80 then
     let decoded, result = run_random_regsimulation() in
-    decoded,result,true
-  else
+    decoded,result,0
+  else if rn < 90 then
     let decoded, result = run_random_memopsimulation() in
-    decoded,result,false;;
+    decoded,result,1
+  else
+    let decoded, result = run_random_simplememopsimulation() in
+    decoded,result,2;;
 
 let time_limit_sec = 2400.0;;
 let tested_reg_instances = ref 0;;
 let tested_mem_instances = ref 0;;
+let tested_smp_instances = ref 0;;
 
 let rec run_random_simulations start_t =
-  let decoded,result,isreg = run_random_simulation() in
+  let decoded,result,simty = run_random_simulation() in
   if result then begin
-    tested_reg_instances := !tested_reg_instances + (if isreg then 1 else 0);
-    tested_mem_instances := !tested_mem_instances + (if isreg then 0 else 1);
+    tested_reg_instances := !tested_reg_instances + (if simty = 0 then 1 else 0);
+    tested_mem_instances := !tested_mem_instances + (if simty = 1 then 1 else 0);
+    tested_smp_instances := !tested_smp_instances + (if simty = 2 then 1 else 0);
     let fey = if is_numeral decoded
               then " (fails correctly) instruction code " else " " in
     let _ = Format.print_string("OK:" ^ fey ^ string_of_term decoded);
             Format.print_newline() in
     let now_t = Sys.time() in
     if now_t -. start_t > time_limit_sec then
-      let _ = Printf.printf "Finished (time limit: %fs, tested reg instances: %d, tested mem instances: %d, total: %d)\n"
-          time_limit_sec !tested_reg_instances !tested_mem_instances
-          (!tested_reg_instances + !tested_mem_instances) in
+      let _ = Printf.printf "Finished (time limit: %fs, tested register-only: %d, general memory: %d, special memory: %d, total: %d)\n"
+          time_limit_sec !tested_reg_instances !tested_mem_instances !tested_smp_instances
+          (!tested_reg_instances + !tested_mem_instances + !tested_smp_instances) in
       None
     else run_random_simulations start_t
   end
