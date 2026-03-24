@@ -275,6 +275,16 @@ let iclasses =
   (*** SMULL2 ***)
   "01001110xx1xxxxx110000xxxxxxxxxx";
 
+  (*** PMULL, size=00 (8-bit) ***)
+  "00001110001xxxxx111000xxxxxxxxxx";
+  (*** PMULL, size=11 (64-bit) ***)
+  "00001110111xxxxx111000xxxxxxxxxx";
+
+  (*** PMULL2, size=00 (8-bit) ***)
+  "01001110001xxxxx111000xxxxxxxxxx";
+  (*** PMULL2, size=11 (64-bit) ***)
+  "01001110111xxxxx111000xxxxxxxxxx";
+
   (*** SQDMULH ***)
   "0x001111xxxxxxxx1100x0xxxxxxxxxx";
 
