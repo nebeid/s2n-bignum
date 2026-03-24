@@ -2096,6 +2096,30 @@ let arm_SMULL2_VEC = define
           let mlsx:(128)word = usimd8 (word_sx:(8)word->(16)word) ml in
           (Rd := simd8 word_mul nlsx mlsx) s`;;
 
+let arm_PMULL = define
+ `arm_PMULL Rd Rn Rm esize =
+    \s. let nl:(64)word = word_subword (read Rn s:(128)word) (0,64):(64)word in
+        let ml:(64)word = word_subword (read Rm s:(128)word) (0,64):(64)word in
+        if esize = 64 then
+          let d:(128)word = word_pmul nl ml in
+          (Rd := d) s
+        else // esize = 8
+          let nlzx:(128)word = usimd8 (word_zx:(8)word->(16)word) nl in
+          let mlzx:(128)word = usimd8 (word_zx:(8)word->(16)word) ml in
+          (Rd := simd8 word_pmul nlzx mlzx) s`;;
+
+let arm_PMULL2 = define
+ `arm_PMULL2 Rd Rn Rm esize =
+    \s. let nl:(64)word = word_subword (read Rn s:(128)word) (64,64):(64)word in
+        let ml:(64)word = word_subword (read Rm s:(128)word) (64,64):(64)word in
+        if esize = 64 then
+          let d:(128)word = word_pmul nl ml in
+          (Rd := d) s
+        else // esize = 8
+          let nlzx:(128)word = usimd8 (word_zx:(8)word->(16)word) nl in
+          let mlzx:(128)word = usimd8 (word_zx:(8)word->(16)word) ml in
+          (Rd := simd8 word_pmul nlzx mlzx) s`;;
+
 let arm_USHR_VEC = define
  `arm_USHR_VEC Rd Rn amt esize datasize =
     \s. let n = read Rn s in
@@ -3337,6 +3361,8 @@ let arm_SMLSL_VEC_ALT =  EXPAND_SIMD_RULE arm_SMLSL_VEC;;
 let arm_SMLSL2_VEC_ALT = EXPAND_SIMD_RULE arm_SMLSL2_VEC;;
 let arm_SMULL_VEC_ALT =  EXPAND_SIMD_RULE arm_SMULL_VEC;;
 let arm_SMULL2_VEC_ALT = EXPAND_SIMD_RULE arm_SMULL2_VEC;;
+let arm_PMULL_ALT =      EXPAND_SIMD_RULE arm_PMULL;;
+let arm_PMULL2_ALT =     EXPAND_SIMD_RULE arm_PMULL2;;
 let arm_SRI_VEC_ALT =    EXPAND_SIMD_RULE arm_SRI_VEC;;
 let arm_SUB_VEC_ALT =    EXPAND_SIMD_RULE arm_SUB_VEC;;
 let arm_TBL_ALT =        EXPAND_SIMD_RULE arm_TBL;;
@@ -3459,6 +3485,7 @@ let ARM_OPERATION_CLAUSES =
        arm_MUL_VEC_ALT;
        arm_NOP;
        arm_ORN; arm_ORR; arm_ORR_VEC;
+       arm_PMULL_ALT; arm_PMULL2_ALT;
        arm_RET; arm_REV; arm_REV64_VEC_ALT; arm_RORV;
        arm_SBC; arm_SBCS_ALT; arm_SBFM; arm_SHL_VEC_ALT; arm_SHRN_ALT;
        arm_SRSHR_VEC_ALT;
