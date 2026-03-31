@@ -912,8 +912,39 @@ let GHASH_POLYVAL_ACC_BATCHED = prove(
 (*   PROVEN: h_power, ghash_wide (defs), INNER_CONG_GEN, WORD_XOR_0,        *)
 (*           LHS_ASSOC, RHS_ASSOC, MID_COMM,                                *)
 (*           *** GHASH_POLYVAL_ACC_BATCHED: general n-block theorem ***       *)
-(*                                                                           *)
+(* ========================================================================= *)
+
+(* ========================================================================= *)
+(* Htable precondition and Karatsuba middle term                             *)
+(* ========================================================================= *)
+
+let karatsuba_mid = new_definition
+  `karatsuba_mid (h:int128) : 64 word =
+   word_xor (word_subword h (0,64) : 64 word)
+            (word_subword h (64,64) : 64 word)`;;
+
+let htable_powers = new_definition
+  `htable_powers (h:int128) (powers:(int128)list) (n:num) <=>
+   LENGTH powers = n /\
+   !k. k < n ==> EL k powers = h_power h k`;;
+
+let GHASH_BATCHED_FROM_HTABLE = prove(
+  `!(h:int128) (a:int128) (b:int128) (bs:(int128)list) (powers:(int128)list).
+    htable_powers h powers (SUC(LENGTH bs))
+    ==> ghash_polyval_acc h a (CONS b bs) =
+        polyval_reduce_prop3(
+          word_xor (word_pmul (word_xor a b) (EL (LENGTH bs) powers) : 256 word)
+                   (ghash_wide h (LENGTH bs - 1) bs))`,
+  REPEAT STRIP_TAC THEN
+  FIRST_X_ASSUM(MP_TAC o REWRITE_RULE[htable_powers]) THEN
+  STRIP_TAC THEN
+  SUBGOAL_THEN `EL (LENGTH (bs:(int128)list)) powers = h_power (h:int128) (LENGTH bs)` SUBST1_TAC THENL
+   [FIRST_X_ASSUM MATCH_MP_TAC THEN ARITH_TAC;
+    REWRITE_TAC[GHASH_POLYVAL_ACC_BATCHED]]);;
+
+(* ========================================================================= *)
 (* NEXT STEPS:                                                               *)
-(*   1. Define Htable precondition and connect to ARM simulation             *)
-(*   2. Start ARM simulation of gcm_ghash_v8                                 *)
+(*   1. Start ARM simulation of gcm_ghash_v8                                 *)
+(*   2. Connect Htable memory layout to htable_powers predicate              *)
+(*   3. Verify gcm_init_v8 establishes htable_powers (optional)              *)
 (* ========================================================================= *)
