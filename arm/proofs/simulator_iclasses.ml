@@ -334,6 +334,9 @@ let iclasses =
   (*** UMAXV ***)
   "0x101110xx110000101010xxxxxxxxxx";
 
+  (*** UMIN, vector ***)
+  "0x101110xx1xxxxx011011xxxxxxxxxx";
+
   (*** UMOV (.d, .s) ***)
   "01001110000x1000001111xxxxxxxxxx";
   "00001110000xx100001111xxxxxxxxxx";
