@@ -36,8 +36,6 @@ let POLY_OF_WORD_PMUL_GEN = prove(
   MATCH_MP_TAC(INST_TYPE [`:P`,`:N`] POLY_OF_WORD_OF_POLY) THEN
   ASM_REWRITE_TAC[]);;
 
-let POLY_VAR_POW_OF_WORD_256 = INST_TYPE [`:256`,`:N`] POLY_VAR_POW_OF_WORD;;
-
 let zx_128_256 = prove
  (`!w:128 word. poly_of_word(word_zx w : 256 word) = poly_of_word w`,
   GEN_TAC THEN MATCH_MP_TAC POLY_OF_WORD_ZX THEN

@@ -556,24 +556,45 @@ let MOD_POLYVAL_CANCEL_VARPOW_GEN = prove
             ring_mul bool_poly q (ring_pow bool_poly (poly_var bool_ring one) n))
            mod_polyval
            ==> (p == q) mod_polyval`,
-  REPEAT STRIP_TAC THEN
-  FIRST_X_ASSUM(MP_TAC o REWRITE_RULE[cong; mod_polyval; BOOL_POLY_SUB;
-    RING_MUL; POLY_VARPOW_BOOL_POLY;
-    MATCH_MP IN_IDEAL_GENERATED_SING_EQ POLYVAL_BOOL_POLY]) THEN
-  SIMP_TAC[RING_MUL; POLY_VARPOW_BOOL_POLY; ASSUME `p IN ring_carrier bool_poly`;
-    ASSUME `q IN ring_carrier bool_poly`] THEN
-  REWRITE_TAC[GSYM RING_SUB_RDISTRIB; ASSUME `p IN ring_carrier bool_poly`;
-    ASSUME `q IN ring_carrier bool_poly`; POLY_VARPOW_BOOL_POLY; RING_SUB] THEN
-  DISCH_THEN(X_CHOOSE_THEN `d:(1->num)->bool` STRIP_ASSUME_TAC) THEN
-  MP_TAC(ISPECL [`bool_poly`; `polyval_poly`; `ring_sub bool_poly p q`;
-    `ring_pow bool_poly (poly_var bool_ring one) n`] RING_COPRIME_DIVPROD_RIGHT) THEN
-  ASM_SIMP_TAC[RING_SUB; POLY_VARPOW_BOOL_POLY; POLYVAL_COPRIME_VARPOW] THEN
-  REWRITE_TAC[ring_divides] THEN
-  DISCH_THEN(X_CHOOSE_THEN `e:(1->num)->bool` STRIP_ASSUME_TAC) THEN
-  REWRITE_TAC[cong; mod_polyval; BOOL_POLY_SUB;
-    MATCH_MP IN_IDEAL_GENERATED_SING_EQ POLYVAL_BOOL_POLY] THEN
-  ASM_SIMP_TAC[RING_SUB] THEN EXISTS_TAC `e:(1->num)->bool` THEN
-  ASM_REWRITE_TAC[]);;
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN
+    `ring_divides bool_poly polyval_poly
+      (ring_mul bool_poly (ring_sub bool_poly p q)
+        (ring_pow bool_poly (poly_var bool_ring one) n))`
+  MP_TAC THENL
+   [SUBGOAL_THEN `ring_mul bool_poly (ring_sub bool_poly p q)
+        (ring_pow bool_poly (poly_var bool_ring one) n) =
+      ring_sub bool_poly
+        (ring_mul bool_poly p (ring_pow bool_poly (poly_var bool_ring one) n))
+        (ring_mul bool_poly q (ring_pow bool_poly (poly_var bool_ring one) n))`
+    SUBST1_TAC THENL
+     [MATCH_MP_TAC RING_SUB_RDISTRIB THEN
+      ASM_REWRITE_TAC[POLY_VARPOW_BOOL_POLY];
+      UNDISCH_TAC `(ring_mul bool_poly p
+        (ring_pow bool_poly (poly_var bool_ring one) n) ==
+        ring_mul bool_poly q
+        (ring_pow bool_poly (poly_var bool_ring one) n)) mod_polyval` THEN
+      REWRITE_TAC[cong; mod_polyval; MATCH_MP IN_IDEAL_GENERATED_SING_EQ
+        POLYVAL_BOOL_POLY] THEN
+      ASM_SIMP_TAC[RING_MUL; POLY_VARPOW_BOOL_POLY; BOOL_POLY_SUB] THEN
+      REWRITE_TAC[ring_divides] THEN
+      ASM_SIMP_TAC[POLYVAL_BOOL_POLY; RING_MUL; RING_ADD; RING_SUB;
+                   POLY_VARPOW_BOOL_POLY]];
+    DISCH_TAC THEN
+    MP_TAC(ISPECL [`bool_poly`; `ring_sub bool_poly (p:(1->num)->bool) q`;
+      `ring_pow bool_poly (poly_var bool_ring one) n`;
+      `polyval_poly`] RING_COPRIME_DIVPROD_RIGHT) THEN
+    ANTS_TAC THENL
+     [ASM_SIMP_TAC[RING_SUB; POLY_VARPOW_BOOL_POLY] THEN
+      ONCE_REWRITE_TAC[RING_COPRIME_SYM] THEN
+      REWRITE_TAC[POLYVAL_COPRIME_VARPOW] THEN
+      DISJ2_TAC THEN REWRITE_TAC[INTEGRAL_DOMAIN_BOOL_POLY; BEZOUT_BOOL_POLY_Q];
+      DISCH_TAC THEN
+      REWRITE_TAC[cong; mod_polyval; BOOL_POLY_SUB;
+        MATCH_MP IN_IDEAL_GENERATED_SING_EQ POLYVAL_BOOL_POLY] THEN
+      ASM_SIMP_TAC[RING_ADD; POLYVAL_BOOL_POLY] THEN
+      RULE_ASSUM_TAC(REWRITE_RULE[BOOL_POLY_SUB]) THEN
+      ASM_REWRITE_TAC[]]]);;
 
 (* Ring algebra helpers for bool_poly *)
 let BOOL_POLY_MUL_ASSOC = prove
@@ -1067,8 +1088,10 @@ let SUBWORD_SHL_ZX = prove(
               word_subword (word_shl (word_zx h : 256 word) 1) (0,128)`,
   GEN_TAC THEN ONCE_REWRITE_TAC[WORD_EQ_BITS_ALT] THEN
   X_GEN_TAC `k:num` THEN DISCH_TAC THEN
-  REWRITE_TAC[BIT_WORD_ZX; BIT_WORD_SHL; BIT_WORD_SUBWORD] THEN
+  REWRITE_TAC[BIT_WORD_ZX; BIT_WORD_SHL; BIT_WORD_SUBWORD; ADD_0; SUB_0] THEN
   CONV_TAC(ONCE_DEPTH_CONV DIMINDEX_CONV) THEN
+  CONV_TAC NUM_REDUCE_CONV THEN
+  REWRITE_TAC[ADD_CLAUSES] THEN
   EQ_TAC THEN STRIP_TAC THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC);;
 
 let USHR_SHL_ZX_T = prove(
