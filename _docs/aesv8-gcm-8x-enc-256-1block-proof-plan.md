@@ -153,6 +153,21 @@ The postcondition uses `ghash_polyval_acc h ...` (not `byteswap128 h`).
 
 ## Additional Lessons Learned (GHASH session)
 
+### Why the final proof is only 154 lines
+
+Earlier attempts were 300+ lines because they tried to manually bridge the assembly to the spec:
+1. A custom `GMULT_FULL_CORRECT_BA` bridge lemma (~50 lines)
+2. A `GHASH_1BLOCK_CORRECT` lemma connecting polyval_dot to ghash_polyval_acc (~30 lines)
+3. Byte-reversal lemmas: `BYTEREVERSE128_XOR`, `BYTESWAP128_INVOLUTION` (~20 lines)
+4. Structural lemmas: `KARATSUBA_LIMBS`, `JOIN_SUBWORD_RULES` (~40 lines)
+
+All of this turned out to be unnecessary once three things were discovered:
+1. `PMUL_KARATSUBA` already exists in `common/karatsuba_pmul.ml` — no need to prove Karatsuba decomposition
+2. `CONV_TAC WORD_BLAST` handles ALL structural XOR/join/subword/reversefields normalization — no manual lemmas needed
+3. `ABBREV_ALL_PMUL_TAC` makes word_pmul terms opaque so WORD_BLAST can work (it can't handle word_pmul directly)
+
+The breakthrough: WORD_BLAST is powerful enough to close the entire 128-bit structural equality in one shot after abbreviating the pmulls. That eliminated ~150 lines of infrastructure.
+
 9. **VSTEPS can't handle D-register instructions.** `mov v16.d[0], v8.d[1]` (INS element) causes `mk_comb: types do not agree` in VSTEPS. Use ARM_STEPS_RESOLVE_TAC for those steps, then switch to VSTEPS after.
 
 10. **ARM_STEPS_RESOLVE_TAC consumes register hypotheses.** CLARIFY_TAC substitutes register values into the goal and discards them. You cannot use FIRST_X_ASSUM to find a register hypothesis after ARM_STEPS_RESOLVE — it's gone. Use VSTEPS if you need to keep it, or use SUBGOAL_THEN to assert the value before it's consumed.

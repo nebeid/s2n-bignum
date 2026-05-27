@@ -53,6 +53,8 @@ CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
 ABBREV_ALL_PMUL_TAC THEN
 CONV_TAC WORD_BLAST
 ```
+
+**Why this is only 4 lines:** Once all `word_pmul` subterms are abbreviated to opaque variables, both sides of the equality contain only XOR/join/subword/reversefields over those variables. WORD_BLAST handles ALL structural normalization (byte-reversal, half-swaps, subword extraction, join reconstruction) in one shot. This eliminates the need for ~20 manual structural lemmas that alternative approaches require. Earlier proof attempts used 300+ lines with custom bridge lemmas and structural rewrites before discovering that abbreviation + WORD_BLAST subsumes all of them.
 Key theorems (from `common/karatsuba_pmul.ml` and `common/polyval_ghash.ml`):
 - `PMUL_KARATSUBA`: `word_pmul a b` = 3 half-size pmulls
 - `polyval_dot`: `polyval_dot a b = polyval_reduce_prop3 (word_pmul a b)`

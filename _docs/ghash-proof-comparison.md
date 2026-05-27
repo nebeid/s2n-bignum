@@ -78,6 +78,8 @@ CONV_TAC WORD_BLAST
 
 Expands RHS into assembly structural form, abbreviates `word_pmul` terms, WORD_BLAST resolves the 128-bit structural equality.
 
+**What you do NOT need (discovered by trial and error):** Custom bridge lemmas, byte-reversal lemmas, structural rewrite lemmas (word_insert_as_join, half-swap, subword-through-join, etc.). WORD_BLAST subsumes all of them once word_pmul is abbreviated. Earlier attempts spent 300+ lines proving these before discovering the 4-line closure works.
+
 ---
 
 ## 6 — 2blk-direct: 2-Block proof (756 lines, COMPLETE)
