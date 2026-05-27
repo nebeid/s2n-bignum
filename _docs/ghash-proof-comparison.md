@@ -195,3 +195,58 @@ Yes. Need `GHASH_POLYVAL_ACC_8` (8-block Horner unrolling into batched form).
 - If WORD_BLAST can't handle 26 pmulls: manual reduction-round approach (~150 lines, deterministic)
 
 Risk: #6 (2blk-direct) (6 pmulls) works with WORD_BLAST. #7 (3blk-bridge) (9 pmulls) uses CHEAT_TAC — may already be at the limit. If WORD_BLAST fails at 8 blocks, fallback is `REDUCTION_ROUND_TAC` (deterministic, same cost regardless of block count).
+
+---
+
+## Experiment: Does ABBREV_ALL_PMUL_TAC + WORD_BLAST scale beyond 1 block?
+
+### Hypothesis
+
+The comparison doc's scalability concern may be overstated. After `ABBREV_ALL_PMUL_TAC`, WORD_BLAST sees only XOR/join/subword over opaque variables — the depth is fixed (one Prop3 reduction) and adding blocks only adds XOR leaves (linear, not exponential). WORD_BLAST might work for all N up to 8.
+
+### What to test
+
+For each N-block closure, measure:
+1. Time for `REWRITE_TAC[...PMUL_KARATSUBA] THEN CONV_TAC(TOP_DEPTH_CONV let_CONV)` — spec expansion
+2. Time for `ABBREV_ALL_PMUL_TAC` — how many pmulls, how long to abbreviate
+3. Time for `CONV_TAC WORD_BLAST` — the actual bit-blasting
+4. Total memory usage
+
+### Concrete steps
+
+1. **2-block test** (cheapest to try): Extract the 2-block tail path, simulate to the GHASH postcondition goal, then run:
+   ```ocaml
+   REWRITE_TAC[ghash_polyval_acc; GHASH_POLYVAL_ACC_2;
+               polyval_dot; polyval_reduce_prop3; PMUL_KARATSUBA] THEN
+   CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
+   ABBREV_ALL_PMUL_TAC THEN
+   time (CONV_TAC WORD_BLAST)
+   ```
+   Measure: does WORD_BLAST finish? In how many seconds?
+
+2. **If 2-block works (<30s)**: Try 3-block with `GHASH_POLYVAL_ACC_3`.
+
+3. **If 3-block works (<60s)**: The approach likely scales to 8. Try 8-block.
+
+### Success criteria
+
+| Result | Conclusion |
+|--------|-----------|
+| WORD_BLAST finishes in <30s for N blocks | Simple approach works — no bridge lemma needed for N blocks |
+| WORD_BLAST finishes but takes >60s | Works but marginal — bridge lemma is an optimization worth considering for CI |
+| WORD_BLAST hangs or OOMs | Simple approach doesn't scale to N — bridge lemma + per-step simplification required |
+| Spec expansion (`let_CONV`) itself hangs | Need to restructure: expand incrementally or use intermediate assertions |
+
+### What to retract if it works
+
+If WORD_BLAST handles 2+ blocks after abbreviation:
+- The "hits a wall at 2+ blocks" claim is wrong
+- The "hybrid approach won't work" claim needs revision (it won't work for per-block assertion, but the batched closure with WORD_BLAST does work)
+- The recommendation to invest in bridge lemma infrastructure becomes "optional optimization" rather than "required"
+
+### What remains true regardless
+
+- The assembly batches GHASH (no per-block boundaries) — this is a fact about the code
+- `GHASH_POLYVAL_ACC_N` is needed to unfold the spec into the batched form — this is required regardless of closure technique
+- Per-step simplification keeps simulation fast — still valuable even if WORD_BLAST handles the closure
+- Bridge lemma gives deterministic, debuggable closure — still preferable for long-term maintenance
