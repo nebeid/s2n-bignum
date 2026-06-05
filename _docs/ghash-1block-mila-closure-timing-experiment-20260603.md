@@ -21,6 +21,11 @@ intractable (the ~107s bottleneck). `PMUL_W_64_128` rewrites it to a closed shif
 `word_pmul x W = (x << 63) ⊕ (x << 62) ⊕ (x << 57)` (the exponents 63/62/57 are W's set-bit
 positions), removing the expensive multiply before any blast.
 
+> **Reader shortcut.** The sections from "Setup" through "What was NOT completed" are the
+> chronological *experiment* (baseline measurement + a projection that was partly superseded).
+> If you only want the final, shipped form of the proof and its close, skip straight to
+> **"FOLLOW-UP (2026-06-04)"** and its **UPDATE** below — that section is self-contained.
+
 ## Setup
 - Clean polyval-aes checkpoint; loaded our committed preamble (EXEC + all our lemmas), ~41s.
 - Simulated our binary's 1-block path to s348 (~116s for the cascade+store+GHASH-multiply
@@ -155,6 +160,20 @@ limb form the chain consumes.
 polyval-aes checkpoint (~355s), `AESV8_GCM_8X_ENC_256_1BLOCK` binds with 0 hypotheses and no
 cheats, and the s348 GHASH bridge is closed by `FINISH_WV_REDUCE_TAC` (Mila's reduction-as-rewrite),
 NOT by the committed `FINISH_WV` monolithic blast.**
+
+**What was KEPT vs. changed (important — the experiment sections above can mislead on this).**
+`GMULT_FULL_CORRECT_BA` is **kept**: it is still the bridge from the simulator's `read Q19 @ s348`
+byteform to `polyval_dot`, exactly as in nebeid's committed proof. The BA lemma was never the
+bottleneck and was not replaced. What changed is **only how the `word_pmul _ W` that BA emits is
+discharged**: the old `FINISH_WV` *bit-blasted* it (the ~107s cost); `FINISH_WV_REDUCE_TAC` instead
+*rewrites it away* with `PMUL_W_64_128` (`word_pmul x W = shl63 x ⊕ shl62 x ⊕ shl57 x`) and then runs
+the r1 reduction round. `WORD_BLAST` is still used throughout — but only on small 64-bit-atom goals
+(operand-equality checks, the per-shift RL/RH folds, the final `u`-blast), never on a standalone
+`word_pmul _ W`. So the thing the experiment found "didn't scale" was *bit-blasting the W-multiply*,
+not `WORD_BLAST` or `GMULT_FULL_CORRECT_BA` as such. Note also the proof does **not** use Mila's
+`BARRETT_REDUCTION_EQ_PROP3_REDUCTION` / `KARATSUBA_RECOMBINE_EQ_PROP3_LIMBS` lemma statements (the
+VERDICT section above projected it would) — those are shape-coupled to her simulator term; the close
+uses the hand-rolled r1 round plus `JOINMID` / `QQ0SPLIT` instead.
 
 How the shape mismatch was actually bridged (the part the earlier draft thought blocking):
 - Our `GMULT_FULL_CORRECT_BA` GSYM produces, at the bridge, the three product atoms qq0/qq1/qq2,
