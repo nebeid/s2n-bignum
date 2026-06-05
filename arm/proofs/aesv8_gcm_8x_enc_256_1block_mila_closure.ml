@@ -1432,6 +1432,24 @@ let ARM_VSTEPS_RESOLVE_SIMD_TAC exec range =
 let ARM_VSTEPS_FOLD_TAC exec range =
   MAP_EVERY (fun n -> ARM_VSTEPS_TAC exec [n] THEN GCM_SIMD_SIMPLIFY_TAC) (range);;
 
+(* GHASH-tail stepper, expressed via the library's standard single-step+discard idiom (the same
+   one plain ARM_STEPS_TAC uses) with the SIMD REV64 fold interleaved.  Per step n:
+     ARM_VERBOSE_STEP_TAC  -- advance to state s<n>
+     GCM_SIMD_SIMPLIFY_TAC -- fold the REV64 byte-tree into Q19 BEFORE the discard
+     DISCARD_OLDSTATE_TAC  -- drop all earlier-state reads, keeping s<n>'s (incl. Q19)
+     CLARIFY_TAC
+   Folding before discarding is essential: the fold collapses the ~49k-char byte-tree into the
+   bounded GHASH accumulator term in Q19, which then survives the discard.  Discarding per step
+   holds the hypothesis pile flat at ~77 (vs ~1357 if old states were kept), so each step is
+   cheap; measured region 333-348 ~8.8s (was ~90s with the original keep-everything ARM_VSTEPS_FOLD).
+   This is the XTS-style "step and simplify as we go" — bare ARM_STEPS_TAC already does the
+   step+discard; we only add the byte-tree fold that GHASH's REV64s require. *)
+let ARM_STEPS_FOLD_DISCARD_TAC exec snums =
+  MAP_EVERY
+    (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN GCM_SIMD_SIMPLIFY_TAC THEN
+              DISCARD_OLDSTATE_TAC s THEN CLARIFY_TAC)
+    (statenames "s" snums);;
+
 (* Tactic to abbreviate all word_pmul subterms in the goal *)
 let ABBREV_ALL_PMUL_TAC =
   let is_pmul t =
@@ -1829,8 +1847,11 @@ let AESV8_GCM_8X_ENC_256_1BLOCK = prove(
   DISCARD_COUNTER_REGS_TAC THEN
   (* Steps 333-348: GHASH Karatsuba multiply + Prop3 reduction; the reduced result
      lands in Q19 at s348 (BEFORE the final EXT(349)+REV64(350) byte-reorder).  Fold
-     per step so the accumulator terms stay bounded. *)
-  ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_ENC_256_EXEC (333--348) THEN
+     per step so the accumulator terms stay bounded, AND discard old-state hyps per step
+     (ARM_STEPS_FOLD_DISCARD_TAC, the XTS-style step+fold+discard idiom) so the hypothesis pile
+     stays flat at ~77 instead of growing to ~1357 — this avoids the O(n^2) per-step blowup and
+     cuts the region from ~90s to ~9s.  Q19 (the GHASH accumulator) survives each discard. *)
+  ARM_STEPS_FOLD_DISCARD_TAC AESV8_GCM_8X_ENC_256_EXEC (333--348) THEN
   (* Bridge the reduced GHASH result to the spec at s348.  The block GHASH'd is the spec
      block word_xor (brev xi)(brev ct); the assembly's GHASH KEY is byteswap128 h (the htable
      H is stored twisted).  Instantiate GMULT_FULL_CORRECT_BA with b := byteswap128 h so the
