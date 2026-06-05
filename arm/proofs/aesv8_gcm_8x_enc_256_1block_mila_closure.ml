@@ -1628,8 +1628,10 @@ let QQ0SPLIT = prove(
      5. Abbreviate the second-round shift argument u; fold both xor-orderings of it to the atom u.
      6. Distribute the residual bare r1 into its subwords (WORD_SUBWORD_XOR), fold joins, refold
         the recombine lo-part to u, and finish with one WORD_BLAST over the atoms u / subword r1.
-   Measured on our s348 bridge term: ~88s total here (qq-split ASM_MESON ~32s + final blast ~30s)
-   vs ~107s+27s for the committed FINISH_WV route. *)
+   Measured on our s348 bridge term: ~42s total (qq-split direct-rewrite ~0.4s + final blast ~30s
+   + r1/u folds ~11s) vs ~107s+27s for the committed FINISH_WV route.  An earlier version proved
+   the qq-split with ASM_MESON_TAC[QQ0SPLIT] (~48s here); the direct LAND-rewrite below replaced it
+   and roughly halved the close. *)
 let FINISH_WV_REDUCE_TAC : tactic =
   REWRITE_TAC[PMUL_W_64_128] THEN
   ABBREV_PMUL_HALVES_TAC THEN
@@ -1641,7 +1643,10 @@ let FINISH_WV_REDUCE_TAC : tactic =
     (fun th -> REWRITE_TAC[CONJUNCT1 th] THEN
                REWRITE_TAC[CONJUNCT1(CONJUNCT2 th)] THEN
                REWRITE_TAC[CONJUNCT2(CONJUNCT2 th)]) THENL
-   [REPEAT CONJ_TAC THEN ASM_MESON_TAC[QQ0SPLIT]; ALL_TAC] THEN
+   [(* Each conjunct qqN = word_join (sub qqN 64,64) (sub qqN 0,64) by QQ0SPLIT, then the two
+       half hypotheses substitute the subwords.  Direct LAND rewrite + ASM_REWRITE is ~0.4s here;
+       the previous ASM_MESON_TAC[QQ0SPLIT] was ~48s (it searched instead of rewriting). *)
+    REPEAT CONJ_TAC THEN GEN_REWRITE_TAC LAND_CONV [QQ0SPLIT] THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
   REWRITE_TAC[WORD_SUBWORD_XOR] THEN ASM_REWRITE_TAC[] THEN
   REWRITE_TAC[JOIN_SUBWORD_RULES] THEN
   ABBREV_TAC

@@ -157,9 +157,10 @@ reconcile the GMULT halfswap mid (`word_subword (word_join qq1 qq1) (64,128)`) i
 limb form the chain consumes.
 
 **Result: `arm/proofs/aesv8_gcm_8x_enc_256_1block_mila_closure.ml` loads cleanly on the
-polyval-aes checkpoint (~355s), `AESV8_GCM_8X_ENC_256_1BLOCK` binds with 0 hypotheses and no
-cheats, and the s348 GHASH bridge is closed by `FINISH_WV_REDUCE_TAC` (Mila's reduction-as-rewrite),
-NOT by the committed `FINISH_WV` monolithic blast.**
+polyval-aes checkpoint (~304s after the 2026-06-05 qq-split optimization; ~355s before),
+`AESV8_GCM_8X_ENC_256_1BLOCK` binds with 0 hypotheses and no cheats, and the s348 GHASH bridge is
+closed by `FINISH_WV_REDUCE_TAC` (Mila's reduction-as-rewrite), NOT by the committed `FINISH_WV`
+monolithic blast.**
 
 **What was KEPT vs. changed (important — the experiment sections above can mislead on this).**
 `GMULT_FULL_CORRECT_BA` is **kept**: it is still the bridge from the simulator's `read Q19 @ s348`
@@ -189,21 +190,33 @@ How the shape mismatch was actually bridged (the part the earlier draft thought 
   the second-round argument `u`, and finish with one `WORD_BLAST` over the atom `u`.
 
 ### Measured timing of the Mila-route close (on our s348 bridge term)
-| Phase | Time |
-|-------|------|
-| `PMUL_W_64_128` + `ABBREV_PMUL_HALVES_TAC` (W→shifts, name halves) | ~secs |
-| `JOINMID` + qq0/qq1/qq2 split (`QQ0SPLIT` via `ASM_MESON`) + subword-subst | **~32s** (ASM_MESON-bound) |
-| r1 reduction round (abbreviate + RL/RH folds) | ~1–2s |
-| `u` abbreviation + xor-order folds + residual r1-subword distribution | ~5s |
-| **final `WORD_BLAST` over atom `u`** | **~30s** |
-| **Total s348 Mila-route close** | **~88s** |
+Profiled by capturing the real in-context bridge goal (83 hyps, 1629-char concl) once and running
+each phase on it. The qq-split was first done with `ASM_MESON_TAC[QQ0SPLIT]`; it was then replaced
+by a direct `GEN_REWRITE_TAC LAND_CONV [QQ0SPLIT] THEN ASM_REWRITE_TAC[]` per conjunct. Both
+columns are measured on the same captured goal:
 
-So the W-multiply blast (~107s in the committed `FINISH_WV` route) is gone, replaced by the
-shift rewrite + reduction-round chain. The ~32s qq-split via `ASM_MESON` is an obvious
-optimization target (replace with a direct `WORD_BLAST` from the two half hypotheses → ~secs),
-which would bring the close to ~50s. The full-file load is ~355s (vs ~371s for the committed
-`FINISH_WV` file — the close is faster; the difference is partly masked by the constant
-simulation cost that dominates both).
+| Phase | `ASM_MESON` qq-split (orig) | direct-rewrite qq-split (now) |
+|-------|------|------|
+| `PMUL_W_64_128` | 0.03s | 0.03s |
+| `ABBREV_PMUL_HALVES_TAC` | 0.88s | 0.88s |
+| `JOINMID` | 0.03s | 0.03s |
+| **qq0/qq1/qq2 split** | **47.76s** | **0.37s** |
+| `WORD_SUBWORD_XOR` + `ASM_REWRITE` | 0.11s | 0.11s |
+| `JOIN_SUBWORD_RULES` | 0.03s | 0.03s |
+| r1 reduction round (abbrev + RL/RH) | 1.11s | 1.11s |
+| `u` abbreviation + xor-order fold | 4.94s | 4.94s |
+| distribute residual r1 + fold2 | 4.90s | 4.90s |
+| **final `WORD_BLAST` over atom `u`** | **30.22s** | **30.22s** |
+| **Total s348 Mila-route close** | **~89.6s** | **~42.0s** |
+
+So the W-multiply blast (~107s in the committed `FINISH_WV` route) is gone, replaced by the shift
+rewrite + reduction-round chain; and the qq-split — the close's biggest single cost at ~48s — was
+cut to ~0.4s by proving each `qqN = word_join …` directly (`QQ0SPLIT` rewrites the bare `qqN` on the
+LHS, then the two half hypotheses substitute the subwords) instead of letting `ASM_MESON` *search*
+for that. **Measured net: the close dropped from ~89.6s to ~42.0s (~53%).** The remaining cost is
+the final `WORD_BLAST` over `u` (~30s) plus the r1/u folds (~11s); those are small-domain blasts and
+a possible next target. End-to-end full-file load dropped from ~355s to **~304s** (the close saving
+shows up in the total; the rest is the constant simulation cost that dominates both).
 
 ### What was taken from Mila's proof, and what was taken from nebeid's earlier proof
 This file is a deliberate hybrid. To be explicit about provenance:
@@ -266,7 +279,8 @@ half-substitution, not a simulation-phase rewrite.
   `GMULT`-derived term with only small bridging lemmas; her *published recombine/barrett lemma
   statements* do not transfer verbatim, but the technique they encode does.
 - The W-multiply blast is genuinely eliminated, confirming the verdict above with a measured
-  end-to-end close (~88s vs ~107s+ for the monolithic blast), not just a projection.
+  end-to-end close (now ~42s after the qq-split optimization below, vs ~107s+ for the monolithic
+  blast), not just a projection.
 - For 2+ blocks this is still the right basis (single reduction regardless of N); the per-step
   simplification during simulation remains a worthwhile *additional* optimization but is no
   longer a *prerequisite* for adopting Mila's close at 1 block.
@@ -275,8 +289,10 @@ half-substitution, not a simulation-phase rewrite.
 - The committed proof (`aesv8_gcm_8x_enc_256_1block.ml`) is unchanged and remains the reference.
   `aesv8_gcm_8x_enc_256_1block_mila_closure.ml` is the Mila-route variant, kept for the 2-block
   work and as the measured demonstration that her close transfers.
-- Optimize `FINISH_WV_REDUCE_TAC`'s qq-split (replace the ~32s `ASM_MESON` with a direct
-  `WORD_BLAST` from the two half hypotheses) before reusing it at 2 blocks.
+- DONE (2026-06-05): `FINISH_WV_REDUCE_TAC`'s qq-split was optimized — `ASM_MESON_TAC[QQ0SPLIT]`
+  (~48s) replaced by `GEN_REWRITE_TAC LAND_CONV [QQ0SPLIT] THEN ASM_REWRITE_TAC[]` per conjunct
+  (~0.4s), halving the close (~89.6s → ~42.0s) and the full load (~355s → ~304s). The next close
+  target would be the final ~30s `WORD_BLAST` over `u`.
 - For the 2-block extension, use this `FINISH_WV_REDUCE_TAC` reduction round as the close (it is
   N-agnostic) on top of nebeid's binary-faithful `Loop_mod2x_v8` simulation (see
   `_docs/ghash-2block-extension-and-mila-comparison-20260603.md`).
