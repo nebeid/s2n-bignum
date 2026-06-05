@@ -216,7 +216,88 @@ LHS, then the two half hypotheses substitute the subwords) instead of letting `A
 for that. **Measured net: the close dropped from ~89.6s to ~42.0s (~53%).** The remaining cost is
 the final `WORD_BLAST` over `u` (~30s) plus the r1/u folds (~11s); those are small-domain blasts and
 a possible next target. End-to-end full-file load dropped from ~355s to **~304s** (the close saving
-shows up in the total; the rest is the constant simulation cost that dominates both).
+shows up in the total; the rest is the simulation cost — see next section).
+
+### Simulation profiling and the GHASH-tail discard optimization (2026-06-05)
+Profiling the full proof per region (wrapping each stepping tactic with a timer) showed the
+simulation — not the close — dominates the remaining time. The standout:
+
+| Region | Tactic | Time (before) |
+|--------|--------|------|
+| steps 333–348 (GHASH multiply/reduce tail) | `ARM_VSTEPS_FOLD_TAC` | **~90s** |
+| steps 327–332 (ciphertext store window) | `ARM_VSTEPS_RESOLVE_SIMD_TAC` | ~11s |
+| steps 85–173 (AES rounds) | `ARM_STEPS_TAC` | ~4s |
+| steps 266–310 | `ARM_STEPS_RESOLVE_TAC` | ~4s |
+| steps 185–254 | `ARM_STEPS_TAC` | ~3s |
+| (all other regions) | | ~1–3s each |
+
+**Root cause of the 90s in 333–348:** `ARM_VSTEPS_FOLD_TAC` uses `VSTEPS` (which keeps *all*
+register/state reads alive) + a per-step `GCM_SIMD_SIMPLIFY` (which rewrites *all* hypotheses).
+Per-step profiling showed the hypothesis pile growing **473 → 1357** across the 16 steps, with both
+the per-step VSTEP and the per-step simplify scaling with it — classic O(n²). (The proof already
+calls `DISCARD_OLDSTATE_TAC "s348"` *after* the region, pruning 1357→77, but by then the cost is
+paid.)
+
+**Fix (XTS-style step+fold+discard).** The right model is what plain `ARM_STEPS_TAC` already does:
+its per-step `ARM_SINGLE_STEP_TAC` is *step → `DISCARD_OLDSTATE_TAC s` → `CLARIFY_TAC`*, i.e. it
+discards old-state reads as it goes (which is why the XTS proof needs no special machinery). The
+GHASH tail only differs in needing the REV64 byte-tree folded before the discard, so Q19 survives
+as a bounded term. The new `ARM_STEPS_FOLD_DISCARD_TAC` is exactly that, per step n:
+`ARM_VERBOSE_STEP_TAC` → `GCM_SIMD_SIMPLIFY_TAC` (fold) → `DISCARD_OLDSTATE_TAC s<n>` → `CLARIFY_TAC`.
+This holds the pile flat at **~77 hyps**, each step cheap. Measured: **region ~90s → ~8.8s** (the
+original keep-everything `ARM_VSTEPS_FOLD_TAC`'s VSTEPS was both unnecessary and the source of the
+blowup — bare step+discard is leaner). Verified end-to-end: full load **~304s → ~219s**,
+`AESV8_GCM_8X_ENC_256_1BLOCK` binds, 0 hyps, no cheats.
+
+(An intermediate version, `ARM_VSTEPS_FOLD_DISCARD_TAC`, kept VSTEPS but added the discard — it also
+worked, region ~16s, full load ~227.8s. The pure step+discard form above is simpler and faster, so
+it is what shipped.)
+
+**Why not the same trick at 327–332** (the next-biggest, ~11s, hyps grow 77→422): tried and it
+*does* cut the region to ~7s, **but it breaks the proof** — the subsequent `read (memory :>
+bytes128 out_p) s332 = …` store read-back references `read Q9 s331`, which the per-step discard
+removes (the surviving `write … = s332` transition still mentions it, but the resolved read-back is
+gone). So that region keeps its register reads alive (it genuinely needs them for the store
+read-back). The remaining `ARM_STEPS` regions already discard old states automatically and run at
+~near-optimal 2–4s.
+
+**Cumulative:** the two optimizations (qq-split rewrite + GHASH-tail step+fold+discard) took the full
+load from the original **~355s → ~219s (~38% faster)**, with the proof statement and no-cheat
+property unchanged.
+
+### Is this stepping extensible to 2-block / N-block / the full loop?
+This refactor answers a design question raised during the work: *can we just "step and simplify as
+we go" like XTS, instead of bespoke per-region stepping?* Findings:
+- **Yes for the mechanism.** The GHASH tail does NOT need the bespoke `ARM_VSTEPS_FOLD_TAC`; it uses
+  the library's standard single-step+discard idiom (`ARM_STEPS_FOLD_DISCARD_TAC`) — the same shape as
+  XTS's plain `ARM_STEPS_TAC` — plus only the REV64 byte-tree fold that GHASH instructions require.
+- **The fold is the SIMD analogue of the arithmetic simplification that bignum/XTS stepping does
+  automatically.** The s2n-bignum accumulating steppers (`ARM_ACCSTEPS_TAC` etc., used throughout the
+  `bignum_*` proofs) interleave `ACCUMULATE_ARITH_TAC` after each step — a built-in simplifier that
+  recognizes the add/multiply-with-carry outputs and folds the carry chain *as it steps*, so the
+  arithmetic state never bloats. XTS's `ARM_STEPS_TAC` likewise keeps the AES state simplified step
+  by step. The library has no built-in equivalent for **SIMD byte-permutation** instructions
+  (`REV64`/`EXT`), whose symbolic output is a huge byte-tree (~49k–582k chars) — so GHASH must supply
+  that simplifier itself: `GCM_SIMD_SIMPLIFY_TAC` (fold REV64 lane trees, cancel double half-swaps,
+  normalize nested subwords) is precisely the SIMD-domain counterpart of `ACCUMULATE_ARITH_TAC`. The
+  generic hook for exactly this is `ARM_GEN_ACCSTEPS_TAC : (string -> tactic) -> …`, whose per-step
+  `acc_preproc` argument is documented as the place to add "rewrites for [the] accumulator to
+  recognize" the output; `ARM_STEPS_FOLD_DISCARD_TAC` is a lightweight instance of that pattern with
+  the SIMD fold as the per-step simplifier. **So the difference from XTS is not the stepping
+  strategy — it is purely that GHASH's instruction mix needs a SIMD simplifier where bignum/XTS need
+  (and get, for free) an arithmetic one.**
+- **The byte-tree fold + per-step discard is MORE important at 2+ blocks, not less.** N-block and the
+  `Loop_mod2x_v8`/`main_loop` paths execute more REV64/EXT and more GHASH steps, so (i) the fold is
+  mandatory (bare stepping would carry/`discard` the byte-trees wrongly) and (ii) the per-step
+  discard prevents the hypothesis pile from growing with block count. So the *technique* transfers
+  and scales.
+- **What does NOT transfer verbatim:** the hardcoded step ranges (`333--348`), the fixed-step manual
+  assertions (`FIRST_X_ASSUM … Q9 = ciphertext`), and `GCM_SIMD_SIMPLIFY` being tuned to the 1-block
+  lane layout. The loop body is driven by `ENSURES_WHILE_*` induction over the block count, not a flat
+  step list — so the *driver* differs even though the per-step (step→fold→discard) inner tactic is
+  reusable. The recommended 2-block design is therefore: a uniform `ARM_STEPS_FOLD_DISCARD_TAC`-style
+  inner stepper applied inside the loop body, with a `trn1/trn2`-aware fold, rather than per-region
+  hand-tuning — see `_docs/ghash-2block-extension-and-mila-comparison-20260603.md`.
 
 ### What was taken from Mila's proof, and what was taken from nebeid's earlier proof
 This file is a deliberate hybrid. To be explicit about provenance:
