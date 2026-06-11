@@ -1,9 +1,13 @@
-# 1-block AES-GCM proof — final methodology, timing, comparisons, lessons
+# AES-GCM 8x encrypt 256, 1-block: proof methodology, timing, comparisons, lessons
 
 **Status (2026-06-03): PROVED end-to-end, no CHEAT_TAC / new_axiom / mk_thm.**
 Theorem: `AESV8_GCM_8X_ENC_256_1BLOCK` in `arm/proofs/aesv8_gcm_8x_enc_256_1block.ml`.
 Proves BOTH the ciphertext (`out_p`) and GHASH tag (`xi_p`) postconditions for the 1-block
 path through the real `aesv8_gcm_8x_enc_256` binary (not an extracted subset).
+
+Companion: the **decrypt** counterpart is proved too — see
+`_docs/aesv8-gcm-8x-dec-256-1block-methodology-20260611.md`, which is written as a diff
+against this doc (what is shared vs. the five things that differ).
 
 This doc supersedes the running notes in:
 - `_docs/aesv8-gcm-8x-enc-256-1block-proof-plan.md` (the old plan — historical)
