@@ -2097,22 +2097,38 @@ let AESV8_GCM_8X_DEC_256_1BLOCK = prove(
   (* GHASH multiply/reduce, split around the plaintext store (st1 {v12},[x2] @0x11b8 = step 344).
      Fold 329--343 (Q19 accumulator stays bounded), then step 344 (the store) with plain
      ARM_VSTEPS so a memory read-back `read (memory :> bytes128 out_p) s344` MATERIALIZES (the
-     fold does NOT materialize store read-backs), assert that read-back = the AES-CTR plaintext
-     (for a full block the all-ones blend mask v0 makes bif v12,v26,v0 = v12 = the plaintext;
-     ASM_REWRITE picks up the fresh store read-back, then the aes256_encrypt/aese expansion +
-     WORD_BLAST proves the blend), then continue the GHASH multiply with plain ARM_VSTEPS
-     345--350 (NO discard) so the out_p read-back survives to s350. *)
-  ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_EXEC (329--350) THEN
+     fold does NOT materialize store read-backs), and assert that read-back = the AES-CTR
+     plaintext (for a full block the all-ones blend mask v0 makes bif v12,v26,v0 = v12 = the
+     plaintext; ASM_REWRITE picks up the fresh store read-back, then the aes256_encrypt/aese
+     expansion + WORD_BLAST proves the blend).  This single out_p fact is then carried, as one
+     hypothesis, all the way to the postcondition. *)
+  ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_EXEC (329--343) THEN
+  ARM_VSTEPS_TAC AESV8_GCM_8X_DEC_256_EXEC [344] THEN
+  SUBGOAL_THEN
+    `read (memory :> bytes128 out_p) (s344:armstate) =
+     word_xor cph (aes256_encrypt (ctr0:int128)
+       [k0:int128;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14])`
+    ASSUME_TAC THENL
+  [ASM_REWRITE_TAC[] THEN
+   REWRITE_TAC[aes256_encrypt] THEN REWRITE_TAC EL_15_128_CLAUSES THEN
+   REWRITE_TAC[aes256_encrypt_round; aese; aesmc] THEN
+   CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
+  ARM_VSTEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (345--350) THEN
   (* Bridge the reduced GHASH result.  *** The reduction completes at s351, NOT s350: the dec
      tail's final `eor v19,v19,v18` is at 0x11d4 (executed s350->s351); read Q19 s350 is one EOR
      short of the polyval and matches no polyval_dot.  Step that eor first, then read Q19 s351 is
      the clean polyval_dot (word_xor(brev xi)(brev cph)) (byteswap128 h) — the SAME convention as
-     enc (key = byteswap128 h, the htable-twisted H).
-     The plaintext store to out_p (st1 {v12},[x2] @0x11b8) happened inside this fold; its value is
-     recovered by ENSURES_FINAL_STATE at the end (the all-ones blend over the aese tower), so no
-     mid-fold out_p assertion is needed.  DISCARD_OLDSTATE is also unnecessary here — the bridge
-     reads only the Q19 s351 hyp. *)
+     enc (key = byteswap128 h, the htable-twisted H). *)
   ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_EXEC [351] THEN
+  (* Prune the intermediate-state pile before the bridge — it cuts the bridge from ~150s to ~65s.
+     The out_p plaintext read-back (a fixed-state s344 fact) is the only hyp we still need at the
+     close, so MP_TAC it into the goal across the DISCARD, then DISCH it back as a live hyp.
+     (DISCARD_OLDSTATE drops it otherwise; the bridge itself only reads the Q19 s351 hyp.) *)
+  FIRST_X_ASSUM(fun th ->
+    if (try lhs(concl th) = `read (memory :> bytes128 out_p) s344` with _ -> false)
+    then MP_TAC th else NO_TAC) THEN
+  DISCARD_OLDSTATE_TAC "s351" THEN
+  DISCH_TAC THEN
   SUBGOAL_THEN
     `read Q19 (s351:armstate) =
      polyval_dot (word_xor (word_bytereverse xi) (word_bytereverse cph))
@@ -2214,10 +2230,8 @@ let AESV8_GCM_8X_DEC_256_1BLOCK = prove(
   ARM_VSTEPS_TAC AESV8_GCM_8X_DEC_256_EXEC [354] THEN
   DISCARD_COUNTER_ONLY_TAC THEN
   (* === Close proof ===
-     out_p:  ENSURES_FINAL_STATE recovers the stored plaintext as the all-ones blend
-       word_or(word_and PLAINTEXT mask)(word_and cph (word_not mask)) over the aese keystream
-       tower; expand aes256_encrypt/aese/aesmc + let-reduce so WORD_BLAST sees the mask is
-       all-ones and collapses the blend to word_xor cph (aes256_encrypt ...).
+     out_p:  the carried `read (memory :> bytes128 out_p) s344 = plaintext` hyp resolves the
+       postcondition directly via ASM_REWRITE (out_p is not written after s344).
      xi_p:  word_bytereverse gval; gval = polyval_dot (xor(brev xi)(brev cph)) (byteswap128 h),
        which GHASH_1BLOCK_CORRECT rewrites to ghash_polyval_acc (byteswap128 h)(brev xi)[brev cph]
        (AP_TERM lifts the word_bytereverse);
@@ -2225,9 +2239,6 @@ let AESV8_GCM_8X_DEC_256_1BLOCK = prove(
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
   REPEAT CONJ_TAC THEN
   TRY(EXPAND_TAC "gval" THEN AP_TERM_TAC THEN REWRITE_TAC[GHASH_1BLOCK_CORRECT]) THEN
-  TRY(REWRITE_TAC[aes256_encrypt] THEN REWRITE_TAC EL_15_128_CLAUSES THEN
-      REWRITE_TAC[aes256_encrypt_round; aese; aesmc] THEN
-      CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN CONV_TAC WORD_BLAST) THEN
   TRY(CONV_TAC WORD_BLAST) THEN
   TRY(REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
       REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC THEN ASM_REWRITE_TAC[]));;
