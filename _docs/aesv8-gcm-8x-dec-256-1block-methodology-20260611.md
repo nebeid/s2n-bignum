@@ -2,8 +2,9 @@
 
 Status: **PROVED** end-to-end. `AESV8_GCM_8X_DEC_256_1BLOCK` in
 `arm/proofs/aesv8_gcm_8x_dec_256_1block.ml` binds via a clean full-file `loadt`
-(~550s), with no `CHEAT_TAC`/`new_axiom`/`mk_thm` and only the 3 core HOL Light
-axioms in the system.
+(~328s after optimization; ~554s for the first completed version), with no
+`CHEAT_TAC`/`new_axiom`/`mk_thm` and only the 3 core HOL Light axioms in the system.
+Exit is `pc+0x11e4` (right after the xi_p store).
 
 Companion docs:
 - Encrypt methodology: `_docs/aesv8-gcm-8x-enc-256-1block-methodology-20260603.md`
@@ -30,17 +31,21 @@ the most time** in decrypt.
    ciphertext `cph`. Net target for dec:
    `read Q19 s351 = polyval_dot (word_xor (brev xi) (brev cph)) (byteswap128 h)`.
 
-3. **Decrypt runs its full epilogue; encrypt does not.** The enc 1-block spec
-   exits at `pc+0x11d8` (right after its `st1 {v19}`), so it never steps the
-   callee-saved register restores. The dec spec exits at `pc+0x11f8` (the real
-   `ret`), so it MUST step `ldp d10,d11,[sp,#16]; ... ; ldp d8,d9,[sp],#80`.
-   This forces three spec changes that enc never needed (see §3).
+3. **Both exit right after their store; neither runs the epilogue.** Enc exits at
+   `pc+0x11d8` (after its `st1 {v19}`); dec exits at **`pc+0x11e4`** (after its
+   `st1 {v19},[x3]` @0x11e0).  *(Historical: the first completed dec proof exited at
+   the real `ret` `pc+0x11f8` and so had to step the callee-saved restores
+   `ldp d10,d11,[sp,#16]; ...; ldp d8,d9,[sp],#80`, which forced `aligned 16
+   stackpointer`, eight `d8v..d15v` slot preconditions, and `MAYCHANGE [SP]`.  All of
+   that was removed by exiting at `pc+0x11e4` — see §3 and §8.)*
 
-4. **The plaintext store must be materialized mid-fold.** Enc's ciphertext store
-   sits in a `VSTEPS_RESOLVE` window where the read-back naturally materializes.
-   Dec's plaintext store (`st1 {v12},[x2]` @0x11b8) is buried inside the GHASH
-   `ARM_VSTEPS_FOLD` window, which neither materializes store read-backs nor keeps
-   them across its discard. The fold has to be split around that store (§4).
+4. **The plaintext store read-back must be materialized at the store.** Enc's
+   ciphertext store sits in a `VSTEPS_RESOLVE` window where the read-back naturally
+   materializes.  Dec's plaintext store (`st1 {v12},[x2]` @0x11b8) is buried inside
+   the GHASH `ARM_VSTEPS_FOLD` window, which neither materializes store read-backs nor
+   keeps them across `DISCARD_OLDSTATE`.  Materialize it with a plain `ARM_VSTEPS [344]`
+   + assert, then carry that single out_p fact to the postcondition via `MP_TAC`/`DISCH`
+   across the pre-bridge discard (§4, §8).
 
 5. **The reduction lane-blast needs an extra split, and FINISH_WV diverges.**
    `FINISH_WV_REDUCE_TAC` (which closes enc) stack-overflows on the dec goal shape.
@@ -107,35 +112,33 @@ is the single most valuable habit: it turns a multi-hour diverging-BITBLAST hunt
 into a one-second yes/no.
 
 --------------------------------------------------------------------------------
-## 3. Spec changes decrypt needs that encrypt did not (because dec runs the epilogue)
+## 3. Exit point: stop after the xi_p store (do NOT step the epilogue)
 
-Enc exits before its register restores; dec exits at the `ret`, so the proof steps
-`ldp d10,d11,[sp,#16]; ldp d12,d13,[sp,#32]; ldp d14,d15,[sp,#48]; ldp d8,d9,[sp],#80`.
-Consequences:
+**Current proof:** exit at `pc+0x11e4`, the instruction right after the xi_p store
+`st1 {v19},[x3]` (@0x11e0).  The proof steps `... ARM_VSTEPS [354]` (the store) and
+stops — it never executes the callee-saved register-restore epilogue
+(`mov x0,x9; ldp d10,d11,[sp,#16]; ldp d12,d13,[sp,#32]; ldp d14,d15,[sp,#48];
+ldp d8,d9,[sp],#80; ret`).  This mirrors enc, which exits at `pc+0x11d8` right after
+its own store.  With this exit the spec is clean: no stack-frame clauses at all.
+
+### Historical: what stepping the epilogue cost (removed — do NOT reintroduce)
+
+The first completed proof exited at the real `ret` (`pc+0x11f8`) and therefore stepped
+the four `ldp` restores.  That forced four spec complications, all since deleted:
 
 1. **`aligned 16 stackpointer` precondition.** `arm_LDP`'s semantics require
    `(Rn = SP ==> aligned 16 base)`; without it the load falls to the
    `ASSIGNS entirety` branch and `ARM_STEPS_TAC` **silently makes no progress**
-   (no error — it just doesn't advance). This was the subtlest blocker.
+   (no error — it just doesn't advance).  This was the subtlest blocker.
+2. **Eight saved-register stack slots** `d8v..d15v` in the precondition
+   (`read (memory :> bytes64 (word_add stackpointer (word 8*i))) s = d_(8+i)v`,
+   `i=0..7`), so the `ldp` restores resolve to a definite read.
+3. **`MAYCHANGE [SP]`** (the `ldp d8,d9,[sp],#80` deallocates the frame, SP ends at
+   `stackpointer+80`; the ABI set excludes SP so `MONOTONE_MAYCHANGE_TAC` fails without it).
+4. **Three `nonoverlapping (X,16) (stackpointer,80)`** for `X ∈ {out_p,xi_p,ivec_p}`.
 
-2. **Eight saved-register stack slots in the precondition.** Quantify
-   `d8v..d15v` and assert `read (memory :> bytes64 (word_add stackpointer (word 8*i))) s = d_(8+i)v`
-   for `i=0..7` (slots `sp+0..sp+56`). These are arbitrary callee-saved values; they
-   appear nowhere in the postcondition — they exist only so the `ldp` restores
-   resolve to a definite read.
-
-3. **`MAYCHANGE [SP]` in the frame, plus three stack nonoverlaps.** The
-   `ldp d8,d9,[sp],#80` deallocates the frame, so SP at exit = `stackpointer+80` ≠
-   entry SP. The ABI-permitted MAYCHANGE set does NOT include SP, so it must be added
-   explicitly or `MONOTONE_MAYCHANGE_TAC` fails with "No match". Also add
-   `nonoverlapping (X,16) (stackpointer,80)` for `X ∈ {out_p,xi_p,ivec_p}` so the
-   stack-slot loads commute past the data stores.
-
-   (Note: Q8–Q15 lower halves change under the restores; the ABI permits only their
-   *tophalf*, but the spec's explicit `MAYCHANGE [Q0;...;Q31]` clause already covers
-   the full registers, so no extra change is needed there.)
-
-Encrypt sidesteps all four because it never executes the epilogue.
+Exiting at `pc+0x11e4` removes all four — the simplest big win (see §8).  If you ever
+need the post-`ret` contract, this is the price; otherwise stop after the store.
 
 --------------------------------------------------------------------------------
 ## 4. Materializing the plaintext output store (out_p)
@@ -148,28 +151,32 @@ ciphertext under the all-ones partial-block mask), stored by `st1 {v12},[x2]` at
 - it discards old-state memory reads.
 
 So `ENSURES_FINAL_STATE_TAC` is left with an unprovable `read(mem out_p) = plaintext`
-goal. Fix: split the fold around the store.
+goal. Fix: materialize the read-back at the store, prove it equals the plaintext once,
+and carry that single fact to the postcondition (including across the pre-bridge discard).
 
 ```
-ARM_VSTEPS_FOLD_TAC EXEC (329--343)         (* GHASH multiply, Q19 bounded *)
-ARM_VSTEPS_TAC EXEC [344]                    (* the store; materializes out_p read-back *)
+ARM_VSTEPS_FOLD_TAC EXEC (329--343)          (* GHASH multiply, Q19 bounded *)
+ARM_VSTEPS_TAC EXEC [344]                     (* the store; materializes out_p read-back *)
 SUBGOAL read(mem out_p) s344 = word_xor cph (aes256_encrypt ctr0 [k0..k14])
   by [ASM_REWRITE; REWRITE[aes256_encrypt]; REWRITE EL_15_128_CLAUSES;
       REWRITE[aes256_encrypt_round;aese;aesmc]; CONV_TAC(TOP_DEPTH_CONV let_CONV);
       CONV_TAC WORD_BLAST]
-ARM_VSTEPS_TAC EXEC (345--350)               (* PLAIN, no discard, so out_p survives *)
-re-assert read(mem out_p) s350 = plaintext   (* per-step mem-frame chains via ASM_REWRITE *)
+ARM_VSTEPS_TAC EXEC (345--350)                (* finish the GHASH multiply *)
+ARM_VSTEPS_FOLD_TAC EXEC [351]                (* the final reduction eor -> Q19 s351 clean *)
+FIRST_X_ASSUM(MP_TAC the out_p s344 fact) THEN DISCARD_OLDSTATE_TAC "s351" THEN DISCH_TAC
+                                              (* prune the pile, keep out_p as the carried hyp *)
 ```
 
 The `aes256_encrypt`/`aese`/`aesmc` expansion + `let_CONV` reduces the AES tower to
 exactly the assembly's `aese`-tower so `WORD_BLAST` can discharge the all-ones blend
-without needing to "understand" AES. Enc does the analogous assert but in its
-ciphertext VSTEPS window, so it never has to split a fold.
+without needing to "understand" AES.  out_p is not written after s344, so the carried
+`read(mem out_p) s344 = plaintext` hyp resolves the postcondition directly via
+`ASM_REWRITE` at the close.
 
-Then do NOT `DISCARD_OLDSTATE` before/through the bridge — the bridge only reads the
-`read Q19 s351` hyp, and discarding drops the `out_p s350` read-back the
-postcondition needs. The larger hypothesis pile just makes the bridge ~150s instead
-of ~60s; harmless.
+The `DISCARD_OLDSTATE "s351"` here is the big speed win (§8): the bridge SUBGOAL reads
+only the `Q19 s351` hyp, so pruning the ~190-hyp pile to ~80 cuts the bridge from ~150s
+to ~65s.  The `MP_TAC`/`DISCH` dance is what makes the discard safe — without it the
+discard drops the out_p read-back the postcondition needs.
 
 --------------------------------------------------------------------------------
 ## 5. The reduction lane-blast (why FINISH_WV_REDUCE_TAC is not enough)
@@ -238,11 +245,49 @@ collapsed `word_join(reversefields...)...` form). The spec's xi_p postcondition
   mapping (they were different builds here).
 
 --------------------------------------------------------------------------------
-## 8. Reproduce / re-verify
+## 8. Performance / optimization history
+
+Full clean-`polyval-aes`-checkpoint `loadt` CPU time:
+
+| State | Time | Change |
+|-------|------|--------|
+| First completed proof (stepped the epilogue; bridge on the full pile) | ~554s | — |
+| Exit after the xi_p store (drop epilogue + stack-frame spec; §3 reverted) | ~529s | -25s, big spec simplification |
+| Restore `DISCARD_OLDSTATE` before the bridge (carry out_p via MP_TAC/DISCH) | **~328s** | **-201s** |
+
+What moved the needle:
+1. **Exit at `pc+0x11e4` (right after the xi_p store), not the `ret`.** Removing the
+   callee-saved register-restore epilogue deleted the `aligned 16 stackpointer`
+   precondition, the eight `d8v..d15v` saved-slot preconditions, `MAYCHANGE [SP]`,
+   and the three stack nonoverlaps — and let the GHASH region drop its fold-split.
+   Modest time win, large simplification (mirrors how enc exits right after its store).
+2. **Discard the simulation pile before the bridge (the single biggest win, ~85–150s).**
+   The bridge SUBGOAL reads only the `Q19 s351` hyp, but was running on the full
+   ~190-hyp pile (~150s). `DISCARD_OLDSTATE "s351"` cuts it to an ~80-hyp pile (~65s).
+   The one fact still needed downstream is the out_p plaintext store read-back; carry
+   it across the discard with `MP_TAC`/`DISCH` (materialize it at the store via
+   `ARM_VSTEPS [344]` + an aese-tower-expansion `WORD_BLAST`).
+
+Profiling caveat: a coarse `ARM_STEPS_TAC (12--84)` grouping made one early counter-init
+`REV32_VEC` step (s10) spike to ~34s, because the REV32/ADD byte-trees accumulated before
+the discard.  The committed proof avoids this — it steps the counter init in fine-grained
+pairs `(12--13),(14--15),...` each followed by `DISCARD_COUNTER_REGS_TAC` (same as enc).
+Do NOT coarsen those.
+
+Remaining levers (higher effort, not yet done; see the enc doc §10 for the analogues):
+- **Bridge as a standalone abstract lemma.** Prove once over abstract `xi cc h`:
+  `<Q19-byteform>(xi,cc,h) = polyval_dot (word_xor(brev xi)(brev cc)) (byteswap128 h)`,
+  then `MATCH_MP` it in the main proof — moves the ~65s of bridge WORD_BLASTs out of the
+  per-run simulation. Biggest remaining win; blocker is generating the 20k-char LHS byteform.
+- **`MERGE_PMUL_ATOMS_TAC` tries all atom pairs.** Restrict to the known lo↔lo / hi↔hi /
+  mid↔mid pairing to cut redundant WORD_BLASTs inside the bridge.
+
+--------------------------------------------------------------------------------
+## 9. Reproduce / re-verify
 
 ```
 Sys.chdir "/home/ubuntu/workplace/git-code/s2n-bignum-kiro";;
-loadt "arm/proofs/aesv8_gcm_8x_dec_256_1block.ml";;   (* ~550s, binds the theorem *)
+loadt "arm/proofs/aesv8_gcm_8x_dec_256_1block.ml";;   (* ~328s, binds the theorem; exit pc+0x11e4 *)
 axioms();;                                             (* must show only the 3 core axioms *)
 ```
-Backup of the completed file: `_backups/aesv8_gcm_8x_dec_256_1block.ml.bck0017`.
+Backup of the first completed (pre-optimization) file: `_backups/aesv8_gcm_8x_dec_256_1block.ml.bck0017`.
