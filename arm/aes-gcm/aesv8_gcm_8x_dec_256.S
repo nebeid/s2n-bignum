@@ -3,15 +3,16 @@
 
 // Extracted from aesv8-gcm-armv8-unroll8.S for verification purposes.
 // Single function: aesv8_gcm_8x_dec_256
+#include "_internal_s2n_bignum_arm.h"
 
         .arch armv8.2-a+crypto+sha3
         .text
 
-.globl	aesv8_gcm_8x_dec_256
-.hidden	aesv8_gcm_8x_dec_256
-.type	aesv8_gcm_8x_dec_256,%function
+        S2N_BN_SYM_VISIBILITY_DIRECTIVE(aesv8_gcm_8x_dec_256)
+        S2N_BN_FUNCTION_TYPE_DIRECTIVE(aesv8_gcm_8x_dec_256)
+        S2N_BN_SYM_PRIVACY_DIRECTIVE(aesv8_gcm_8x_dec_256)
 .align	4
-aesv8_gcm_8x_dec_256:
+S2N_BN_SYMBOL(aesv8_gcm_8x_dec_256):
 	nop
 	cbz	x1, .L256_dec_ret
 	stp	d8, d9, [sp, #-80]!
@@ -1510,4 +1511,4 @@ aesv8_gcm_8x_dec_256:
 .L256_dec_ret:
 	mov	w0, #0x0
 	ret
-.size	aesv8_gcm_8x_dec_256,.-aesv8_gcm_8x_dec_256
+S2N_BN_SIZE_DIRECTIVE(aesv8_gcm_8x_dec_256)
