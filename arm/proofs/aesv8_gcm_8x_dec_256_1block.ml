@@ -2120,17 +2120,29 @@ let AESV8_GCM_8X_DEC_256_1BLOCK = prove(
    REWRITE_TAC[aes256_encrypt] THEN REWRITE_TAC EL_15_128_CLAUSES THEN
    REWRITE_TAC[aes256_encrypt_round; aese; aesmc] THEN
    CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
-  ARM_VSTEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (345--350) THEN
+  (* Prune the simulation pile NOW, at s344, instead of only just before the bridge.  Steps
+     345--351 (the GHASH high/mid eors + the EXT/REV64 reorder + the final reduction eor) read
+     only the self-contained Q17/Q18/Q19/Q16/Q8 register values at s344 (each already expressed
+     purely in xi/cph/h after the per-step fold) — none reference the ~900 old-state memory-read
+     hyps.  ARM_VSTEPS over a ~990-hyp pile is O(pile) per step (memory-read resolution), so
+     discarding here cuts 345--350 from ~36s to ~12s and step 351 from ~12s to ~4s.  The one fact
+     still needed at the close is the out_p plaintext read-back (a fixed s344 fact), so MP_TAC it
+     across the DISCARD and DISCH it back as a live hyp (DISCARD_OLDSTATE would drop it otherwise). *)
+  FIRST_X_ASSUM(fun th ->
+    if (try lhs(concl th) = `read (memory :> bytes128 out_p) s344` with _ -> false)
+    then MP_TAC th else NO_TAC) THEN
+  DISCARD_OLDSTATE_TAC "s344" THEN
+  DISCH_TAC THEN
+  ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_EXEC (345--350) THEN
   (* Bridge the reduced GHASH result.  *** The reduction completes at s351, NOT s350: the dec
      tail's final `eor v19,v19,v18` is at 0x11d4 (executed s350->s351); read Q19 s350 is one EOR
      short of the polyval and matches no polyval_dot.  Step that eor first, then read Q19 s351 is
      the clean polyval_dot (word_xor(brev xi)(brev cph)) (byteswap128 h) — the SAME convention as
      enc (key = byteswap128 h, the htable-twisted H). *)
   ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_EXEC [351] THEN
-  (* Prune the intermediate-state pile before the bridge — it cuts the bridge from ~150s to ~65s.
-     The out_p plaintext read-back (a fixed-state s344 fact) is the only hyp we still need at the
-     close, so MP_TAC it into the goal across the DISCARD, then DISCH it back as a live hyp.
-     (DISCARD_OLDSTATE drops it otherwise; the bridge itself only reads the Q19 s351 hyp.) *)
+  (* Prune again to ~80 hyps right before the bridge: steps 345--351 re-grew the pile to ~485,
+     and the bridge SUBGOAL's RULE_ASSUM_TAC scans every hyp.  Carry out_p across this discard
+     too (it remains the only fact the close still needs). *)
   FIRST_X_ASSUM(fun th ->
     if (try lhs(concl th) = `read (memory :> bytes128 out_p) s344` with _ -> false)
     then MP_TAC th else NO_TAC) THEN
