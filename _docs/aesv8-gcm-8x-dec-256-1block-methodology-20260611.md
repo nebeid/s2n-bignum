@@ -2,7 +2,7 @@
 
 Status: **PROVED** end-to-end. `AESV8_GCM_8X_DEC_256_1BLOCK` in
 `arm/proofs/aesv8_gcm_8x_dec_256_1block.ml` binds via a clean full-file `loadt`
-(~328s after optimization; ~554s for the first completed version), with no
+(~256s after optimization; ~554s for the first completed version), with no
 `CHEAT_TAC`/`new_axiom`/`mk_thm` and only the 3 core HOL Light axioms in the system.
 Exit is `pc+0x11e4` (right after the xi_p store).
 
@@ -253,7 +253,9 @@ Full clean-`polyval-aes`-checkpoint `loadt` CPU time:
 |-------|------|--------|
 | First completed proof (stepped the epilogue; bridge on the full pile) | ~554s | — |
 | Exit after the xi_p store (drop epilogue + stack-frame spec; §3 reverted) | ~529s | -25s, big spec simplification |
-| Restore `DISCARD_OLDSTATE` before the bridge (carry out_p via MP_TAC/DISCH) | **~328s** | **-201s** |
+| Restore `DISCARD_OLDSTATE` before the bridge (carry out_p via MP_TAC/DISCH) | ~328s | -201s |
+| Split the front step group to discard the dead counter Q30 before s10 (commit `c2eea3ce`) | ~284s | -44s |
+| Discard the sim pile at s344 before the GHASH reduction (commit `cb55da40`) | **~256s** | **-28s** |
 
 What moved the needle:
 1. **Exit at `pc+0x11e4` (right after the xi_p store), not the `ret`.** Removing the
@@ -261,24 +263,54 @@ What moved the needle:
    precondition, the eight `d8v..d15v` saved-slot preconditions, `MAYCHANGE [SP]`,
    and the three stack nonoverlaps — and let the GHASH region drop its fold-split.
    Modest time win, large simplification (mirrors how enc exits right after its store).
-2. **Discard the simulation pile before the bridge (the single biggest win, ~85–150s).**
+2. **Discard the simulation pile before the bridge (~85–150s).**
    The bridge SUBGOAL reads only the `Q19 s351` hyp, but was running on the full
    ~190-hyp pile (~150s). `DISCARD_OLDSTATE "s351"` cuts it to an ~80-hyp pile (~65s).
    The one fact still needed downstream is the out_p plaintext store read-back; carry
    it across the discard with `MP_TAC`/`DISCH` (materialize it at the store via
    `ARM_VSTEPS [344]` + an aese-tower-expansion `WORD_BLAST`).
+3. **Split the front step group at s8 to discard the dead counter Q30 (~44s).**
+   The committed `ARM_STEPS_TAC (1--11)` bulk group never discarded mid-way, so the
+   running counter register Q30 grew into a ~25k-char rev32 byte-tree by s9, and the
+   `add v30.4s,v30.4s,v31.4s` at s10 chewed on that whole tree for ~34s (s11 +3.7s) —
+   over 10% of total runtime.  Q30 (and the dead blocks 1--7) are not used on the 1-block
+   path, so `ARM_STEPS (1--8); DISCARD_COUNTER_REGS; ARM_STEPS (9--11); DISCARD_COUNTER_REGS`
+   collapses Q30 to an opaque atom before s9/s10 — steps 1--11 drop from ~44s to ~1.2s.
+   *(Corrects the old profiling caveat below: the s10 spike was NOT in a coarse `(12--84)`
+   grouping — it was inside the `(1--11)` group itself, which the fine-grained pairs starting
+   at step 12 never touched.)*
+4. **Discard the sim pile at s344, before the GHASH reduction tail (~28s).**
+   `ARM_VSTEPS` cost is O(pile) per step (memory-read resolution), and the pile had grown to
+   ~990 hyps by the plaintext store at s344.  Steps 345--351 (the GHASH high/mid eors + the
+   EXT/REV64 reorder + the final reduction eor) read only the self-contained Q17/Q18/Q19/Q16/Q8
+   register values at s344, so discarding there cuts 345--350 from ~36s to ~12s and step 351
+   from ~12s to ~4s.  Carry the out_p plaintext read-back across the discard with `MP_TAC`/`DISCH`
+   (it is the only fact the close still needs); a second discard right before the bridge keeps
+   the bridge SUBGOAL's `RULE_ASSUM_TAC` scanning only ~80 hyps.
 
-Profiling caveat: a coarse `ARM_STEPS_TAC (12--84)` grouping made one early counter-init
-`REV32_VEC` step (s10) spike to ~34s, because the REV32/ADD byte-trees accumulated before
-the discard.  The committed proof avoids this — it steps the counter init in fine-grained
-pairs `(12--13),(14--15),...` each followed by `DISCARD_COUNTER_REGS_TAC` (same as enc).
-Do NOT coarsen those.
+Profiling note (historical — now corrected by item 3): an earlier handoff claimed the s10
+~34s counter-init spike came from a coarse `ARM_STEPS_TAC (12--84)` grouping and was avoided
+by the fine-grained `(12--13),(14--15),...` pairs.  Re-profiling showed the spike was actually
+inside the `(1--11)` group at step s10 (the `add v30.4s` over the accumulated REV32/ADD
+byte-tree), which the step-12+ pairs never reached.  Item 3 fixes it directly.
 
 Remaining levers (higher effort, not yet done; see the enc doc §10 for the analogues):
+- **The GHASH multiply fold (steps 329--343, ~46s) is the largest remaining hot spot.**
+  Plain `ARM_VSTEPS` and the per-step fold both cost the same ~46s here — it is the growing
+  pile (O(pile) per step), not the fold's re-scanning.  A mid-window discard is the obvious
+  lever but is FRAGILE: the plaintext blend `bif v12,v26,v0` (~s340) and the AES-final-block
+  `eor3 v12,v9,v6,v29` read v0/v6/v7/v9/v26/v29, and discarding before the store at s343/s344
+  drops those register reads, making the out_p aese-tower `WORD_BLAST` fail to match
+  (`read Q12 s343` left with bare register atoms).  Folding 329--340 (no discard, builds the
+  self-contained `read Q12 s340`) then `DISCARD_OLDSTATE "s340"` then folding 341--344 was tried
+  and STILL fails the same `read Q12 s343` blast — the store read-back does not re-materialize
+  cleanly across the discard.  A correct version must carry the exact blend-input register
+  reads (or assert the out_p fact from the self-contained `read Q12 s340` before discarding and
+  prove the store at s343 just copies it).  Not yet cracked.
 - **Bridge as a standalone abstract lemma.** Prove once over abstract `xi cc h`:
   `<Q19-byteform>(xi,cc,h) = polyval_dot (word_xor(brev xi)(brev cc)) (byteswap128 h)`,
-  then `MATCH_MP` it in the main proof — moves the ~65s of bridge WORD_BLASTs out of the
-  per-run simulation. Biggest remaining win; blocker is generating the 20k-char LHS byteform.
+  then `MATCH_MP` it in the main proof — moves the ~30s of bridge WORD_BLASTs out of the
+  per-run simulation. Blocker is generating the ~14k-char LHS byteform.
 - **`MERGE_PMUL_ATOMS_TAC` tries all atom pairs.** Restrict to the known lo↔lo / hi↔hi /
   mid↔mid pairing to cut redundant WORD_BLASTs inside the bridge.
 
@@ -287,7 +319,7 @@ Remaining levers (higher effort, not yet done; see the enc doc §10 for the anal
 
 ```
 Sys.chdir "/home/ubuntu/workplace/git-code/s2n-bignum-kiro";;
-loadt "arm/proofs/aesv8_gcm_8x_dec_256_1block.ml";;   (* ~328s, binds the theorem; exit pc+0x11e4 *)
+loadt "arm/proofs/aesv8_gcm_8x_dec_256_1block.ml";;   (* ~256s, binds the theorem; exit pc+0x11e4 *)
 axioms();;                                             (* must show only the 3 core axioms *)
 ```
 Backup of the first completed (pre-optimization) file: `_backups/aesv8_gcm_8x_dec_256_1block.ml.bck0017`.
