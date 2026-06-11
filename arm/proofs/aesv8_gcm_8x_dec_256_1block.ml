@@ -1862,7 +1862,14 @@ let AESV8_GCM_8X_DEC_256_1BLOCK = prove(
                  Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;Q29;Q30;Q31])`,
   REPEAT STRIP_TAC THEN ENSURES_INIT_TAC "s0" THEN
   (* === AES-256 encryption: steps 1-265 === *)
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (1--11) THEN DISCARD_COUNTER_REGS_TAC THEN
+  (* Split (1--11) at s8 with a discard in between: the running counter Q30 has become a
+     ~25k-char rev32 byte-tree by s9, and the `add v30.4s` at s10 then chews on that whole
+     tree for ~34s.  Q30 (and blocks 1--7) are DEAD on the 1-block path, so discarding the
+     counter regs at s8 collapses Q30 to an opaque atom before the s9/s10 adds — cutting
+     steps 1--11 from ~44s to ~1.2s.  (Earlier handoffs blamed a coarse (12--84) grouping;
+     the real spike was s10 inside this very (1--11) bulk group, never discarded mid-way.) *)
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (1--8) THEN DISCARD_COUNTER_REGS_TAC THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (9--11) THEN DISCARD_COUNTER_REGS_TAC THEN
   ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (12--13) THEN DISCARD_COUNTER_REGS_TAC THEN
   ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (14--15) THEN DISCARD_COUNTER_REGS_TAC THEN
   ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (16--17) THEN DISCARD_COUNTER_REGS_TAC THEN
