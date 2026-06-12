@@ -245,6 +245,66 @@ collapsed `word_join(reversefields...)...` form). The spec's xi_p postcondition
   mapping (they were different builds here).
 
 --------------------------------------------------------------------------------
+## 7b. Dead ends and pitfalls (do NOT retry — distilled from the build journey)
+
+These cost the most wall-clock during the decrypt proof. Each is now avoided by the
+committed proof; they are recorded here (rather than as proof-file comments) so a future
+multi-block proof does not rediscover them.
+
+1. **`nonoverlapping (word pc, 4600)` copied from enc — store-safety silently fails.**
+   The dec machine code is **4612 bytes** (1153 instrs), not enc's 4600. Every store in
+   the tail (`str q30,[x16]`; `st1 {v12},[x2]`; `st1 {v19},[x3]`) needs its target proved
+   disjoint from the *full* code range; with 4600 < 4612 the store-safety check could not
+   discharge and `ARM_(V)STEPS` failed "could not prove updates will not modify program
+   code." Fix: `nonoverlapping (word pc, 4612)`. **General rule: the code-range constant in
+   the spec must equal the actual byte length of the function's machine code — re-derive it,
+   never copy it from a sibling proof.**
+
+2. **The "doesn't match `GMULT_FULL_CORRECT_BA`" bridge dead-end was a WRONG-OPERAND artifact.**
+   Roughly eight bridge attempts failed while chasing the target
+   `read Q19 = polyval_dot (byteswap128 (word_xor (brev xi)(brev cph))) h` — i.e. the data
+   block *wrapped* in `byteswap128` and the key as *plain* `h`. That framing is wrong and
+   produced doubly-nested residuals and spurious duplicate Karatsuba products that
+   `MERGE_PMUL_ATOMS_TAC` could not merge. The correct target (§2) is
+   `polyval_dot (word_xor (brev xi)(brev cph)) (byteswap128 h)` — block *unwrapped*, key
+   *byteswap128 h*. **General rule: when an operand "looks lane-swapped," suspect the *key*
+   convention and settle it by evaluating `polyval_dot a b` on concrete int128 values BEFORE
+   theorizing (§2) — it turns a multi-hour diverging-BITBLAST hunt into a one-second yes/no.**
+
+3. **VSTEPS pile bloat breaks store-safety, not just speed.** Running
+   `ARM_VSTEPS_RESOLVE_SIMD_TAC` across the whole tail let the hypothesis pile reach ~2876,
+   and the internal NONOVERLAPPING/code-disjointness check cannot cope at that size — a store
+   that *has* all 18 nonoverlapping facts still fails. The pile must be kept flat (per-step or
+   periodic `DISCARD_OLDSTATE`); this is the same O(pile) effect that dominates stepping time
+   (§8), surfacing here as a correctness-looking failure.
+
+4. **Naive `DISCARD_OLDSTATE_TAC "sN"` can drop `read PC`.** After SIMD-folding, the live
+   state is often not literally named `sN`, so discarding by that name pruned `read PC` and
+   corrupted the run (and later left the exit-PC goal unprovable). Keep `read PC` until
+   `ENSURES_FINAL_STATE_TAC`; use `DISCARD_COUNTER_ONLY_TAC` (drops only the flags) at the end.
+
+5. **The partial GHASH tag in Q19 re-explodes mid-front and gets discarded.** After the
+   `ld1/ext/rev64` tag load (steps 174–177), Q19 holds the tag; but a single
+   `GCM_SIMD_SIMPLIFY` leaves it as a raw `word_join/word_subword` lane tree that re-expands to
+   a ~256k-char byte-tree by ~s200 (even though no instruction writes Q19 in the AES rounds),
+   whereupon `DISCARD_COUNTER_REGS_TAC` (>500 chars + Q19 in its list) drops it and the tag is
+   lost before the tail. Fix: step **through** the rev64 (174–177) + one `GCM_SIMD_SIMPLIFY`
+   so Q19 reaches the stable `word_reversefields`/`word_bytereverse xi` form (§1), which
+   survives the rounds unchanged. **Do NOT `ABBREV_TAC` the tag** — an abbrev equation gets
+   consumed/rewritten during stepping and the xi link needed at the bridge is lost. (Earlier a
+   `tagW` abbreviation route "worked" to reach the bridge state but then could not connect Q19
+   back to `xi`; the no-ABBREV reversefields form is the one that closes.)
+
+6. **`FINISH_WV_REDUCE_TAC` stack-overflows on the dec goal shape;** a monolithic `WORD_BLAST`
+   over the 128-bit `word_shl (word_zx _) 63/62/57` reduction diverges (>20 min / hit the
+   timeout twice). Inline the r1/u/r2 shift-triple folds by hand so each is folded to a 64-bit
+   abbreviation first and the final blast is a flat 64-bit XOR identity (§5). The dec close also
+   needs one extra `QQ0SPLIT` that enc never needed (§0 item 5, §5).
+
+7. **Bridging at `s350` can never work** (state-offset error, not algebra) — the final
+   `eor v19,v19,v18` @0x11d4 lands in `s351`; bridge there (§2).
+
+--------------------------------------------------------------------------------
 ## 8. Performance / optimization history
 
 Full clean-`polyval-aes`-checkpoint `loadt` CPU time:
