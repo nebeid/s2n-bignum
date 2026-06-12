@@ -1381,9 +1381,56 @@ let TRIPLE_HI = prove(
      = word_xor (word_xor (word_ushr v 1) (word_ushr v 2)) (word_ushr v 7)`,
   GEN_TAC THEN CONV_TAC WORD_BLAST);;
 
+(* ------------------------------------------------------------------------- *)
+(* Scalable (a)+(b) decomposition of the GHASH multiply+reduce bridge.         *)
+(*                                                                             *)
+(* The unroll8 decrypt/encrypt loop accumulates N per-block Karatsuba products *)
+(* into Q17/Q18/Q19 and applies ONE shared Prop3 reduction per 8-block         *)
+(* iteration.  Factoring the bridge as (a)+(b) below makes both pieces reusable *)
+(* at every block count (1/2/4/8), composed with the already-proven, list-     *)
+(* generic GHASH_POLYVAL_ACC_BATCHED (common/polyval_ghash.ml):                *)
+(*   (a) PMUL_KARATSUBA (common/karatsuba_pmul.ml): the per-block 3-pmull       *)
+(*       (lo/hi/mid) byteform = word_pmul a b (the 256-bit product).            *)
+(*   (b) GMULT_REDUCE_PROP3 (below): the assembly's W-reduction byteform over   *)
+(*       an ABSTRACT 256-bit accumulator t = polyval_reduce_prop3 t.            *)
+(* See memory/project_bridge_lemma_scalability.md for the full analysis.       *)
+(* ------------------------------------------------------------------------- *)
+
+(* Helper: the low 64-bit lane of v0 = word_join aa bb XOR wa.  Used to make    *)
+(* the GMULT and Prop3 `word_pmul _ W` atoms syntactically identical (pmul is   *)
+(* opaque to BITBLAST, so the two wv-inputs must match before the lane blast).  *)
+let V0LO = prove(
+  `!aa bb:64 word. !wa:int128.
+     word_subword (word_xor (word_join aa bb:int128) wa) (0,64):64 word =
+     word_xor bb (word_subword wa (0,64):64 word)`,
+  REPEAT GEN_TAC THEN BITBLAST_TAC);;
+
+(* (b) The shared Prop3 reduction: the GMULT/assembly W-reduction byteform over  *)
+(* an abstract 256-bit accumulator t equals polyval_reduce_prop3 t.  aa/bb/cc/dd *)
+(* are t's four 64-bit lanes; w = 0xC200000000000000.  Reusable at any block     *)
+(* count (the N-block loop reduces the accumulated 256-bit sum exactly once).    *)
+let GMULT_REDUCE_PROP3 = prove(
+  `!t:256 word.
+     let aa = word_subword t (0,64):64 word in
+     let bb = word_subword t (64,64):64 word in
+     let cc = word_subword t (128,64):64 word in
+     let dd = word_subword t (192,64):64 word in
+     let w = word 13979173243358019584:64 word in
+     let wa:int128 = word_pmul aa w in
+     let v0:int128 = word_xor (word_join aa bb) wa in
+     let wv:int128 = word_pmul (word_subword v0 (0,64):64 word) w in
+     word_xor wv (word_xor (byteswap128 v0) (word_join dd cc)) = polyval_reduce_prop3 t`,
+  GEN_TAC THEN REWRITE_TAC[polyval_reduce_prop3; LET_DEF; LET_END_DEF] THEN
+  REWRITE_TAC[V0LO] THEN
+  ABBREV_TAC `wa:int128 = word_pmul (word_subword (t:256 word) (0,64):64 word) (word 13979173243358019584:64 word)` THEN
+  ABBREV_TAC `wv:int128 = word_pmul (word_xor (word_subword (t:256 word) (64,64):64 word) (word_subword (wa:int128) (0,64):64 word)) (word 13979173243358019584:64 word)` THEN
+  REWRITE_TAC[byteswap128] THEN BITBLAST_TAC);;
+
 (* The full GHASH multiply+reduce bridge: the byte-level Karatsuba/Prop3 the   *)
 (* assembly computes (left-hand side, in terms of 64-bit pmul limbs) equals    *)
-(* the spec-level polyval_dot.                                                 *)
+(* the spec-level polyval_dot.  Now derived from (a) PMUL_KARATSUBA + (b)       *)
+(* GMULT_REDUCE_PROP3 + KARATSUBA_LIMBS (lanes of word_pmul a b = the limbs),   *)
+(* instead of a single monolithic BITBLAST.                                     *)
 let GMULT_FULL_CORRECT_BA = prove(
   `!a b:int128.
    let a_lo = word_subword a (0,64) : 64 word in
@@ -1406,40 +1453,19 @@ let GMULT_FULL_CORRECT_BA = prove(
    let wv:int128 = word_pmul (word_subword v0 (0,64) : 64 word) w in
    let result:int128 = word_xor wv (word_xor (byteswap128 v0) (word_join dd cc)) in
    result = polyval_dot a b`,
+  (* Compose (a)+(b): polyval_dot a b = polyval_reduce_prop3 (word_pmul a b)  [def];
+     word_pmul a b = the Karatsuba 256-word assembly K  [(a) PMUL_KARATSUBA];
+     polyval_reduce_prop3 K = the W-reduction byteform over K's lanes  [GSYM (b) GMULT_REDUCE_PROP3];
+     K's lanes = the p_lo/cross/p_hi limbs  [KARATSUBA_LIMBS]; then the two byteforms are
+     identical up to pmul argument order  [WORD_PMUL_SYM].  Replaces the old monolithic BITBLAST. *)
   REPEAT GEN_TAC THEN
-  REWRITE_TAC[LET_DEF; LET_END_DEF; polyval_dot] THEN
+  CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN REWRITE_TAC[polyval_dot] THEN
   GEN_REWRITE_TAC (RAND_CONV o RAND_CONV)
     [REWRITE_RULE[LET_DEF; LET_END_DEF] PMUL_KARATSUBA] THEN
-  REWRITE_TAC[polyval_reduce_prop3; LET_DEF; LET_END_DEF; byteswap128] THEN
+  GEN_REWRITE_TAC RAND_CONV
+    [GSYM (REWRITE_RULE[LET_DEF; LET_END_DEF] GMULT_REDUCE_PROP3)] THEN
   REWRITE_TAC[REWRITE_RULE[LET_DEF; LET_END_DEF] KARATSUBA_LIMBS] THEN
-  SUBGOAL_THEN
-    `(!x y:int128. word_subword (word_xor x y) (0,64) : 64 word =
-      word_xor (word_subword x (0,64)) (word_subword y (0,64))) /\
-     (!x y:int128. word_subword (word_xor x y) (64,64) : 64 word =
-      word_xor (word_subword x (64,64)) (word_subword y (64,64))) /\
-     (!a b:64 word. word_subword (word_join a b : int128) (0,64) : 64 word = b) /\
-     (!a b:64 word. word_subword (word_join a b : int128) (64,64) : 64 word = a)`
-    (fun th -> REWRITE_TAC[th]) THENL
-  [REPEAT CONJ_TAC THEN TRY(REPEAT GEN_TAC) THEN BITBLAST_TAC; ALL_TAC] THEN
-  CONV_TAC(DEPTH_CONV(REWR_CONV(CONJUNCT1 JOIN_SUBWORD_RULES))) THEN
-  REWRITE_TAC[WORD_XOR_ACI; WORD_PMUL_SYM] THEN
-  ABBREV_TAC `p_lo:int128 = word_pmul (word_subword (a:int128) (0,64) : 64 word)
-    (word_subword (b:int128) (0,64) : 64 word)` THEN
-  ABBREV_TAC `p_hi:int128 = word_pmul (word_subword (a:int128) (64,64) : 64 word)
-    (word_subword (b:int128) (64,64) : 64 word)` THEN
-  ABBREV_TAC `p_mid:int128 = word_pmul
-    (word_xor (word_subword (a:int128) (64,64) : 64 word) (word_subword a (0,64) : 64 word))
-    (word_xor (word_subword (b:int128) (64,64) : 64 word) (word_subword b (0,64) : 64 word))` THEN
-  ABBREV_TAC `wa:int128 = word_pmul (word_subword (p_lo:int128) (0,64) : 64 word)
-    (word 13979173243358019584 : 64 word)` THEN
-  ABBREV_TAC `wv:int128 = word_pmul
-    (word_xor (word_subword (p_hi:int128) (0,64) : 64 word)
-    (word_xor (word_subword (p_lo:int128) (64,64) : 64 word)
-    (word_xor (word_subword p_lo (0,64) : 64 word)
-    (word_xor (word_subword (wa:int128) (0,64) : 64 word)
-              (word_subword (p_mid:int128) (0,64) : 64 word)))))
-    (word 13979173243358019584 : 64 word)` THEN
-  BITBLAST_TAC);;
+  REWRITE_TAC[WORD_PMUL_SYM] THEN REFL_TAC);;
 
 let SIMD_SIMPLIFY_RULES = [REV64_LOWER_LANE; REV64_UPPER_LANE; REV64_128];;
 

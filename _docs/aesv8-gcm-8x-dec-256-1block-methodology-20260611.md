@@ -307,10 +307,40 @@ Remaining levers (higher effort, not yet done; see the enc doc §10 for the anal
   cleanly across the discard.  A correct version must carry the exact blend-input register
   reads (or assert the out_p fact from the self-contained `read Q12 s340` before discarding and
   prove the store at s343 just copies it).  Not yet cracked.
-- **Bridge as a standalone abstract lemma.** Prove once over abstract `xi cc h`:
-  `<Q19-byteform>(xi,cc,h) = polyval_dot (word_xor(brev xi)(brev cc)) (byteswap128 h)`,
-  then `MATCH_MP` it in the main proof — moves the ~30s of bridge WORD_BLASTs out of the
-  per-run simulation. Blocker is generating the ~14k-char LHS byteform.
+- **Bridge as a standalone abstract lemma — scalable (a)+(b) form (DONE, commit `05720a30`).**
+  **Scalability decision (2026-06-11):** do NOT lift the fused single-block
+  `GMULT_FULL_CORRECT_BA` verbatim — it fuses one block's multiply+reduce into a monolithic
+  `int128->int128` statement that does not factor for N blocks.  The decrypt/encrypt loop
+  accumulates N per-block Karatsuba products into Q17/Q18/Q19 and applies ONE shared Prop3
+  reduction per 8-block iteration, so the reusable decomposition is:
+  - **(a)** `PMUL_KARATSUBA` (`common/karatsuba_pmul.ml`): the per-block 3-pmull (lo/hi/mid)
+    byteform = `word_pmul a b` (256-bit product).  *(already existed)*
+  - **(b)** `GMULT_REDUCE_PROP3` (NEW, in the dec file before `GMULT_FULL_CORRECT_BA`): the
+    assembly's W-reduction byteform over an ABSTRACT 256-bit accumulator `t` =
+    `polyval_reduce_prop3 t`.  Proved by BITBLAST in ~0.9s; helper `V0LO` makes the two
+    `word_pmul _ W` atoms syntactically identical first (pmul is opaque to the bit-blaster).
+  `GMULT_FULL_CORRECT_BA` is now DERIVED by composing (a)+(b)+`KARATSUBA_LIMBS`+`WORD_PMUL_SYM`
+  (REFL close) rather than one monolithic BITBLAST.  Composed with the ALREADY-PROVEN,
+  list-generic `GHASH_POLYVAL_ACC_BATCHED` (`common/polyval_ghash.ml` l.318), this is the
+  scalable spine for the future 2/4/8-block proofs (the spec-side algebra is already general;
+  only (a)/(b) are byteform-specific and both are reused at every block count).
+  See `memory/project_bridge_lemma_scalability.md`.
+
+  **Inline-bridge speedup (the ~30s in the dec run): characterized, not landed.**
+  After `MERGE_PMUL_ATOMS_TAC` + the 6 lane abbrevs, the bridge's remaining goal is a PURE
+  64-bit shift/xor lane identity over `xll/xlh/xhl/xhh/xml/xmh` (no state).  It was extracted
+  and proven standalone as `GHASH_WV_LANE_REDUCE` (the r1/u/r2 staging, ~30s), and
+  `REWRITE_TAC[GHASH_WV_LANE_REDUCE]` closes the bridge subgoal in one step.  BUT embedding
+  that lemma verbatim in the file is unsafe: its ~5.9k-char statement does not round-trip
+  through HOL's printer (intermediate word widths are dropped → "inventing type variables" →
+  a term NOT alpha-equal to the original).  And within ONE dec load the factoring is
+  time-neutral anyway (the 30s staging runs once regardless).  The real win requires
+  PROMOTING (b) + a robustly-stated lane lemma to a COMMON checkpoint file so they are
+  pre-proven; to state the lane lemma robustly, derive it from (b) via `PMUL_W_64_128`
+  (`polyval_reduce_prop3 t` shifted form, HOL-generated in 0.02s) instead of hand-typing it.
+  That promotion is a checkpoint change (bigger blast radius) — deferred.
+- **`MERGE_PMUL_ATOMS_TAC` tries all atom pairs.** Restrict to the known lo↔lo / hi↔hi /
+  mid↔mid pairing to cut redundant WORD_BLASTs inside the bridge.
 - **`MERGE_PMUL_ATOMS_TAC` tries all atom pairs.** Restrict to the known lo↔lo / hi↔hi /
   mid↔mid pairing to cut redundant WORD_BLASTs inside the bridge.
 
