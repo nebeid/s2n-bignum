@@ -3,6 +3,19 @@
 
 // Extracted from aesv8-gcm-armv8-unroll8.S for verification purposes.
 // Single function: aesv8_gcm_8x_dec_256
+//
+// DIVERGENCE FROM aws-lc ORIGINAL (intentional, for formal verification):
+// The prologue is reordered so the callee-saved register stores (stp d8..d15)
+// form a contiguous saves-only block FIRST, with the argument-setup instructions
+// (lsr x9,x1,#3; mov x16,x4; mov x11,x5) moved to AFTER the saves rather than
+// interleaved with them. This is byte-for-byte equivalent in effect, and the
+// instruction at pc+0x2c and the entire function body are unchanged (only the
+// pc+0x0c..0x2c offsets shift). The reorder lets the HOL Light proof enter the
+// function past the saves (at pc+0x18) with the C arguments still in X0..X6,
+// so the precondition can be stated with C_ARGUMENTS, matching the XTS style
+// (see arm/proofs/aesv8_gcm_8x_dec_256_1block.ml, theorem
+// AESV8_GCM_8X_DEC_256_1BLOCK). When re-importing s2n-bignum into aws-lc, this
+// is the sanctioned form of the shipped .S.
 #include "_internal_s2n_bignum_arm.h"
 
         .arch armv8.2-a+crypto+sha3
@@ -16,12 +29,12 @@ S2N_BN_SYMBOL(aesv8_gcm_8x_dec_256):
 	nop
 	cbz	x1, .L256_dec_ret
 	stp	d8, d9, [sp, #-80]!
-	lsr	x9, x1, #3
-	mov	x16, x4
-	mov	x11, x5
 	stp	d10, d11, [sp, #16]
 	stp	d12, d13, [sp, #32]
 	stp	d14, d15, [sp, #48]
+	lsr	x9, x1, #3
+	mov	x16, x4
+	mov	x11, x5
 	mov	x5, #0xc200000000000000
 	stp	x5, xzr, [sp, #64]
 	add	x10, sp, #64

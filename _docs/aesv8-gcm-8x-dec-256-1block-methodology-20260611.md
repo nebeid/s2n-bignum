@@ -417,7 +417,57 @@ Remaining levers (higher effort, not yet done; see the enc doc §10 for the anal
 
 ```
 Sys.chdir "/home/ubuntu/workplace/git-code/s2n-bignum-kiro";;
-loadt "arm/proofs/aesv8_gcm_8x_dec_256_1block.ml";;   (* ~239s, binds the theorem; exit pc+0x11e4 *)
+loadt "arm/proofs/aesv8_gcm_8x_dec_256_1block.ml";;   (* ~251s, binds both theorems *)
 axioms();;                                             (* must show only the 3 core axioms *)
 ```
 Backup of the first completed (pre-optimization) file: `_backups/aesv8_gcm_8x_dec_256_1block.ml.bck0017`.
+Backup with the C_ARGUMENTS core added: `_backups/aesv8_gcm_8x_dec_256_1block.ml.bck0025`.
+
+NOTE on `Sys.chdir`: the HOL MCP process often starts with cwd = the hol-light checkout.
+The `.ml` file resolves via `load_path`, but `define_assert_from_elf` opens the `.o`
+RELATIVE TO cwd, so you must `Sys.chdir` to the s2n-bignum-kiro root before loading or it
+fails with `Sys_error "...aesv8_gcm_8x_dec_256.o: No such file or directory"`.
+
+--------------------------------------------------------------------------------
+## 10. The C_ARGUMENTS entry point (prologue reorder, XTS-style)
+
+The proof file now exports **two** theorems:
+- `AESV8_GCM_8X_DEC_256_1BLOCK_BODY` — enters at **pc+0x2c**, AFTER the prologue's
+  argument-setup (lsr/mov/mov/movz/stp/add at 0x18..0x2c), stating the post-setup
+  registers (X9=byte_len, X16=ivec_p, X11=key_p) and the Prop3 constant already at
+  [SP+64]. This is the original body proof (Sections 1–8 above), just renamed.
+- `AESV8_GCM_8X_DEC_256_1BLOCK` (canonical) — the **C_ARGUMENTS core**, entering at
+  **pc+0x18** (right after the four callee-saved `stp d8..d15` stores, before the
+  arg-setup), so the AArch64 C arguments are still in X0..X6 and the precondition is
+  stated as `C_ARGUMENTS [in_p; word 128; out_p; xi_p; ivec_p; key_p; htbl_p]` — exactly
+  the XTS style. This is what the **prologue reorder** (see the `.S` header divergence
+  note) enables: grouping the saves first leaves X0..X6 untouched at pc+0x18.
+
+### How the core composes
+`ENSURES_FRAME_SUBSUMED` to relax the `(C_setup ,, C_body)` frame to the stated frame,
+then `ENSURES_TRANS` through an intermediate state at pc+0x2c. **Do NOT use
+`ENSURES_SEQUENCE_TAC`**: its `MAYCHANGE_IDEMPOT_TAC` throws (`ASSIGNS_SEQ_ABSORB_CONV`)
+on the 4-memory-region stack frame; `ENSURES_TRANS` needs no idempotence conv.
+
+### The front close (pc+0x18 → pc+0x2c) — two non-obvious requirements
+The 5 setup instructions end with `stp x5,xzr,[sp,64]`, which writes **16 bytes**. Two
+things must hold for `ARM_VSTEPS_TAC EXEC (1--5)` to carry the input `bytes128` reads
+(in_p/key_p/htbl_p/...) ACROSS that store to the post-state:
+
+1. **Disjointness vs the FULL stack frame.** Each input buffer must be stated disjoint
+   from `(stackpointer, 80)` — the whole 80-byte frame — not the narrow
+   `(word_add stackpointer (word 64), 8)` the BODY uses. The 16-byte store is too wide
+   for the (...,8) region to certify read-over-write. (Added 8 new `nonoverlapping`
+   preconds: in_p/key_p/htbl_p/ivec_p/xi_p/out_p each vs `(stackpointer,80)`.)
+
+2. **Keep `nonoverlapping` in NATIVE form.** Do NOT rewrite the `nonoverlapping`
+   hypotheses into `nonoverlapping_modulo` form before stepping (i.e. no
+   `NONOVERLAPPING_CLAUSES` in the pre-step `RULE_ASSUM_TAC` — only expand `C_ARGUMENTS`).
+   The simulator's read-over-write side-condition solver matches on `nonoverlapping`; the
+   modulo form silently drops EVERY `bytes128` read at the store. This was the
+   long-standing "mysterious" stuck close where `ASM_REWRITE_TAC[]` left ~20 verbatim
+   read facts open and `ASM_MESON_TAC[]` timed out.
+
+The BODY's narrower `(...,8)` stack-disjointness antecedents follow from the `(...,80)`
+facts by `NONOVERLAPPING_TAC` (`ANTS_TAC THENL [REPEAT CONJ_TAC THEN NONOVERLAPPING_TAC;
+DISCH_THEN ACCEPT_TAC]`).
