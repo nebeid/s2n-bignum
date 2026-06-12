@@ -404,3 +404,26 @@ byteswap-key reconciliation are entirely new here.
 - When a WORD_BLAST "should" close but times out, the goal almost always still contains an
   opaque `word_pmul` (or an un-rewritten `read Qn sN` atom) — abstract it, don't wait.
 - Keep `read PC` until `ENSURES_FINAL_STATE_TAC`.
+
+### Stepping-cost lessons (apply to enc too; derived during the dec optimization pass)
+
+These were found while optimizing the *decrypt* proof but are properties of the shared
+stepping tactics, so they apply equally to this encrypt proof and to any future
+multi-block proof. Full detail in the decrypt doc §7b/§8.
+
+- **`ARM_(V)STEPS` cost is O(pile) per step** (memory-read resolution + `GCM_SIMD_SIMPLIFY`'s
+  `RULE_ASSUM_TAC` re-scanning every hyp). A straight-line region that lets the pile grow to
+  hundreds of hyps becomes quadratic. Discard (`DISCARD_OLDSTATE`) as soon as the live
+  registers are self-contained in the input vars; carry the one fact you still need across the
+  discard via `MP_TAC`/`DISCH`.
+- **To carry a value across a discard, assert the self-contained *register* fact, not the
+  *store read-back*.** The read-back references registers the discard drops; the register
+  value (after the per-step fold) is expressed purely in the input vars and survives.
+- **A dead running register can dominate a bulk step group.** In dec, the unused CTR counter
+  `Q30` grew to a ~25k-char rev32 tree and a single lane-`add` over it cost ~34s inside an
+  un-split `(1--11)` group. Split the group so `DISCARD_COUNTER_REGS` fires before the
+  expensive op. (Profiling caveat: attribute a spike to the *exact* step, not the enclosing
+  range — the dec spike was mis-blamed on a coarse `(12--84)` group for a long time.)
+- **The code-range constant in the spec must equal the function's actual byte length** — never
+  copy it from a sibling proof (dec needed 4612, not enc's 4600), or tail stores fail
+  store-safety (decrypt doc §7b item 1).
