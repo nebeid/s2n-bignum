@@ -2,7 +2,7 @@
 
 Status: **PROVED** end-to-end. `AESV8_GCM_8X_DEC_256_1BLOCK` in
 `arm/proofs/aesv8_gcm_8x_dec_256_1block.ml` binds via a clean full-file `loadt`
-(~256s after optimization; ~554s for the first completed version), with no
+(~239s after optimization; ~554s for the first completed version), with no
 `CHEAT_TAC`/`new_axiom`/`mk_thm` and only the 3 core HOL Light axioms in the system.
 Exit is `pc+0x11e4` (right after the xi_p store).
 
@@ -255,7 +255,8 @@ Full clean-`polyval-aes`-checkpoint `loadt` CPU time:
 | Exit after the xi_p store (drop epilogue + stack-frame spec; §3 reverted) | ~529s | -25s, big spec simplification |
 | Restore `DISCARD_OLDSTATE` before the bridge (carry out_p via MP_TAC/DISCH) | ~328s | -201s |
 | Split the front step group to discard the dead counter Q30 before s10 (commit `c2eea3ce`) | ~284s | -44s |
-| Discard the sim pile at s344 before the GHASH reduction (commit `cb55da40`) | **~256s** | **-28s** |
+| Discard the sim pile at s344 before the GHASH reduction (commit `cb55da40`) | ~256s | -28s |
+| Discard the sim pile at s340 inside the GHASH multiply (commit `95906676`) | **~239s** | **-17s** |
 
 What moved the needle:
 1. **Exit at `pc+0x11e4` (right after the xi_p store), not the `ret`.** Removing the
@@ -287,6 +288,16 @@ What moved the needle:
    from ~12s to ~4s.  Carry the out_p plaintext read-back across the discard with `MP_TAC`/`DISCH`
    (it is the only fact the close still needs); a second discard right before the bridge keeps
    the bridge SUBGOAL's `RULE_ASSUM_TAC` scanning only ~80 hyps.
+5. **Discard the sim pile at s340, inside the GHASH multiply fold (~17s).**  The multiply fold
+   (329--343) was the last O(pile) hot spot (~30--46s), the cost concentrated in its biggest-pile
+   tail steps.  The plaintext-blend `bif v12,v26,v0` (@0x11ac = s340) finalizes the plaintext in
+   Q12; fold only 329--340, assert `read Q12 s340 = plaintext` (the all-ones-mask blend kills the
+   `read Q26 s328` term, so the aese expansion + `WORD_BLAST` closes), then DISCARD the ~755-hyp
+   pile carrying that single self-contained Q12 fact.  Folding 341--344 on the pruned pile is then
+   ~6s, AND the store at s343 copies the already-clean Q12 atom so the out_p read-back materializes
+   in clean plaintext form FOR FREE — removing the separate post-store aese-tower `WORD_BLAST` the
+   s344 version needed.  Key to safety: carry the *register* `read Q12 s340` fact (self-contained),
+   NOT the store read-back (which references the dropped blend-input registers).
 
 Profiling note (historical — now corrected by item 3): an earlier handoff claimed the s10
 ~34s counter-init spike came from a coarse `ARM_STEPS_TAC (12--84)` grouping and was avoided
@@ -295,18 +306,15 @@ inside the `(1--11)` group at step s10 (the `add v30.4s` over the accumulated RE
 byte-tree), which the step-12+ pairs never reached.  Item 3 fixes it directly.
 
 Remaining levers (higher effort, not yet done; see the enc doc §10 for the analogues):
-- **The GHASH multiply fold (steps 329--343, ~46s) is the largest remaining hot spot.**
-  Plain `ARM_VSTEPS` and the per-step fold both cost the same ~46s here — it is the growing
-  pile (O(pile) per step), not the fold's re-scanning.  A mid-window discard is the obvious
-  lever but is FRAGILE: the plaintext blend `bif v12,v26,v0` (~s340) and the AES-final-block
-  `eor3 v12,v9,v6,v29` read v0/v6/v7/v9/v26/v29, and discarding before the store at s343/s344
-  drops those register reads, making the out_p aese-tower `WORD_BLAST` fail to match
-  (`read Q12 s343` left with bare register atoms).  Folding 329--340 (no discard, builds the
-  self-contained `read Q12 s340`) then `DISCARD_OLDSTATE "s340"` then folding 341--344 was tried
-  and STILL fails the same `read Q12 s343` blast — the store read-back does not re-materialize
-  cleanly across the discard.  A correct version must carry the exact blend-input register
-  reads (or assert the out_p fact from the self-contained `read Q12 s340` before discarding and
-  prove the store at s343 just copies it).  Not yet cracked.
+- **GHASH multiply fold (steps 329--343) — SOLVED (commit `95906676`, see item 5 above).**
+  Was the largest hot spot (~46s, O(pile) per step).  The earlier "fragile / not cracked"
+  note was due to asserting the *store read-back* across the discard (which references the
+  dropped blend-input registers).  The fix: assert the *register* fact `read Q12 s340 =
+  plaintext` (self-contained — the only old-state term, `word_and (read Q26 s328) (word_not
+  allones)`, vanishes for an all-ones full-block mask) BEFORE discarding, carry THAT, and let
+  the store at s343 copy the clean Q12 atom (out_p read-back then materializes clean for free).
+  A two-discard variant (also at s335) was measured and gives only ~5s more for a second
+  6s aese-blast + discard — not worth it; the single s340 discard is the sweet spot.
 - **Bridge as a standalone abstract lemma — scalable (a)+(b) form (DONE, commit `05720a30`).**
   **Scalability decision (2026-06-11):** do NOT lift the fused single-block
   `GMULT_FULL_CORRECT_BA` verbatim — it fuses one block's multiply+reduce into a monolithic
@@ -349,7 +357,7 @@ Remaining levers (higher effort, not yet done; see the enc doc §10 for the anal
 
 ```
 Sys.chdir "/home/ubuntu/workplace/git-code/s2n-bignum-kiro";;
-loadt "arm/proofs/aesv8_gcm_8x_dec_256_1block.ml";;   (* ~256s, binds the theorem; exit pc+0x11e4 *)
+loadt "arm/proofs/aesv8_gcm_8x_dec_256_1block.ml";;   (* ~239s, binds the theorem; exit pc+0x11e4 *)
 axioms();;                                             (* must show only the 3 core axioms *)
 ```
 Backup of the first completed (pre-optimization) file: `_backups/aesv8_gcm_8x_dec_256_1block.ml.bck0017`.

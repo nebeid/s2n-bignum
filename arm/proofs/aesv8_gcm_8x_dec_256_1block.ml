@@ -2127,18 +2127,19 @@ let AESV8_GCM_8X_DEC_256_1BLOCK = prove(
      block) alive through the multiply so the resulting Q19 s350 is fully expressed in
      xi/cph/h with NO orphaned `read Q16 s330` (the old ARM_STEPS_FOLD_DISCARD_TAC dropped
      Q16, leaving the orphan that made every bridge test vacuously false). *)
-  (* GHASH multiply/reduce, split around the plaintext store (st1 {v12},[x2] @0x11b8 = step 344).
-     Fold 329--343 (Q19 accumulator stays bounded), then step 344 (the store) with plain
-     ARM_VSTEPS so a memory read-back `read (memory :> bytes128 out_p) s344` MATERIALIZES (the
-     fold does NOT materialize store read-backs), and assert that read-back = the AES-CTR
-     plaintext (for a full block the all-ones blend mask v0 makes bif v12,v26,v0 = v12 = the
-     plaintext; ASM_REWRITE picks up the fresh store read-back, then the aes256_encrypt/aese
-     expansion + WORD_BLAST proves the blend).  This single out_p fact is then carried, as one
-     hypothesis, all the way to the postcondition. *)
-  ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_EXEC (329--343) THEN
-  ARM_VSTEPS_TAC AESV8_GCM_8X_DEC_256_EXEC [344] THEN
+  (* GHASH multiply/reduce.  The plaintext-blend `bif v12,v26,v0` (@0x11ac = step 340) finalizes
+     the plaintext in Q12; the store `st1 {v12},[x2]` (@0x11b8 = step 343) copies it to out_p.
+     Strategy (the s340 discard, the big remaining lever): fold only 329--340 (Q19 accumulator
+     bounded), then materialize `read Q12 s340 = plaintext` ONCE (the all-ones partial-block mask
+     v0 makes bif v12,v26,v0 = v12; the residual `word_and (read Q26 s328) (word_not allones)`
+     term vanishes, so the aes256_encrypt/aese expansion + WORD_BLAST proves the blend), and
+     DISCARD the ~755-hyp pile at s340 carrying that single self-contained Q12 fact.  Folding the
+     remaining 341--344 on the pruned ~80-hyp pile is then cheap (~6s vs the O(pile) tail), AND the
+     store at s343 copies the already-clean Q12 atom so the out_p read-back materializes in clean
+     plaintext form FOR FREE (no separate post-store aese-tower WORD_BLAST needed). *)
+  ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_EXEC (329--340) THEN
   SUBGOAL_THEN
-    `read (memory :> bytes128 out_p) (s344:armstate) =
+    `read Q12 (s340:armstate) =
      word_xor cph (aes256_encrypt (ctr0:int128)
        [k0:int128;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14])`
     ASSUME_TAC THENL
@@ -2146,14 +2147,14 @@ let AESV8_GCM_8X_DEC_256_1BLOCK = prove(
    REWRITE_TAC[aes256_encrypt] THEN REWRITE_TAC EL_15_128_CLAUSES THEN
    REWRITE_TAC[aes256_encrypt_round; aese; aesmc] THEN
    CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
-  (* Prune the simulation pile NOW, at s344, instead of only just before the bridge.  Steps
-     345--351 (the GHASH high/mid eors + the EXT/REV64 reorder + the final reduction eor) read
-     only the self-contained Q17/Q18/Q19/Q16/Q8 register values at s344 (each already expressed
-     purely in xi/cph/h after the per-step fold) — none reference the ~900 old-state memory-read
-     hyps.  ARM_VSTEPS over a ~990-hyp pile is O(pile) per step (memory-read resolution), so
-     discarding here cuts 345--350 from ~36s to ~12s and step 351 from ~12s to ~4s.  The one fact
-     still needed at the close is the out_p plaintext read-back (a fixed s344 fact), so MP_TAC it
-     across the DISCARD and DISCH it back as a live hyp (DISCARD_OLDSTATE would drop it otherwise). *)
+  FIRST_X_ASSUM(fun th ->
+    if (try lhs(concl th) = `read Q12 s340` with _ -> false)
+    then MP_TAC th else NO_TAC) THEN
+  DISCARD_OLDSTATE_TAC "s340" THEN
+  DISCH_TAC THEN
+  ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_EXEC (341--344) THEN
+  (* The store at s343 copied the clean Q12 atom, so `read (memory :> bytes128 out_p) s344` is
+     already the plaintext; carry it across the next discards to the postcondition. *)
   FIRST_X_ASSUM(fun th ->
     if (try lhs(concl th) = `read (memory :> bytes128 out_p) s344` with _ -> false)
     then MP_TAC th else NO_TAC) THEN
