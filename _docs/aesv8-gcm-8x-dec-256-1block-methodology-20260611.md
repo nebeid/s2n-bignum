@@ -482,3 +482,81 @@ the stores to out_p/xi_p. The narrower `(word_add stackpointer (word 64), 8)`
 sub-region disjointness the back stepping needs is derived up front from the
 `(stackpointer, 80)` facts by `NONOVERLAPPING_TAC` (a `SUBGOAL_THEN ... STRIP_ASSUME_TAC
 THENL [REPEAT CONJ_TAC THEN NONOVERLAPPING_TAC; ALL_TAC]` at the top of the back branch).
+
+--------------------------------------------------------------------------------
+## 11. Byte-aligned ≤1-block generalization (`AESV8_GCM_8X_DEC_256_LE1BLOCK_BODY`)
+
+Status: **PROVED** end-to-end. Theorem `AESV8_GCM_8X_DEC_256_LE1BLOCK_BODY` lives in
+`arm/proofs/aesv8_gcm_8x_dec_256_1block.ml` (appended after the full-block theorem). Like
+the original two-theorem split (§10), it enters at **pc+0x2c** with the decoded args; it
+generalizes the full-block 1-block body from `bit_len = 128` to a partial last block
+`bit_len = 8*bl`, `1 <= bl <= 16`, in ONE symbolic-`bl` run — no case-split on the
+simulation. The masking path is dead from the aws-LC caller (it only ever passes whole
+blocks; see `memory/project_gcm_dec_caller_whole_blocks`), so this is a
+robustness/completeness theorem, not on the production path. (It is NOT yet wrapped in a
+C_ARGUMENTS theorem; only the full-block path has the pc+0x18 entry.)
+
+**Spec delta vs the full-block body** (the bit_len=128 path, §1–8): same entry
+PC `pc+0x2c`, same exit PC `pc+0x11e4`, byte-identical MAYCHANGE frame. Differences, with
+`MK = word (2 EXP (8*bl) - 1)`:
+- length regs `X1 = word (8*bl)`, `X9 = word bl` (were `word 128`, `word 16`);
+- one extra precond `read (memory :> bytes128 out_p) s = outprev` (the `bif` reads it);
+- output postcond `word_xor (word_and plaintext MK) (word_and outprev (word_not MK))`;
+- tag postcond GHASHes `word_and cph MK` instead of `cph`.
+At `bl = 16`, `MK` is all-ones and `word_not MK = 0`, so both postconditions collapse to
+the full-block forms — i.e. the generalization specializes back to the original.
+
+### 11a. One symbolic-`bl` run, no case-split on the simulation
+The front (steps 1–311) is byte-length-agnostic and runs verbatim from the full-block body.
+Two length facts keep the simulator symbolic in `bl`:
+- `X5_ZERO_LEMMA`: `((bl-1) & ~0x7f) = 0` for `bl<=16`, so X5 collapses to `in_p` and the
+  main-loop guard flags resolve (the 8x loop is skipped, X5 = word 0 path).
+- `USHR_8BL_LEMMA`: `ushr(8*bl, 3) = bl`, so `X4 = word_add in_p (word bl)` and
+  `X5 = word bl`.
+The 7-branch `b.gt` cascade (cmp x5 against #112, #96, …, #16) all fall through for
+`bl<=16`. `bl_resolve_pc` / `bl_resolve_pc16` prove `read PC sN = word (pc + fall)`
+uniformly per branch: rewrite the `ival` via `IVAL_WSUB_BL`/`IVAL_WORD_BL`, the guard
+`&bl - &K < &0` (true since `bl < K`) collapses the conditional, fall-through PC results.
+After the cascade, `read PC s311 = word (pc + 4408)` (`.L256_dec_blocks_less_than_1`),
+exactly as for `bl=16`.
+
+### 11b. The mask collapse — WORD_BLAST is a TRAP here (the one hard step)
+The asm's `lsr x7,x7,x1` + `csel` chain (0x1158–0x1168) builds the partial-block mask at
+`s328` as a 128-bit `word_insert (word_insert <aes-junk> (0,64) lo) (64,64) hi`, where
+`lo`/`hi` are nested `csel`/`word_jushr`/`ival` conditionals in `bl`. **Running
+`WORD_BLAST` or `WORD_REDUCE_CONV` on that 128-bit term *in the goal* overflows the stack
+/ times out (>600s)** — the AES-junk base gets bit-blasted even though it is fully
+overwritten. (This is what made the first version of the proof never finish.)
+
+Fix: factor into three lemmas proved *out of the giant goal context*:
+- `INSERT2_JOIN`: drops the junk base — mask becomes `word_join hi lo` (two `int64` lanes).
+- `MASK_LEMMA`: `word_join <the two lane conditionals> = word (2 EXP (8*bl) - 1)`, proved
+  by a 16-way split on `bl` then a CHEAP per-`bl` conversion chain
+  `ONCE_DEPTH NUM_REDUCE_CONV; WORD_REDUCE_CONV; ONCE_DEPTH INT_REDUCE_CONV; REWRITE[];
+  WORD_REDUCE_CONV; ONCE_DEPTH NUM_REDUCE_CONV` — **never `WORD_BLAST` on a 128-bit term.**
+  CRITICAL subtlety: the lanes must be typed `:int64` (as they are in-goal); proving the
+  lemma on an isolated term with free width type-variables makes `WORD_REDUCE_CONV`
+  misbehave (it cannot pick the width, so the `ival`/`word_jushr` literals do not reduce).
+  This lemma is the one slow one-time cost (~94s).
+- `BLEND_OR_XOR`: `word_or (and x m) (and y (~m)) = word_xor (and x m) (and y (~m))` — a
+  small free-mask `WORD_BLAST` — for the `bif` plaintext/outprev blend at s340.
+
+With those, the two mask spots are cheap:
+- Q9 (the masked ciphertext): `REWRITE[INSERT2_JOIN]` then
+  `ASM_SIMP[MASK_LEMMA] THEN CONV_TAC WORD_RULE`.
+- Q12 (the `bif` output blend) SUBGOAL: expand both AES towers to the common
+  `aes_sub_bytes/aes_shift_rows/aes_mix_columns` form (`REWRITE[aes256_encrypt]`,
+  `EL_15_128_CLAUSES`, `aes256_encrypt_round`, `aese`, `aesmc`, `let_CONV`), then
+  `INSERT2_JOIN` → `MASK_LEMMA` → `BLEND_OR_XOR` → `REWRITE[aese;aesmc]` → `WORD_RULE`
+  (`WORD_RULE` closes the XOR-associativity treating the AES tower as an atom).
+
+### 11c. The tail is the full-block tail with `cph -> word_and cph MK`
+Everything past the mask (GHASH multiply 329–340, the `GMULT_FULL_CORRECT_BA` bridge at
+s351, the reduction lane-blast, the ext/rev64/store and close) ports verbatim with `cph`
+systematically replaced by `word_and cph MK`. `GMULT_FULL_CORRECT_BA` is block-polymorphic,
+so it applies unchanged with `block := word_xor (brev xi) (brev (word_and cph MK))`.
+
+### 11d. Reproduce
+`loadt` of the whole file is ~600s (≈250s for the full-block theorem + ≈348s for this
+addition, of which `MASK_LEMMA` is ≈94s). Binds both theorems, no cheats, 3 core axioms.
+The standalone development copy is `_docs/dec_le1block_full.ml`.
