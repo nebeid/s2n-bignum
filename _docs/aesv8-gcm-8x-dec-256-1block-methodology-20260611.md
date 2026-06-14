@@ -431,33 +431,40 @@ fails with `Sys_error "...aesv8_gcm_8x_dec_256.o: No such file or directory"`.
 --------------------------------------------------------------------------------
 ## 10. The C_ARGUMENTS entry point (prologue reorder, XTS-style)
 
-The proof file now exports **two** theorems:
-- `AESV8_GCM_8X_DEC_256_1BLOCK_BODY` — enters at **pc+0x2c**, AFTER the prologue's
-  argument-setup (lsr/mov/mov/movz/stp/add at 0x18..0x2c), stating the post-setup
-  registers (X9=byte_len, X16=ivec_p, X11=key_p) and the Prop3 constant already at
-  [SP+64]. This is the original body proof (Sections 1–8 above), just renamed.
-- `AESV8_GCM_8X_DEC_256_1BLOCK` (canonical) — the **C_ARGUMENTS core**, entering at
-  **pc+0x18** (right after the four callee-saved `stp d8..d15` stores, before the
-  arg-setup), so the AArch64 C arguments are still in X0..X6 and the precondition is
-  stated as `C_ARGUMENTS [in_p; word 128; out_p; xi_p; ivec_p; key_p; htbl_p]` — exactly
-  the XTS style. This is what the **prologue reorder** (see the `.S` header divergence
-  note) enables: grouping the saves first leaves X0..X6 untouched at pc+0x18.
+The proof file exports a **single** theorem, **XTS-style**:
+`AESV8_GCM_8X_DEC_256_1BLOCK` enters at **pc+0x18** (right after the four callee-saved
+`stp d8..d15` stores, before the arg-setup), so the AArch64 C arguments are still in
+X0..X6 and the precondition is stated as
+`C_ARGUMENTS [in_p; word 128; out_p; xi_p; ivec_p; key_p; htbl_p]` — exactly the XTS
+shape (cf. `AES_XTS_ENCRYPT_LT_2BLOCK_CORRECT`, which likewise states `C_ARGUMENTS` at
+the entry and proves the whole path in one theorem). This is what the **prologue
+reorder** (see the `.S` header divergence note) enables: grouping the saves first leaves
+X0..X6 untouched at pc+0x18.
 
-### How the core composes
-`ENSURES_FRAME_SUBSUMED` to relax the `(C_setup ,, C_body)` frame to the stated frame,
-then `ENSURES_TRANS` through an intermediate state at pc+0x2c. **Do NOT use
+There is **no separate exported body theorem**. (An earlier version split out a
+`..._1BLOCK_BODY` lemma entering at pc+0x2c and discharged the C_ARGUMENTS layer by
+`ENSURES_TRANS` onto it; that two-theorem split has been folded into the single proof
+below — the body tactics run inline as the back segment. The full-block code path is
+simulated once.)
+
+### How the proof composes (two inline segments)
+`ENSURES_FRAME_SUBSUMED` relaxes the `(C_setup ,, C_body)` frame to the stated frame,
+then `ENSURES_TRANS` splits the run at an intermediate state at pc+0x2c into a front and
+a back segment, both proved inline in the same `prove`. **Do NOT use
 `ENSURES_SEQUENCE_TAC`**: its `MAYCHANGE_IDEMPOT_TAC` throws (`ASSIGNS_SEQ_ABSORB_CONV`)
-on the 4-memory-region stack frame; `ENSURES_TRANS` needs no idempotence conv.
+on the 4-memory-region stack frame; `ENSURES_TRANS` needs no idempotence conv. (This is
+the one place we diverge from XTS, which uses `ENSURES_SEQUENCE_TAC` for its splits — it
+works there because XTS's frame has a single memory region.)
 
-### The front close (pc+0x18 → pc+0x2c) — two non-obvious requirements
+### Front segment (pc+0x18 → pc+0x2c) — two non-obvious requirements
 The 5 setup instructions end with `stp x5,xzr,[sp,64]`, which writes **16 bytes**. Two
 things must hold for `ARM_VSTEPS_TAC EXEC (1--5)` to carry the input `bytes128` reads
 (in_p/key_p/htbl_p/...) ACROSS that store to the post-state:
 
 1. **Disjointness vs the FULL stack frame.** Each input buffer must be stated disjoint
    from `(stackpointer, 80)` — the whole 80-byte frame — not the narrow
-   `(word_add stackpointer (word 64), 8)` the BODY uses. The 16-byte store is too wide
-   for the (...,8) region to certify read-over-write. (Added 8 new `nonoverlapping`
+   `(word_add stackpointer (word 64), 8)` the back-segment stepping uses. The 16-byte
+   store is too wide for the (...,8) region to certify read-over-write. (8 `nonoverlapping`
    preconds: in_p/key_p/htbl_p/ivec_p/xi_p/out_p each vs `(stackpointer,80)`.)
 
 2. **Keep `nonoverlapping` in NATIVE form.** Do NOT rewrite the `nonoverlapping`
@@ -468,6 +475,10 @@ things must hold for `ARM_VSTEPS_TAC EXEC (1--5)` to carry the input `bytes128` 
    long-standing "mysterious" stuck close where `ASM_REWRITE_TAC[]` left ~20 verbatim
    read facts open and `ASM_MESON_TAC[]` timed out.
 
-The BODY's narrower `(...,8)` stack-disjointness antecedents follow from the `(...,80)`
-facts by `NONOVERLAPPING_TAC` (`ANTS_TAC THENL [REPEAT CONJ_TAC THEN NONOVERLAPPING_TAC;
-DISCH_THEN ACCEPT_TAC]`).
+### Back segment (pc+0x2c → pc+0x11e4)
+The full 1-block run inline (Sections 1–8 above): AES rounds, the branch cascade to the
+less_than_1 path, the GHASH multiply/reduce, the bridge via `GMULT_FULL_CORRECT_BA`, and
+the stores to out_p/xi_p. The narrower `(word_add stackpointer (word 64), 8)`
+sub-region disjointness the back stepping needs is derived up front from the
+`(stackpointer, 80)` facts by `NONOVERLAPPING_TAC` (a `SUBGOAL_THEN ... STRIP_ASSUME_TAC
+THENL [REPEAT CONJ_TAC THEN NONOVERLAPPING_TAC; ALL_TAC]` at the top of the back branch).
