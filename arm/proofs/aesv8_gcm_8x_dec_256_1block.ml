@@ -1808,9 +1808,43 @@ let FINISH_WV_REDUCE_TAC : tactic =
    composes with this body via ENSURES_TRANS.  The prologue reorder (saves grouped
    first, then setup) is what lets pc+0x18 still hold the C arguments in X0..X6 — see the
    .S header and the methodology doc for the divergence from the aws-lc original. *)
-let AESV8_GCM_8X_DEC_256_1BLOCK_BODY = prove(
+(* ------------------------------------------------------------------------- *)
+(* Full correctness from the C arguments (XTS-style single theorem).          *)
+(*                                                                            *)
+(* Enter at the function's natural arg-passing point pc+0x18 (after the        *)
+(* prologue's callee-saved STPs, before the arg-setup), so the AArch64 C       *)
+(* arguments are still in X0..X6 and are stated with                          *)
+(* C_ARGUMENTS [in_p; bit_len(=128); out_p; xi_p; ivec_p; key_p; htbl_p].      *)
+(* This is what the prologue REORDER enables (see the .S header / doc).        *)
+(*                                                                            *)
+(* The proof is structured in two segments composed by ENSURES_TRANS (NOT     *)
+(* ENSURES_SEQUENCE_TAC: its MAYCHANGE_IDEMPOT_TAC throws on the 4-memory-     *)
+(* region stack frame), with ENSURES_FRAME_SUBSUMED relaxing the              *)
+(* (C_setup ,, C_body) frame to the stated frame first:                       *)
+(*  - Front (pc+0x18 -> pc+0x2c): the 5 setup instructions (0x18 lsr;          *)
+(*    0x1c/0x20 mov; 0x24 movz; 0x28 stp) derive X9=byte_len, X16=ivec_p,      *)
+(*    X11=key_p and write the Prop3 constant to [SP+64].  Two non-obvious      *)
+(*    requirements for ARM_VSTEPS_TAC (1--5) to carry the input bytes128 reads *)
+(*    ACROSS the `stp x5,xzr,[sp,64]` 16-byte store: (a) each input buffer is  *)
+(*    stated disjoint from the FULL 80-byte stack frame (stackpointer,80) (the *)
+(*    narrow (sp+64,8) the body stepping uses is too small for the 16B store); *)
+(*    (b) do NOT rewrite the `nonoverlapping` hyps into nonoverlapping_modulo  *)
+(*    form before stepping -- the read-over-write solver matches on            *)
+(*    `nonoverlapping`, and the modulo form silently drops every memory read.  *)
+(*  - Back (pc+0x2c -> pc+0x11e4): the full 1-block run inline (AES rounds,    *)
+(*    branch cascade to the less_than_1 path, GHASH multiply/reduce, bridge    *)
+(*    via GMULT_FULL_CORRECT_BA, store to out_p/xi_p).  The (sp+64,8)          *)
+(*    sub-region disjointness the body stepping needs is derived from the      *)
+(*    (sp,80) facts up front by NONOVERLAPPING_TAC.                            *)
+(*                                                                            *)
+(* Methodology / lessons: _docs/aesv8-gcm-8x-dec-256-1block-methodology-       *)
+(* 20260611.md.                                                               *)
+(* ------------------------------------------------------------------------- *)
+let AESV8_GCM_8X_DEC_256_1BLOCK = prove(
  `!pc stackpointer out_p xi_p ivec_p in_p key_p htbl_p
     cph xi ctr0 k0 k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13 k14 h hk.
+    aligned 16 stackpointer /\
+    nonoverlapping (word pc, 4612) (stackpointer:int64, 80) /\
     nonoverlapping (word pc, 4612) (out_p:int64, 16) /\
     nonoverlapping (word pc, 4612) (xi_p:int64, 16) /\
     nonoverlapping (word pc, 4612) (ivec_p:int64, 16) /\
@@ -1820,24 +1854,24 @@ let AESV8_GCM_8X_DEC_256_1BLOCK_BODY = prove(
     nonoverlapping (ivec_p, 16) (in_p:int64, 16) /\
     nonoverlapping (ivec_p, 16) (key_p:int64, 240) /\
     nonoverlapping (ivec_p, 16) (htbl_p:int64, 192) /\
-    nonoverlapping (ivec_p, 16) (word_add stackpointer (word 64):int64, 8) /\
+    nonoverlapping (in_p, 16) (stackpointer, 80) /\
+    nonoverlapping (key_p, 240) (stackpointer, 80) /\
+    nonoverlapping (htbl_p, 192) (stackpointer, 80) /\
+    nonoverlapping (ivec_p, 16) (stackpointer, 80) /\
     nonoverlapping (xi_p, 16) (in_p, 16) /\
     nonoverlapping (xi_p, 16) (key_p, 240) /\
     nonoverlapping (xi_p, 16) (htbl_p, 192) /\
-    nonoverlapping (xi_p, 16) (word_add stackpointer (word 64):int64, 8) /\
+    nonoverlapping (xi_p, 16) (stackpointer, 80) /\
     nonoverlapping (out_p, 16) (in_p, 16) /\
     nonoverlapping (out_p, 16) (key_p, 240) /\
     nonoverlapping (out_p, 16) (htbl_p, 192) /\
-    nonoverlapping (out_p, 16) (word_add stackpointer (word 64):int64, 8) /\
+    nonoverlapping (out_p, 16) (stackpointer, 80) /\
     word_subword hk (0,64) :64 word =
       word_xor (word_subword h (0,64):64 word) (word_subword h (64,64):64 word)
     ==> ensures arm
      (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_mc /\
-          read PC s = word (pc + 0x2c) /\ read SP s = stackpointer /\
-          read X0 s = in_p /\ read X1 s = word 128 /\
-          read X9 s = word 16 /\ read X2 s = out_p /\
-          read X3 s = xi_p /\ read X16 s = ivec_p /\
-          read X11 s = key_p /\ read X6 s = htbl_p /\
+          read PC s = word (pc + 0x18) /\ read SP s = stackpointer /\
+          C_ARGUMENTS [in_p; word 128; out_p; xi_p; ivec_p; key_p; htbl_p] s /\
           read Q30 s = ctr0 /\
           read (memory :> bytes128 in_p) s = cph /\
           read (memory :> bytes128 xi_p) s = xi /\
@@ -1858,9 +1892,7 @@ let AESV8_GCM_8X_DEC_256_1BLOCK_BODY = prove(
           read (memory :> bytes128 (word_add key_p (word 208))) s = k13 /\
           read (memory :> bytes128 (word_add key_p (word 224))) s = k14 /\
           read (memory :> bytes128 htbl_p) s = h /\
-          read (memory :> bytes128 (word_add htbl_p (word 16))) s = hk /\
-          read (memory :> bytes64 (word_add stackpointer (word 64))) s =
-            word 13979173243358019584)
+          read (memory :> bytes128 (word_add htbl_p (word 16))) s = hk)
      (\s. read PC s = word (pc + 0x11e4) /\
           read (memory :> bytes128 out_p) s =
           word_xor cph (aes256_encrypt ctr0
@@ -1872,9 +1904,77 @@ let AESV8_GCM_8X_DEC_256_1BLOCK_BODY = prove(
      (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
       MAYCHANGE [memory :> bytes(out_p, 16); memory :> bytes(xi_p, 16);
                  memory :> bytes(ivec_p, 16);
-                 memory :> bytes(word_add stackpointer (word 64):int64, 8)] ,,
+                 memory :> bytes(stackpointer:int64, 80)] ,,
       MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
                  Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;Q29;Q30;Q31])`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  (* Relax the (C_setup ,, C_body) frame to the stated frame, then compose the 5-instruction
+     setup (pc+0x18 -> pc+0x2c) with the BODY (pc+0x2c -> exit) via ENSURES_TRANS. *)
+  MATCH_MP_TAC ENSURES_FRAME_SUBSUMED THEN
+  EXISTS_TAC
+   `(MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+     MAYCHANGE [memory :> bytes(out_p:int64, 16); memory :> bytes(xi_p:int64, 16);
+                memory :> bytes(ivec_p:int64, 16); memory :> bytes(stackpointer:int64, 80)] ,,
+     MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;Q29;Q30;Q31]) ,,
+    (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+     MAYCHANGE [memory :> bytes(out_p:int64, 16); memory :> bytes(xi_p:int64, 16);
+                memory :> bytes(ivec_p:int64, 16);
+                memory :> bytes(word_add stackpointer (word 64):int64, 8)] ,,
+     MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;Q29;Q30;Q31])` THEN
+  CONJ_TAC THENL
+  [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN SUBSUMED_MAYCHANGE_TAC;
+   ALL_TAC] THEN
+  MATCH_MP_TAC ENSURES_TRANS THEN
+  EXISTS_TAC
+   `\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_mc /\
+        read PC s = word (pc + 0x2c) /\ read SP s = stackpointer /\
+        read X0 s = in_p /\ read X1 s = word 128 /\
+        read X9 s = word 16 /\ read X2 s = out_p /\
+        read X3 s = xi_p /\ read X16 s = ivec_p /\
+        read X11 s = key_p /\ read X6 s = htbl_p /\
+        read Q30 s = ctr0 /\
+        read (memory :> bytes128 in_p) s = cph /\
+        read (memory :> bytes128 xi_p) s = xi /\
+        read (memory :> bytes128 ivec_p) s = ctr0 /\
+        read (memory :> bytes128 key_p) s = k0 /\
+        read (memory :> bytes128 (word_add key_p (word 16))) s = k1 /\
+        read (memory :> bytes128 (word_add key_p (word 32))) s = k2 /\
+        read (memory :> bytes128 (word_add key_p (word 48))) s = k3 /\
+        read (memory :> bytes128 (word_add key_p (word 64))) s = k4 /\
+        read (memory :> bytes128 (word_add key_p (word 80))) s = k5 /\
+        read (memory :> bytes128 (word_add key_p (word 96))) s = k6 /\
+        read (memory :> bytes128 (word_add key_p (word 112))) s = k7 /\
+        read (memory :> bytes128 (word_add key_p (word 128))) s = k8 /\
+        read (memory :> bytes128 (word_add key_p (word 144))) s = k9 /\
+        read (memory :> bytes128 (word_add key_p (word 160))) s = k10 /\
+        read (memory :> bytes128 (word_add key_p (word 176))) s = k11 /\
+        read (memory :> bytes128 (word_add key_p (word 192))) s = k12 /\
+        read (memory :> bytes128 (word_add key_p (word 208))) s = k13 /\
+        read (memory :> bytes128 (word_add key_p (word 224))) s = k14 /\
+        read (memory :> bytes128 htbl_p) s = h /\
+        read (memory :> bytes128 (word_add htbl_p (word 16))) s = hk /\
+        read (memory :> bytes64 (word_add stackpointer (word 64))) s =
+          word 13979173243358019584` THEN
+  CONJ_TAC THENL
+  [(* Front: 5 setup instructions 0x18..0x28, reach pc+0x2c with the BODY pre-state.
+       NOTE: keep `nonoverlapping` hyps in NATIVE form (no NONOVERLAPPING_CLAUSES rewrite) so
+       the read-over-write solver carries the bytes128 reads across the [sp,64] store. *)
+   REWRITE_TAC[C_ARGUMENTS; SOME_FLAGS] THEN
+   ENSURES_INIT_TAC "s0" THEN
+   RULE_ASSUM_TAC(REWRITE_RULE[C_ARGUMENTS]) THEN
+   ARM_VSTEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (1--5) THEN
+   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+   REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MONOTONE_MAYCHANGE_TAC;
+   (* Back (pc+0x2c -> exit): the (sp+64,8) sub-region disjointness the body stepping
+      uses follows from the (sp,80) facts; then the full 1-block body inline. *)
+   SUBGOAL_THEN
+    `nonoverlapping (ivec_p:int64,16) (word_add stackpointer (word 64):int64,8) /\
+     nonoverlapping (xi_p:int64,16) (word_add stackpointer (word 64):int64,8) /\
+     nonoverlapping (out_p:int64,16) (word_add stackpointer (word 64):int64,8)`
+    STRIP_ASSUME_TAC THENL
+    [REPEAT CONJ_TAC THEN NONOVERLAPPING_TAC; ALL_TAC] THEN
   REPEAT STRIP_TAC THEN ENSURES_INIT_TAC "s0" THEN
   (* === AES-256 encryption: steps 1-265 === *)
   (* Split (1--11) at s8 with a discard in between: the running counter Q30 has become a
@@ -2100,174 +2200,4 @@ let AESV8_GCM_8X_DEC_256_1BLOCK_BODY = prove(
   TRY(EXPAND_TAC "gval" THEN AP_TERM_TAC THEN REWRITE_TAC[GHASH_1BLOCK_CORRECT]) THEN
   TRY(CONV_TAC WORD_BLAST) THEN
   TRY(REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
-      REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC THEN ASM_REWRITE_TAC[]));;
-
-(* ------------------------------------------------------------------------- *)
-(* C_ARGUMENTS core: enter at the function's natural arg-passing point        *)
-(* pc+0x18 (after the prologue's callee-saved STPs, before the arg-setup),    *)
-(* so the AArch64 C arguments are still in X0..X6 and can be stated with      *)
-(* C_ARGUMENTS [in_p; bit_len(=128); out_p; xi_p; ivec_p; key_p; htbl_p].     *)
-(* This is what the prologue REORDER enables (see the .S header / doc).  The   *)
-(* 5 setup instructions (0x18 lsr; 0x1c/0x20 mov; 0x24 movz; 0x28 stp) derive  *)
-(* X9=byte_len, X16=ivec_p, X11=key_p and write the Prop3 constant to [SP+64], *)
-(* reaching pc+0x2c — the BODY's entry — which is then discharged by the       *)
-(* already-proven AESV8_GCM_8X_DEC_256_1BLOCK_BODY via ENSURES_TRANS.          *)
-(*                                                                             *)
-(* The composition relaxes the (C_setup ,, C_body) frame to the stated frame   *)
-(* with ENSURES_FRAME_SUBSUMED, then ENSURES_TRANS through pc+0x2c.            *)
-(* ENSURES_SEQUENCE_TAC does NOT work here: its MAYCHANGE_IDEMPOT_TAC throws    *)
-(* on the 4-memory-region stack frame; ENSURES_TRANS needs no idempotence conv. *)
-(*                                                                             *)
-(* Front close (pc+0x18 -> pc+0x2c) via ARM_VSTEPS_TAC (1--5):                 *)
-(*  - The setup ends with `stp x5,xzr,[sp,64]` which writes 16 BYTES at sp+64. *)
-(*    For the simulator's read-over-write solver to carry the input bytes128   *)
-(*    reads (in_p/key_p/htbl_p/...) ACROSS that store, each buffer must be      *)
-(*    stated disjoint from the FULL 80-byte stack frame (stackpointer,80) —     *)
-(*    the (...,8) sub-region the BODY uses is too narrow for the 16B store.    *)
-(*  - Critically, do NOT rewrite the `nonoverlapping` hyps into                *)
-(*    `nonoverlapping_modulo` form before stepping (no NONOVERLAPPING_CLAUSES   *)
-(*    in the RULE_ASSUM_TAC): the read-over-write side-condition solver matches *)
-(*    on `nonoverlapping`, and the modulo form silently drops EVERY memory read *)
-(*    at the store (the cause of the long-standing stuck front close).         *)
-(*  - The BODY's narrower (...,8) disjointness antecedents follow from the      *)
-(*    (...,80) facts by NONOVERLAPPING_TAC.                                     *)
-(* ------------------------------------------------------------------------- *)
-let AESV8_GCM_8X_DEC_256_1BLOCK = prove(
- `!pc stackpointer out_p xi_p ivec_p in_p key_p htbl_p
-    cph xi ctr0 k0 k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13 k14 h hk.
-    aligned 16 stackpointer /\
-    nonoverlapping (word pc, 4612) (stackpointer:int64, 80) /\
-    nonoverlapping (word pc, 4612) (out_p:int64, 16) /\
-    nonoverlapping (word pc, 4612) (xi_p:int64, 16) /\
-    nonoverlapping (word pc, 4612) (ivec_p:int64, 16) /\
-    nonoverlapping (out_p, 16) (xi_p, 16) /\
-    nonoverlapping (out_p, 16) (ivec_p, 16) /\
-    nonoverlapping (xi_p, 16) (ivec_p, 16) /\
-    nonoverlapping (ivec_p, 16) (in_p:int64, 16) /\
-    nonoverlapping (ivec_p, 16) (key_p:int64, 240) /\
-    nonoverlapping (ivec_p, 16) (htbl_p:int64, 192) /\
-    nonoverlapping (in_p, 16) (stackpointer, 80) /\
-    nonoverlapping (key_p, 240) (stackpointer, 80) /\
-    nonoverlapping (htbl_p, 192) (stackpointer, 80) /\
-    nonoverlapping (ivec_p, 16) (stackpointer, 80) /\
-    nonoverlapping (xi_p, 16) (in_p, 16) /\
-    nonoverlapping (xi_p, 16) (key_p, 240) /\
-    nonoverlapping (xi_p, 16) (htbl_p, 192) /\
-    nonoverlapping (xi_p, 16) (stackpointer, 80) /\
-    nonoverlapping (out_p, 16) (in_p, 16) /\
-    nonoverlapping (out_p, 16) (key_p, 240) /\
-    nonoverlapping (out_p, 16) (htbl_p, 192) /\
-    nonoverlapping (out_p, 16) (stackpointer, 80) /\
-    word_subword hk (0,64) :64 word =
-      word_xor (word_subword h (0,64):64 word) (word_subword h (64,64):64 word)
-    ==> ensures arm
-     (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_mc /\
-          read PC s = word (pc + 0x18) /\ read SP s = stackpointer /\
-          C_ARGUMENTS [in_p; word 128; out_p; xi_p; ivec_p; key_p; htbl_p] s /\
-          read Q30 s = ctr0 /\
-          read (memory :> bytes128 in_p) s = cph /\
-          read (memory :> bytes128 xi_p) s = xi /\
-          read (memory :> bytes128 ivec_p) s = ctr0 /\
-          read (memory :> bytes128 key_p) s = k0 /\
-          read (memory :> bytes128 (word_add key_p (word 16))) s = k1 /\
-          read (memory :> bytes128 (word_add key_p (word 32))) s = k2 /\
-          read (memory :> bytes128 (word_add key_p (word 48))) s = k3 /\
-          read (memory :> bytes128 (word_add key_p (word 64))) s = k4 /\
-          read (memory :> bytes128 (word_add key_p (word 80))) s = k5 /\
-          read (memory :> bytes128 (word_add key_p (word 96))) s = k6 /\
-          read (memory :> bytes128 (word_add key_p (word 112))) s = k7 /\
-          read (memory :> bytes128 (word_add key_p (word 128))) s = k8 /\
-          read (memory :> bytes128 (word_add key_p (word 144))) s = k9 /\
-          read (memory :> bytes128 (word_add key_p (word 160))) s = k10 /\
-          read (memory :> bytes128 (word_add key_p (word 176))) s = k11 /\
-          read (memory :> bytes128 (word_add key_p (word 192))) s = k12 /\
-          read (memory :> bytes128 (word_add key_p (word 208))) s = k13 /\
-          read (memory :> bytes128 (word_add key_p (word 224))) s = k14 /\
-          read (memory :> bytes128 htbl_p) s = h /\
-          read (memory :> bytes128 (word_add htbl_p (word 16))) s = hk)
-     (\s. read PC s = word (pc + 0x11e4) /\
-          read (memory :> bytes128 out_p) s =
-          word_xor cph (aes256_encrypt ctr0
-            [(k0:int128);k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]) /\
-          read (memory :> bytes128 xi_p) s =
-          word_bytereverse
-            (ghash_polyval_acc (byteswap128 h) (word_bytereverse xi)
-              [word_bytereverse cph]))
-     (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-      MAYCHANGE [memory :> bytes(out_p, 16); memory :> bytes(xi_p, 16);
-                 memory :> bytes(ivec_p, 16);
-                 memory :> bytes(stackpointer:int64, 80)] ,,
-      MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
-                 Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;Q29;Q30;Q31])`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  (* Relax the (C_setup ,, C_body) frame to the stated frame, then compose the 5-instruction
-     setup (pc+0x18 -> pc+0x2c) with the BODY (pc+0x2c -> exit) via ENSURES_TRANS. *)
-  MATCH_MP_TAC ENSURES_FRAME_SUBSUMED THEN
-  EXISTS_TAC
-   `(MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-     MAYCHANGE [memory :> bytes(out_p:int64, 16); memory :> bytes(xi_p:int64, 16);
-                memory :> bytes(ivec_p:int64, 16); memory :> bytes(stackpointer:int64, 80)] ,,
-     MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
-                Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;Q29;Q30;Q31]) ,,
-    (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-     MAYCHANGE [memory :> bytes(out_p:int64, 16); memory :> bytes(xi_p:int64, 16);
-                memory :> bytes(ivec_p:int64, 16);
-                memory :> bytes(word_add stackpointer (word 64):int64, 8)] ,,
-     MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
-                Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;Q29;Q30;Q31])` THEN
-  CONJ_TAC THENL
-  [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN SUBSUMED_MAYCHANGE_TAC;
-   ALL_TAC] THEN
-  MATCH_MP_TAC ENSURES_TRANS THEN
-  EXISTS_TAC
-   `\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_mc /\
-        read PC s = word (pc + 0x2c) /\ read SP s = stackpointer /\
-        read X0 s = in_p /\ read X1 s = word 128 /\
-        read X9 s = word 16 /\ read X2 s = out_p /\
-        read X3 s = xi_p /\ read X16 s = ivec_p /\
-        read X11 s = key_p /\ read X6 s = htbl_p /\
-        read Q30 s = ctr0 /\
-        read (memory :> bytes128 in_p) s = cph /\
-        read (memory :> bytes128 xi_p) s = xi /\
-        read (memory :> bytes128 ivec_p) s = ctr0 /\
-        read (memory :> bytes128 key_p) s = k0 /\
-        read (memory :> bytes128 (word_add key_p (word 16))) s = k1 /\
-        read (memory :> bytes128 (word_add key_p (word 32))) s = k2 /\
-        read (memory :> bytes128 (word_add key_p (word 48))) s = k3 /\
-        read (memory :> bytes128 (word_add key_p (word 64))) s = k4 /\
-        read (memory :> bytes128 (word_add key_p (word 80))) s = k5 /\
-        read (memory :> bytes128 (word_add key_p (word 96))) s = k6 /\
-        read (memory :> bytes128 (word_add key_p (word 112))) s = k7 /\
-        read (memory :> bytes128 (word_add key_p (word 128))) s = k8 /\
-        read (memory :> bytes128 (word_add key_p (word 144))) s = k9 /\
-        read (memory :> bytes128 (word_add key_p (word 160))) s = k10 /\
-        read (memory :> bytes128 (word_add key_p (word 176))) s = k11 /\
-        read (memory :> bytes128 (word_add key_p (word 192))) s = k12 /\
-        read (memory :> bytes128 (word_add key_p (word 208))) s = k13 /\
-        read (memory :> bytes128 (word_add key_p (word 224))) s = k14 /\
-        read (memory :> bytes128 htbl_p) s = h /\
-        read (memory :> bytes128 (word_add htbl_p (word 16))) s = hk /\
-        read (memory :> bytes64 (word_add stackpointer (word 64))) s =
-          word 13979173243358019584` THEN
-  CONJ_TAC THENL
-  [(* Front: 5 setup instructions 0x18..0x28, reach pc+0x2c with the BODY pre-state.
-       NOTE: keep `nonoverlapping` hyps in NATIVE form (no NONOVERLAPPING_CLAUSES rewrite) so
-       the read-over-write solver carries the bytes128 reads across the [sp,64] store. *)
-   REWRITE_TAC[C_ARGUMENTS; SOME_FLAGS] THEN
-   ENSURES_INIT_TAC "s0" THEN
-   RULE_ASSUM_TAC(REWRITE_RULE[C_ARGUMENTS]) THEN
-   ARM_VSTEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (1--5) THEN
-   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-   REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MONOTONE_MAYCHANGE_TAC;
-   (* Back: the already-proven BODY from pc+0x2c; its narrower (...,8) stack-disjointness
-      antecedents follow from the (...,80) facts by NONOVERLAPPING_TAC. *)
-   MP_TAC(SPECL
-     [`pc:num`; `stackpointer:int64`; `out_p:int64`; `xi_p:int64`; `ivec_p:int64`;
-      `in_p:int64`; `key_p:int64`; `htbl_p:int64`; `cph:int128`; `xi:int128`;
-      `ctr0:int128`; `k0:int128`;`k1:int128`;`k2:int128`;`k3:int128`;`k4:int128`;
-      `k5:int128`;`k6:int128`;`k7:int128`;`k8:int128`;`k9:int128`;`k10:int128`;
-      `k11:int128`;`k12:int128`;`k13:int128`;`k14:int128`;`h:int128`;`hk:int128`]
-     AESV8_GCM_8X_DEC_256_1BLOCK_BODY) THEN
-   ASM_REWRITE_TAC[] THEN
-   ANTS_TAC THENL [REPEAT CONJ_TAC THEN NONOVERLAPPING_TAC; DISCH_THEN ACCEPT_TAC]]);;
-
+      REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC THEN ASM_REWRITE_TAC[])]);;
