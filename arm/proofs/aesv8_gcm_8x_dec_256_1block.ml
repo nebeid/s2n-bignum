@@ -2284,6 +2284,22 @@ let INSERT2_JOIN = prove
   REWRITE_TAC[SUB_0; ADD_CLAUSES] THEN ASM_REWRITE_TAC[] THEN
   ASM_ARITH_TAC);;
 
+(* ---- bounded enumeration 1<=bl<=16 -> bl=1 \/ ... \/ bl=16.  Proved by STRUCTURAL LE
+   unfolding (REWRITE[LE] after rewriting each numeral to SUC form), NOT by ARITH_TAC:
+   ASM_ARITH_TAC / ARITH_TAC on this 16-way disjunctive conclusion takes ~92s (the linear-
+   arith DNF blows up), whereas the LE rewrite is ~0.07s. ---- *)
+let BL16_DISJ = prove
+ (`!bl. 1 <= bl /\ bl <= 16
+        ==> bl = 1 \/ bl = 2 \/ bl = 3 \/ bl = 4 \/ bl = 5 \/ bl = 6 \/ bl = 7 \/ bl = 8 \/
+            bl = 9 \/ bl = 10 \/ bl = 11 \/ bl = 12 \/ bl = 13 \/ bl = 14 \/ bl = 15 \/ bl = 16`,
+  GEN_TAC THEN
+  REWRITE_TAC[ARITH_RULE`16=SUC 15`;ARITH_RULE`15=SUC 14`;ARITH_RULE`14=SUC 13`;ARITH_RULE`13=SUC 12`;
+    ARITH_RULE`12=SUC 11`;ARITH_RULE`11=SUC 10`;ARITH_RULE`10=SUC 9`;ARITH_RULE`9=SUC 8`;
+    ARITH_RULE`8=SUC 7`;ARITH_RULE`7=SUC 6`;ARITH_RULE`6=SUC 5`;ARITH_RULE`5=SUC 4`;
+    ARITH_RULE`4=SUC 3`;ARITH_RULE`3=SUC 2`;ARITH_RULE`2=SUC 1`] THEN
+  REWRITE_TAC[LE] THEN STRIP_TAC THEN ASM_REWRITE_TAC[] THEN CONV_TAC NUM_REDUCE_CONV THEN
+  DISJ1_TAC THEN ASM_REWRITE_TAC[GSYM LE_ANTISYM]);;
+
 (* ---- the asm's lsr/csel partial-block mask at s328 = word(2^(8*bl)-1)
    (per-bl reduction, NOT WORD_BLAST; see methodology doc section 11b for why;
    the one slow one-time lemma). ---- *)
@@ -2312,10 +2328,8 @@ let MASK_LEMMA = prove
                 (word_sub (word_and (word (8 * bl):int64) (word 127)) (word 128))) (word 127))):int128 =
     word (2 EXP (8 * bl) - 1)`,
   REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `bl = 1 \/ bl = 2 \/ bl = 3 \/ bl = 4 \/ bl = 5 \/ bl = 6 \/ bl = 7 \/ bl = 8 \/
-                bl = 9 \/ bl = 10 \/ bl = 11 \/ bl = 12 \/ bl = 13 \/ bl = 14 \/ bl = 15 \/ bl = 16`
-    MP_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
-  STRIP_TAC THEN ASM_REWRITE_TAC[] THEN
+  FIRST_ASSUM(STRIP_ASSUME_TAC o MATCH_MP BL16_DISJ o CONJ (ASSUME `1 <= bl`)) THEN
+  ASM_REWRITE_TAC[] THEN
   CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV THENC
     WORD_REDUCE_CONV THENC ONCE_DEPTH_CONV INT_REDUCE_CONV THENC
     REWRITE_CONV[] THENC WORD_REDUCE_CONV THENC ONCE_DEPTH_CONV NUM_REDUCE_CONV));;
