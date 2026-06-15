@@ -585,3 +585,55 @@ Profiled cost centers in the LE1BLOCK addition (~260s), after the `BL16_DISJ` fi
 - **The bridge lane-blast** (the r1/u/r2 `WORD_BLAST` shift-triples) is identical to the
   full-block bridge; the shared `FINISH_WV`-style cost applies equally.
 - The 7 `bl_resolve_pc` branch resolvers are already cheap (~0.01s arith each).
+
+--------------------------------------------------------------------------------
+## 12. Is enumeration necessary, and does this scale to <2..<7 blocks?
+
+### Is the 16-way enumeration the only way?
+**No, and it was never the hard part** — two independent things were conflated:
+
+1. **The simulation is genuinely symbolic in `bl` (1..16): one run, no case-split.** The
+   branch cascade (`cmp x5,#112/#96/.../#16; b.gt`) all falls through because
+   `bl <= 16 < 112`, proved uniformly by the `bl_resolve_pc` resolvers (via `IVAL_WSUB_BL`).
+   The AES rounds, GHASH multiply, bridge, and stores are all proved ONCE over symbolic
+   `bl`. That ~200s dominates and does **not** enumerate.
+
+2. **Enumeration appears only in `MASK_LEMMA`**, collapsing the asm's `lsr/csel` mask to
+   `word(2^(8*bl)-1)`. The mask value is `2^(8*bl)-1` — non-linear (an exponent) in `bl` —
+   so the csel-built mask is checked per concrete `bl`. A symbolic alternative exists (a
+   closed-form lemma that `lsr x7,x7,(64-8*bl) ; csel` = `word(2^(8*bl)-1)` for all
+   `bl<=16`, reasoning about `word_jushr` and the mod-64 shift split at `bl=8` — a 2-way
+   split on `bl<=8` vs `bl>8`, not 16-way). Not worth it: after the `BL16_DISJ` fix the
+   enumeration is ~0.9s, so the symbolic-mask route would save <1s and reintroduce the
+   `word_jushr`/`WORD_REDUCE` width fragility §11b warns about. Enumeration is *a* way, not
+   the *only* way, and is now cheap enough to be the right way.
+
+### Scaling to <2, <3, ..., <7 blocks
+**The technique scales; this theorem does not subsume them — they are different code
+paths.** The same cascade that we make fall through to `.L256_dec_blocks_less_than_1` is
+the dispatcher for *how many whole blocks remain*: `x5 = byte_len`, and thresholds
+16/32/.../112 select `less_than_1 / less_than_2 / ... / less_than_8` (the function does up
+to 8 blocks per main-loop iteration). We reach `less_than_1` precisely because `bl <= 16`
+makes every `b.gt` fall through.
+
+A `less_than_k` (k full-or-partial blocks) proof would resolve the cascade to a **different**
+target and execute a **different** straight-line tail — its own `ld1`/`aese` block pipeline
+and its own multi-block GHASH accumulation into Q19. So it is NOT obtained by widening
+`bl`'s range; it is a new back-segment of comparable shape/effort to this one.
+
+What carries over to each `less_than_k`:
+- the length-agnostic front (steps 1..254);
+- the `bl_resolve_pc` cascade-resolver pattern (resolve to the `less_than_k` target instead);
+- `MASK_LEMMA` / `INSERT2_JOIN` / `BLEND_OR_XOR` for the partial *last* block of the case;
+- the bridge, but now over **multi-block** GHASH: use the list-generic
+  `GHASH_POLYVAL_ACC_BATCHED` (`common/polyval_ghash.ml`, see §8) instead of the
+  single-block `GHASH_1BLOCK_CORRECT`.
+
+So this proof is best read as the **k=1 instance of a 7-member family**, establishing the
+reusable pieces (partial-block mask collapse, symbolic-`bl` cascade, the GMULT bridge) the
+others build on — not a single theorem already covering them.
+
+**Caveat (production relevance):** per `memory/project_gcm_dec_caller_whole_blocks`, the
+aws-LC caller only ever passes whole-block lengths, so the *partial*-block masking in every
+`less_than_k` path is dead from the caller. The production-relevant generalization is the
+**whole multi-block** path (the 8x main loop), a larger undertaking than the tail cases.
