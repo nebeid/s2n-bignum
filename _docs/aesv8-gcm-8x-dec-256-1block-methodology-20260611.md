@@ -537,7 +537,16 @@ Fix: factor into three lemmas proved *out of the giant goal context*:
   CRITICAL subtlety: the lanes must be typed `:int64` (as they are in-goal); proving the
   lemma on an isolated term with free width type-variables makes `WORD_REDUCE_CONV`
   misbehave (it cannot pick the width, so the `ival`/`word_jushr` literals do not reduce).
-  This lemma is the one slow one-time cost (~94s).
+
+  **Get the `bl` enumeration from `BL16_DISJ`, never `ARITH_TAC`.** The 16-way split
+  `1<=bl/\bl<=16 ==> bl=1 \/ ... \/ bl=16` was originally discharged by `ASM_ARITH_TAC`,
+  which costs **~92s** — the linear-arith decision procedure blows up on the disjunctive
+  conclusion (and `ARITH_TAC` alone can't even close a disjunction). The fix is the helper
+  lemma `BL16_DISJ`, proved by **structural `LE` unfolding** (rewrite each numeral `N` to
+  `SUC (N-1)`, then `REWRITE[LE]` turns `bl <= SUC m` into `bl = SUC m \/ bl <= m`; the
+  residual `1<=bl /\ bl<=1` closes by `GSYM LE_ANTISYM`) — ~0.07s. With `BL16_DISJ`,
+  `MASK_LEMMA` proves in ~0.9s instead of ~94s. The per-`bl` conversion work itself was
+  always cheap (~0.85s for all 16); the ~92s was *entirely* the arithmetic enumeration.
 - `BLEND_OR_XOR`: `word_or (and x m) (and y (~m)) = word_xor (and x m) (and y (~m))` — a
   small free-mask `WORD_BLAST` — for the `bif` plaintext/outprev blend at s340.
 
@@ -557,6 +566,22 @@ systematically replaced by `word_and cph MK`. `GMULT_FULL_CORRECT_BA` is block-p
 so it applies unchanged with `block := word_xor (brev xi) (brev (word_and cph MK))`.
 
 ### 11d. Reproduce
-`loadt` of the whole file is ~600s (≈250s for the full-block theorem + ≈348s for this
-addition, of which `MASK_LEMMA` is ≈94s). Binds both theorems, no cheats, 3 core axioms.
-The standalone development copy is `_docs/dec_le1block_full.ml`.
+`loadt` of the whole file is ~510s (≈250s for the full-block theorem + ≈260s for this
+addition, with `MASK_LEMMA` now ≈0.9s after the `BL16_DISJ` fix; it was ~94s, ~600s total,
+before). Binds both theorems, no cheats, 3 core axioms. The standalone development copy is
+`_docs/dec_le1block_full.ml`.
+
+### 11e. Remaining optimization venues (not yet done)
+Profiled cost centers in the LE1BLOCK addition (~260s), after the `BL16_DISJ` fix:
+- **The front symbolic run (steps 1–311, ~200s)** dominates and is shared in shape with
+  the full-block body — same `ARM_STEPS`/`DISCARD_COUNTER_REGS` cadence. Any speedup here
+  (e.g. coarser step groups with mid-group counter discards, as the full-block §8 history
+  did) helps both proofs. This is the largest remaining lever but is intrinsic to symbolic
+  simulation of the AES rounds.
+- **The Q12 blend SUBGOAL** expands the full 15-round AES tower twice (once via
+  `aes256_encrypt`/`aese`/`aesmc`, once to reconcile the simulator form) then `WORD_RULE`.
+  Folding the tower to an atom before the blend (as the full-block proof carries
+  `read Q12 s340 = plaintext` as one fact) would cut the double expansion.
+- **The bridge lane-blast** (the r1/u/r2 `WORD_BLAST` shift-triples) is identical to the
+  full-block bridge; the shared `FINISH_WV`-style cost applies equally.
+- The 7 `bl_resolve_pc` branch resolvers are already cheap (~0.01s arith each).
