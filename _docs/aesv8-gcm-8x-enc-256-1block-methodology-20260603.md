@@ -429,11 +429,11 @@ multi-block proof. Full detail in the decrypt doc §7b/§8.
   store-safety (decrypt doc §7b item 1).
 
 --------------------------------------------------------------------------------
-## 12. Byte-aligned ≤1-block generalization (`AESV8_GCM_8X_ENC_256_LE1BLOCK_BODY`)
+## 12. Byte-aligned ≤1-block generalization (`AESV8_GCM_8X_ENC_256_LE1BLOCK`)
 
 Status: **PROVED** end-to-end (appended to `arm/proofs/aesv8_gcm_8x_enc_256_1block.ml`;
-full-file `loadt` ~714s, both theorems bound, no cheats, 3 axioms). Mirror of the decrypt
-`AESV8_GCM_8X_DEC_256_LE1BLOCK_BODY` (see the dec methodology doc §11–§12 for the shared
+full-file `loadt` ~732s, both theorems bound, no cheats, 3 axioms). Mirror of the decrypt
+`AESV8_GCM_8X_DEC_256_LE1BLOCK` (see the dec methodology doc §11–§12 for the shared
 machinery: `MASK_LEMMA` via the structural `BL16_DISJ` enumeration, `INSERT2_JOIN`,
 `BLEND_OR_XOR`, the `bl_resolve_pc` cascade resolvers, the one symbolic-`bl` run).
 
@@ -441,8 +441,18 @@ Generalizes `bit_len = 128` to `bit_len = 8*bl`, `1 <= bl <= 16`, one symbolic-`
 With `CT = word_xor plaintext (aes256_encrypt ctr0 keys)` and `MK = word(2^(8*bl)-1)`:
 - output `out_p := word_xor (word_and CT MK) (word_and outprev (word_not MK))`
 - tag GHASHes `word_and CT MK`; extra precond `outprev` = prior out_p contents (the `bif` reads it).
-At `bl=16` (MK all-ones) both collapse to the full-block forms. Entry pc+0x2c, exit pc+0x11d8,
-code range 4600, bridge at s348 — same as the full-block enc body.
+At `bl=16` (MK all-ones) both collapse to the full-block forms.
+
+**C_ARGUMENTS entry (XTS-style).** Like dec, `AESV8_GCM_8X_ENC_256_LE1BLOCK` enters at
+**pc+0x18 with `C_ARGUMENTS [in_p; word (8*bl); out_p; xi_p; ivec_p; key_p; htbl_p]`** —
+enabled by the enc **prologue reorder** (saves-first; the `lsr x9,x1,#3; mov x16,x4; mov x11,x5`
+arg-setup moved after the `stp d8..d15` saves, mirroring the dec `.S` divergence; see the enc
+`.S` header note). The 5-instruction arg-setup (pc+0x18 → pc+0x2c) is composed with the
+byte-aligned body inline via `ENSURES_FRAME_SUBSUMED` + `ENSURES_TRANS`; the front's
+`lsr x9,x1,#3` gives `X9 = word_ushr (word (8*bl)) 3`, closed to `word bl` by `USHR_8BL_LEMMA`.
+The body entry is pc+0x2c, exit pc+0x11d8, code range 4600, bridge at s348 — unchanged by the
+reorder (only the pc+0x0c..0x28 offsets shift; the `.o` is regenerated and the `mc` byte list
+in the `.ml` reordered to match).
 
 **The one enc-specific subtlety (vs dec).** Dec's GHASH block was `word_and cph MK` with `cph`
 an *atom* (the loaded input ciphertext), so its block term stayed compact through the multiply.

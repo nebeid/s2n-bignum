@@ -487,17 +487,25 @@ THENL [REPEAT CONJ_TAC THEN NONOVERLAPPING_TAC; ALL_TAC]` at the top of the back
 ## 11. Byte-aligned ≤1-block generalization (`AESV8_GCM_8X_DEC_256_LE1BLOCK_BODY`)
 
 Status: **PROVED** end-to-end. Theorem `AESV8_GCM_8X_DEC_256_LE1BLOCK_BODY` lives in
-`arm/proofs/aesv8_gcm_8x_dec_256_1block.ml` (appended after the full-block theorem). Like
-the original two-theorem split (§10), it enters at **pc+0x2c** with the decoded args; it
-generalizes the full-block 1-block body from `bit_len = 128` to a partial last block
+`arm/proofs/aesv8_gcm_8x_dec_256_1block.ml` (appended after the full-block theorem). It
+enters at **pc+0x18 with `C_ARGUMENTS`** (XTS-style, like the full-block `AESV8_GCM_8X_DEC_256_1BLOCK`),
+generalizing the full-block path from `bit_len = 128` to a partial last block
 `bit_len = 8*bl`, `1 <= bl <= 16`, in ONE symbolic-`bl` run — no case-split on the
 simulation. The masking path is dead from the aws-LC caller (it only ever passes whole
 blocks; see `memory/project_gcm_dec_caller_whole_blocks`), so this is a
-robustness/completeness theorem, not on the production path. (It is NOT yet wrapped in a
-C_ARGUMENTS theorem; only the full-block path has the pc+0x18 entry.)
+robustness/completeness theorem, not on the production path.
 
-**Spec delta vs the full-block body** (the bit_len=128 path, §1–8): same entry
-PC `pc+0x2c`, same exit PC `pc+0x11e4`, byte-identical MAYCHANGE frame. Differences, with
+**C_ARGUMENTS entry.** `AESV8_GCM_8X_DEC_256_LE1BLOCK` states
+`C_ARGUMENTS [in_p; word (8*bl); out_p; xi_p; ivec_p; key_p; htbl_p]` at pc+0x18 (the
+bit_len argument is `word (8*bl)`), composes the 5-instruction arg-setup (pc+0x18 → pc+0x2c)
+with the byte-aligned body inline via `ENSURES_FRAME_SUBSUMED` + `ENSURES_TRANS` exactly as
+the full-block proof (§10). The one extra wrinkle vs the full-block front: the setup's
+`lsr x9,x1,#3` gives `X9 = word_ushr (word (8*bl)) 3`, discharged to `word bl` by
+`USHR_8BL_LEMMA` (`ASM_SIMP_TAC[USHR_8BL_LEMMA]` before and inside `ENSURES_FINAL_STATE_TAC`).
+The relevant body precond/spec below is stated at the pc+0x2c intermediate `ENSURES_TRANS` state.
+
+**Spec delta vs the full-block body** (the bit_len=128 path, §1–8): same body entry
+PC `pc+0x2c`, same exit PC `pc+0x11e4`, byte-identical Q-register MAYCHANGE. Differences, with
 `MK = word (2 EXP (8*bl) - 1)`:
 - length regs `X1 = word (8*bl)`, `X9 = word bl` (were `word 128`, `word 16`);
 - one extra precond `read (memory :> bytes128 out_p) s = outprev` (the `bif` reads it);
