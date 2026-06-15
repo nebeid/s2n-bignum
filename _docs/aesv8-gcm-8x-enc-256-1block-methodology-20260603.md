@@ -303,6 +303,24 @@ to avoid `ext`s in the hot loop." It is correct, not a workaround — but becaus
 convention encoded in `gcm_init_v8`'s storage, the composed correctness statement must be
 consistent about it (see the ⚠️ in §6 and §11).
 
+### 6c. Composition-consistency check (DONE, 2026-06-15 — closes the §6 ⚠️)
+Verified in HOL that the `byteswap128 h` key composes consistently across the whole development:
+- `htable_mem` (`common/polyval_ghash.ml`) — the memory predicate matching `gcm_init_v8`'s output
+  layout — stores **`byteswap128(h_power H k)`** at every H-power slot (offsets 0/32/48/80/96/
+  128/144/176 for k=0..7), with `karatsuba_mid` packs between. This is the lanes-exchanged storage.
+- 1-block proofs read `h := read htbl_p` = slot 0 = `byteswap128(h_power H 0) = byteswap128 H`, and
+  GHASH with key `byteswap128 h`. By `BYTESWAP128_INVOLUTION`, `byteswap128 h = byteswap128(
+  byteswap128 H) = H = h_power H 0` — the **natural** subkey. So an `h`-opaque 1-block theorem
+  composes by instantiating `h := byteswap128 H` (or equivalently reading H from `htable_mem`).
+- Multi-block: `byteswap128(byteswap128(h_power H k)) = h_power H k` for all k (same involution),
+  so reading each lanes-exchanged htable slot and byteswapping yields exactly the `h_power H k`
+  powers that `GHASH_POLYVAL_ACC_BATCHED` / `GHASH_BATCHED_FROM_HTABLE` are stated over. The n-block
+  spec is therefore stated cleanly over the natural key H with `h_power H k`.
+- enc and dec 1-block postconditions are byte-identical in form:
+  `word_bytereverse (ghash_polyval_acc (byteswap128 h) (word_bytereverse xi) [...])`.
+All four facts machine-checked (`BYTESWAP128_INVOLUTION` + `h_power` defn). The ⚠️ is resolved:
+the convention is uniform; no composition layer needs a stray lane swap.
+
 ---
 
 ## 7. Things that didn't work / took too long (dead ends — do not retry)
