@@ -494,10 +494,29 @@ lane-fold** (the inlined `FINISH_WV_REDUCE_TAC` body: `QQ0SPLIT` + `ABBREV_TAC` 
 `xll/xhl/xhh/xml`/`r1`/`u`/`r2` atoms + per-triple `WORD_BLAST` + a final flat blast) instead of
 the monolithic `FINISH_WV_TAC`.
 
-Candidate fix (NOT yet applied): replace `ABBREV_WA_TAC THEN FINISH_WV_TAC` in the enc bridge
-with the dec-style manual lane-fold (see `arm/proofs/aesv8_gcm_8x_dec_256_1block.ml`, the
-`AESV8_GCM_8X_DEC_256_LE1BLOCK` bridge / `FINISH_WV_REDUCE_TAC`). Tried-and-rejected: abbreviating
-the masked block `cm = word_and ct MK` to an atom before the bridge gave **no** speedup
-(~727s file load, unchanged) — so the cost is intrinsic to `FINISH_WV_TAC`'s `wa`/`wv` blast on
-this goal shape, not the symbolic mask inside the block. The manual lane-fold is the venue to
-pursue; it is the same algebra the dec proof already runs fast.
+Tried-and-rejected: abbreviating the masked block `cm = word_and ct MK` to an atom before the
+bridge gave **no** speedup (~727s file load, unchanged) — so the cost is intrinsic to
+`FINISH_WV_TAC`'s `wa`/`wv` blast on this goal shape, not the symbolic mask inside the block.
+
+### 12a-FIXED. Manual lane-fold applied (DONE, ~108s → ~32s on the bridge)
+**Applied 2026-06-15.** Replaced `ABBREV_WA_TAC THEN FINISH_WV_TAC` in the enc `LE1BLOCK` bridge
+with the dec-style manual r1/u/r2 shift-triple lane-fold (`PMUL_W_64_128` → `JOINMID` →
+`QQ0SPLIT` split of `qq0/qq1/qq2` into 64-bit halves → per-triple `EXPAND_TAC; WORD_BLAST` →
+final flat blast). `JOINMID`/`QQ0SPLIT` were ported into the enc preamble (`PMUL_W_64_128`,
+`WORD_SUBWORD_XOR` are already library-provided). The full-file `loadt` dropped from ~732s to
+**~657s** (both theorems bind, 0 hyps, 3 axioms, no cheats).
+
+Profiling method: a temporary `TIME_TAC` wrapper logging to `/tmp/enc_timing.log` (survives MCP
+transport timeouts) measured the *unchanged* `_1BLOCK` bridge `FINISH_WV` at **107.9s** (the true
+intrinsic cost — the doc's ~148s figure conflated FINISH_WV with the preceding MERGE step). The
+lane-fold itself runs **~32s** standalone and **~31.7s** with the full 99-hyp proof context (both
+verified by stashing the live post-MERGE goal to a global ref and re-running the fold against it).
+
+**The one porting gotcha (cost a 38-min divergence):** the dec fold's second-round reduction
+input `u` is defined `(word_subword r1 0 ^ xhh) ^ ((xll ^ xhl) ^ xml)`, but the **enc** post-MERGE
+goal presents it as `(((xml ^ xhl) ^ xll) ^ word_subword r1 0) ^ xhh`. Dec's `u`-ABBREV/SUBGOAL
+therefore no-ops on the enc goal, leaving an un-abbreviated `word_shl (word_zx (big_xor)) ...`
+tree that makes the final `CONV_TAC WORD_BLAST` diverge (>38 min, killed). Fix = state the enc
+`u` in the enc arrangement and target the enc SUBGOAL accordingly (see the code comment). Lesson:
+the lane-fold's r1/u/r2 ABBREV operands are goal-shape-specific — dump the live post-MERGE goal
+and read off the exact ACI arrangement before porting, do not copy dec's verbatim.

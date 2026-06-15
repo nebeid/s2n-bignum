@@ -1492,6 +1492,15 @@ let SUBWORD0_LEMMAS = prove(
    (word_subword (word 0:int128) (64,64):64 word = word 0)`,
   CONJ_TAC THEN BITBLAST_TAC);;
 
+(* Half projection helpers for the manual W-reduction lane-fold (ported from the dec proof). *)
+let JOINMID = prove(
+  `!q:int128. word_subword (word_join q q :(256)word) (64,128):int128 =
+     word_join (word_subword q (0,64):64 word) (word_subword q (64,64):64 word)`,
+  GEN_TAC THEN CONV_TAC WORD_BLAST);;
+let QQ0SPLIT = prove(
+  `!q:int128. q = word_join (word_subword q (64,64):64 word) (word_subword q (0,64):64 word)`,
+  GEN_TAC THEN CONV_TAC WORD_BLAST);;
+
 (* Abbreviate every currently-innermost fully-applied word_pmul to a fresh qqN:int128. *)
 let ABBREV_INNER_PMULS_TAC : tactic = fun (asl,w) ->
   let is_pmul_app t = try let (h,args)=strip_comb t in
@@ -2177,7 +2186,63 @@ let AESV8_GCM_8X_ENC_256_LE1BLOCK = prove(
    REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES] THEN
    ABBREV_INNER_PMULS_TAC THEN MERGE_PMUL_ATOMS_TAC THEN
    REWRITE_TAC[WORD_XOR_0; SUBWORD0_LEMMAS] THEN REWRITE_TAC[WORD_XOR_0] THEN
-   ABBREV_WA_TAC THEN FINISH_WV_TAC;
+   (* Manual W-reduction lane-fold (ported from the dec LE1BLOCK bridge): reduce the post-MERGE
+      goal to a flat 64-bit XOR identity instead of the monolithic FINISH_WV_TAC blast (~108s,
+      profiled).  Split qq0/qq1/qq2 into named 64-bit halves (QQ0SPLIT), fold each r1/u/r2
+      shift-triple to an abbreviation, finish with a flat blast (~32s).  Same algebra as dec, but
+      NOTE the second-round reduction input `u` here has the ENC goal's ACI arrangement
+      `(((xml^xhl)^xll)^sub r1)^xhh` (dec's `(sub r1 ^ xhh)^((xll^xhl)^xml)` does NOT match the
+      enc post-MERGE goal, so the u-rewrite no-ops and the final blast diverges — verified). *)
+   REWRITE_TAC[PMUL_W_64_128] THEN
+   REWRITE_TAC[JOINMID] THEN
+   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
+   GEN_REWRITE_TAC ONCE_DEPTH_CONV [QQ0SPLIT] THEN
+   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
+   ABBREV_TAC `xll:64 word = word_subword (qq0:int128) (0,64)` THEN
+   ABBREV_TAC `xlh:64 word = word_subword (qq0:int128) (64,64)` THEN
+   ABBREV_TAC `xhl:64 word = word_subword (qq1:int128) (0,64)` THEN
+   ABBREV_TAC `xhh:64 word = word_subword (qq1:int128) (64,64)` THEN
+   ABBREV_TAC `xml:64 word = word_subword (qq2:int128) (0,64)` THEN
+   ABBREV_TAC `xmh:64 word = word_subword (qq2:int128) (64,64)` THEN
+   (* First W-reduction round: fold the shift-triple of xhl into r1 *)
+   ABBREV_TAC
+    `r1:(128)word = word_xor (word_xor (word_shl (word_zx (xhl:(64)word):(128)word) 63)
+                                       (word_shl (word_zx xhl:(128)word) 62))
+                             (word_shl (word_zx xhl:(128)word) 57)` THEN
+   SUBGOAL_THEN
+    `word_xor (word_xor (word_subword (word_shl (word_zx (xhl:(64)word):(128)word) 63) (0,64):(64)word)
+                        (word_subword (word_shl (word_zx xhl:(128)word) 62) (0,64):(64)word))
+              (word_subword (word_shl (word_zx xhl:(128)word) 57) (0,64):(64)word) =
+     word_subword (r1:(128)word) (0,64):(64)word`
+    (fun th -> REWRITE_TAC[th]) THENL [EXPAND_TAC "r1" THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
+   SUBGOAL_THEN
+    `word_xor (word_xor (word_subword (word_shl (word_zx (xhl:(64)word):(128)word) 63) (64,64):(64)word)
+                        (word_subword (word_shl (word_zx xhl:(128)word) 62) (64,64):(64)word))
+              (word_subword (word_shl (word_zx xhl:(128)word) 57) (64,64):(64)word) =
+     word_subword (r1:(128)word) (64,64):(64)word`
+    (fun th -> REWRITE_TAC[th]) THENL [EXPAND_TAC "r1" THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
+   (* Second-round reduction input u (ENC arrangement), then its shift-triple r2 *)
+   ABBREV_TAC `u:(64)word = word_xor (word_xor (word_xor (word_xor (xml:64 word) (xhl:64 word)) (xll:64 word)) (word_subword (r1:128 word) (0,64))) (xhh:64 word)` THEN
+   SUBGOAL_THEN
+    `word_xor (word_xor (xhh:64 word) (word_xor (word_xor (xml:64 word) (xhl:64 word)) (xll:64 word))) (word_subword (r1:128 word) (0,64)) = u`
+    (fun th -> REWRITE_TAC[th]) THENL [EXPAND_TAC "u" THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
+   ABBREV_TAC
+    `r2:(128)word = word_xor (word_xor (word_shl (word_zx (u:(64)word):(128)word) 63)
+                                       (word_shl (word_zx u:(128)word) 62))
+                             (word_shl (word_zx u:(128)word) 57)` THEN
+   SUBGOAL_THEN
+    `word_xor (word_xor (word_subword (word_shl (word_zx (u:(64)word):(128)word) 63) (0,64):(64)word)
+                        (word_subword (word_shl (word_zx u:(128)word) 62) (0,64):(64)word))
+              (word_subword (word_shl (word_zx u:(128)word) 57) (0,64):(64)word) =
+     word_subword (r2:(128)word) (0,64):(64)word`
+    (fun th -> REWRITE_TAC[th]) THENL [EXPAND_TAC "r2" THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
+   SUBGOAL_THEN
+    `word_xor (word_xor (word_subword (word_shl (word_zx (u:(64)word):(128)word) 63) (64,64):(64)word)
+                        (word_subword (word_shl (word_zx u:(128)word) 62) (64,64):(64)word))
+              (word_subword (word_shl (word_zx u:(128)word) 57) (64,64):(64)word) =
+     word_subword (r2:(128)word) (64,64):(64)word`
+    (fun th -> REWRITE_TAC[th]) THENL [EXPAND_TAC "r2" THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
+   CONV_TAC WORD_BLAST;
    ALL_TAC] THEN
   ABBREV_TAC `gval:int128 = polyval_dot (word_xor (word_bytereverse xi)
     (word_bytereverse (word_and (ct:int128) (word (2 EXP (8 * bl) - 1))))) (byteswap128 h)` THEN
