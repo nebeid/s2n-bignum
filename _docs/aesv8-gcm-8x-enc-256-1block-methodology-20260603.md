@@ -482,3 +482,22 @@ copy is `_docs/enc_le1block_full.ml`.
 
 Like dec, this is the k=1 instance of a `less_than_k` family and the partial-block masking is
 dead from the whole-block-only aws-LC caller (proven for completeness).
+
+### 12a. Optimization venue (profiled): the bridge `FINISH_WV_TAC` (~148s)
+The enc `LE1BLOCK` proof is ~356s vs the dec `LE1BLOCK` ~269s (both share the ~150s front).
+Per-segment profiling of the enc tail (this session) localized the entire gap to the **GHASH
+bridge SUBGOAL at s348** (`ABBREV_INNER_PMULS_TAC` → `MERGE_PMUL_ATOMS_TAC` → `ABBREV_WA_TAC`
+→ `FINISH_WV_TAC`), which costs **~148s**; every other tail segment (cascade, mask split + Q9
+reassert, GHASH multiply 329–340, out_p blend collapse, fold 341–348, ext/rev64/store, close)
+is fast. The dec `LE1BLOCK` bridge is cheaper because it uses the **manual r1/u/r2 shift-triple
+lane-fold** (the inlined `FINISH_WV_REDUCE_TAC` body: `QQ0SPLIT` + `ABBREV_TAC` the
+`xll/xhl/xhh/xml`/`r1`/`u`/`r2` atoms + per-triple `WORD_BLAST` + a final flat blast) instead of
+the monolithic `FINISH_WV_TAC`.
+
+Candidate fix (NOT yet applied): replace `ABBREV_WA_TAC THEN FINISH_WV_TAC` in the enc bridge
+with the dec-style manual lane-fold (see `arm/proofs/aesv8_gcm_8x_dec_256_1block.ml`, the
+`AESV8_GCM_8X_DEC_256_LE1BLOCK` bridge / `FINISH_WV_REDUCE_TAC`). Tried-and-rejected: abbreviating
+the masked block `cm = word_and ct MK` to an atom before the bridge gave **no** speedup
+(~727s file load, unchanged) — so the cost is intrinsic to `FINISH_WV_TAC`'s `wa`/`wv` blast on
+this goal shape, not the symbolic mask inside the block. The manual lane-fold is the venue to
+pursue; it is the same algebra the dec proof already runs fast.
