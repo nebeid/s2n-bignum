@@ -427,3 +427,48 @@ multi-block proof. Full detail in the decrypt doc §7b/§8.
 - **The code-range constant in the spec must equal the function's actual byte length** — never
   copy it from a sibling proof (dec needed 4612, not enc's 4600), or tail stores fail
   store-safety (decrypt doc §7b item 1).
+
+--------------------------------------------------------------------------------
+## 12. Byte-aligned ≤1-block generalization (`AESV8_GCM_8X_ENC_256_LE1BLOCK_BODY`)
+
+Status: **PROVED** end-to-end (appended to `arm/proofs/aesv8_gcm_8x_enc_256_1block.ml`;
+full-file `loadt` ~714s, both theorems bound, no cheats, 3 axioms). Mirror of the decrypt
+`AESV8_GCM_8X_DEC_256_LE1BLOCK_BODY` (see the dec methodology doc §11–§12 for the shared
+machinery: `MASK_LEMMA` via the structural `BL16_DISJ` enumeration, `INSERT2_JOIN`,
+`BLEND_OR_XOR`, the `bl_resolve_pc` cascade resolvers, the one symbolic-`bl` run).
+
+Generalizes `bit_len = 128` to `bit_len = 8*bl`, `1 <= bl <= 16`, one symbolic-`bl` run.
+With `CT = word_xor plaintext (aes256_encrypt ctr0 keys)` and `MK = word(2^(8*bl)-1)`:
+- output `out_p := word_xor (word_and CT MK) (word_and outprev (word_not MK))`
+- tag GHASHes `word_and CT MK`; extra precond `outprev` = prior out_p contents (the `bif` reads it).
+At `bl=16` (MK all-ones) both collapse to the full-block forms. Entry pc+0x2c, exit pc+0x11d8,
+code range 4600, bridge at s348 — same as the full-block enc body.
+
+**The one enc-specific subtlety (vs dec).** Dec's GHASH block was `word_and cph MK` with `cph`
+an *atom* (the loaded input ciphertext), so its block term stayed compact through the multiply.
+Enc's block is `word_and CT MK` where `CT` is the full 15-round AES tower — compound. Two
+consequences, both fixed by keeping the block atomic:
+1. **Abbreviate the ciphertext to an atom `ct` right after the AES rounds (s265)**, where
+   `read Q9 s265 = CT`. Use the MESON-SPEC trick to fold the `aese/aesmc` tower to
+   `word_xor plaintext (aes256_encrypt ...)` (needs a *leading* `ONCE_REWRITE_TAC[WORD_XOR_ASSOC]`
+   before expanding, then a trailing one), then `ABBREV_TAC ct = ...`. The whole mask region,
+   GHASH multiply, and bridge then carry the atom.
+2. **Collapse the partial-block mask on Q9 BEFORE the `rev64 v8,v9`, not after.** Enc runs
+   `and v9,v9,v0` (step 326) then `rev64 v8,v9` (step 327) then `bif`+store — all inside the
+   less_than_1 VSTEPS window. The GHASH block lives in Q8 = rev64(Q9). If you collapse the mask
+   only at s328 (after the rev64), Q8 already holds the *uncollapsed* csel mask-tower and the
+   multiply blows `Q19 s348` up to ~150k chars, so `FINISH_WV_TAC` fails. Fix: split the window —
+   `ARM_VSTEPS_RESOLVE_SIMD_TAC (312--326)`, re-assert `read Q9 s326 = word_and ct MK`
+   (`INSERT2_JOIN` + `MASK_LEMMA` + `WORD_RULE`), then `(327--328)` so the rev64 reads the clean
+   Q9 and Q8 s328 is the rev64 of the compact masked block. (Instruction 15 of the less_than_1
+   block = `and v9` = step 326; instruction 16 = `rev64 v8,v9` = step 327, counting the block
+   start 0x1138 as step 312.)
+
+With those, the out_p blend collapse (s340, `word_or → word_xor` via `BLEND_OR_XOR`+`MASK_LEMMA`)
+and the bridge (`GMULT_FULL_CORRECT_BA` + `ABBREV_INNER_PMULS_TAC` + `MERGE_PMUL_ATOMS_TAC` +
+`ABBREV_WA_TAC` + `FINISH_WV_TAC`, all over the atomic masked block) close exactly as the
+full-block enc proof. The final close expands `gval` and `ct` back. The standalone development
+copy is `_docs/enc_le1block_full.ml`.
+
+Like dec, this is the k=1 instance of a `less_than_k` family and the partial-block masking is
+dead from the whole-block-only aws-LC caller (proven for completeness).
