@@ -14,9 +14,10 @@
 (* var pinned by the precond ctr1 = gcm_ctr_inc ctr0 (the rev32+ADD+rev32 of    *)
 (* the top 32-bit lane); GCM_CTR_INC_LANES bridges it to the lane-byte form.    *)
 (* The 2-product GHASH bridge closes via the targeted MERGE_2BLK_TAC (products  *)
-(* paired by free-var/lane signature, W-reduction pmuls by shared word-const)   *)
-(* + FINISH_2BLK_TAC; ~6 min in the bridge, ~17 min total loadt incl. the       *)
-(* 1-block dep.  Direct C_ARGUMENTS entry at pc+0x18 (no ENSURES_TRANS          *)
+(* paired by free-var/lane signature, W-reduction pmuls by shared word-const,    *)
+(* operand equalities closed by FAST_OPERAND_TAC: flatten lanes + WORD_BITWISE,  *)
+(* ~1s vs ~90s WORD_BLAST) + FINISH_2BLK_TAC; bridge ~73s, ~16 min total loadt   *)
+(* incl. the 1-block dep.  Direct C_ARGUMENTS entry at pc+0x18 (no ENSURES_TRANS *)
 (* wrapper), exit pc+0x11d8.  See _docs/2block_handoff/BRIDGE.md for history.    *)
 (* ========================================================================= *)
 
@@ -540,6 +541,47 @@ let SUBW_XOR_256 = prove(
      word_xor (word_subword x (lo,64)) (word_subword y (lo,64))`,
   REPEAT GEN_TAC THEN REWRITE_TAC[WORD_SUBWORD_XOR]);;
 
+(* Collapse a 64-bit lane of subword(subword(join a a)(64,128)) -- the duplicated *)
+(* mid-half the wv W-reduction operand produces -- to a plain lane of a.  Lets the *)
+(* wv operand equality close as a flat WORD_BITWISE identity instead of a ~90s     *)
+(* WORD_BLAST (see FAST_OPERAND_TAC / the merge speedup note below).               *)
+let SUBSUB_JOIN_DUP = prove(
+  `(!a:128 word. word_subword (word_subword (word_join a a :256 word) (64,128) :128 word) (0,64) :64 word
+                 = word_subword a (64,64)) /\
+   (!a:128 word. word_subword (word_subword (word_join a a :256 word) (64,128) :128 word) (64,64) :64 word
+                 = word_subword a (0,64))`,
+  CONJ_TAC THEN GEN_TAC THEN CONV_TAC WORD_BLAST);;
+
+(* Abbreviate EVERY `word_subword (a:int128) (lo,64)` subterm occurring in the goal
+   (a any term, typically a qqN atom or its lane) to a fresh 64-bit var.  After this
+   no `word_subword`-over-int128 survives, so the residual is a flat word_xor
+   identity over 64-bit vars that WORD_BITWISE_TAC closes.  (Used by both
+   FAST_OPERAND_TAC for the merge and FINISH_2BLK_TAC for the final close.) *)
+let ABBREV_ALL_SUBWORDS_TAC : tactic = fun (asl,w) ->
+  let is_sw64 t = try fst(dest_const(rator(rator t)))="word_subword" &&
+                      type_of t = `:(64)word` &&
+                      type_of (rand(rator t)) = `:int128` with _->false in
+  let sws = setify(find_terms is_sw64 w) in
+  let used = ref 0 in
+  let tac = itlist (fun t acc ->
+      let n = !used in used := n+1;
+      ABBREV_TAC (mk_eq(mk_var("zw"^string_of_int n,`:64 word`), t)) THEN acc)
+    sws ALL_TAC in
+  tac (asl,w);;
+
+(* Fast closer for a merge's operand-equality subgoal.  Both operands are the SAME *)
+(* GF product's structural lane form (word_zx/word_shl/word_subword over the qq    *)
+(* atoms, NO pmul), so collapse the 256-bit Karatsuba lanes to 64-bit (the SUBW_*  *)
+(* lemmas + SUBSUB_JOIN_DUP), abbreviate the residual atom-lanes, and close by      *)
+(* WORD_BITWISE_TAC (<1s).  This replaces a ~90s WORD_BLAST per W-reduction operand. *)
+let FAST_OPERAND_TAC : tactic =
+  REWRITE_TAC[SUBW_XOR_256; SUBW_ZX_256; SUBW_SHL64_256; SUBW_SHL128_256;
+              SUBW_ZX128_256; SUBW_SHL64_128_256; SUBW_SHL128_128_256] THEN
+  REWRITE_TAC[WORD_XOR_0; SUBSUB_JOIN_DUP; WORD_SUBWORD_SUBWORD;
+              JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
+  ABBREV_ALL_SUBWORDS_TAC THEN
+  WORD_BITWISE_TAC;;
+
 (* Targeted pmul-atom merge for the 2-block bridge.  The post-Karatsuba goal   *)
 (* has matched LHS/RHS word_pmul atoms (same GF(2^128) product in different    *)
 (* arg-order / lane nesting).  The generic all-pairs MERGE_PMUL_ATOMS_TAC is   *)
@@ -597,12 +639,17 @@ let MERGE_ONE_2BLK_TAC : tactic = fun (asl,w) ->
   (match find_pair items with
   | None -> (fun _ -> failwith "MERGE_ONE_2BLK_TAC: nothing to merge")
   | Some(v1,v2) ->
+      (* Close each operand equality with FAST_OPERAND_TAC (flatten lanes +
+         WORD_BITWISE, <1s) and only fall back to WORD_BLAST if that doesn't apply.
+         The W-reduction (wv) operand is ~90s under WORD_BLAST but ~1s under the
+         flatten route -- this is the bridge's dominant cost, see FAST_OPERAND_TAC. *)
+      let close_op = FAST_OPERAND_TAC ORELSE CONV_TAC WORD_BLAST in
       SUBGOAL_THEN (mk_eq(v1,v2))
         (fun th -> REWRITE_TAC[th] THEN RULE_ASSUM_TAC(REWRITE_RULE[th]))
        THENL [EXPAND_TAC(fst(dest_var v1)) THEN EXPAND_TAC(fst(dest_var v2)) THEN
-              ((MATCH_MP_TAC PMUL_CONG_128 THEN CONJ_TAC THEN CONV_TAC WORD_BLAST)
+              ((MATCH_MP_TAC PMUL_CONG_128 THEN CONJ_TAC THEN close_op)
                ORELSE (GEN_REWRITE_TAC LAND_CONV [WORD_PMUL_SYM] THEN
-                       MATCH_MP_TAC PMUL_CONG_128 THEN CONJ_TAC THEN CONV_TAC WORD_BLAST));
+                       MATCH_MP_TAC PMUL_CONG_128 THEN CONJ_TAC THEN close_op));
               ALL_TAC]) (asl,w);;
 
 (* Repeat the single-merge to a fixpoint. *)
@@ -627,23 +674,8 @@ let ABBREV_Q9_TAC vname state =
 
 (* The flatten-and-blast close for the 2-product reduction structural identity:
    collapse the 256-bit Karatsuba assembly to 64-bit lanes, abbreviate atom halves,
-   split the word_join equality lane-wise, finish each lane with WORD_BITWISE_TAC. *)
-(* Abbreviate EVERY `word_subword (a:int128) (lo,64)` subterm occurring in the goal
-   (where a is any term, typically a qqN atom or its lane) to a fresh 64-bit var.
-   After this no `word_subword`-over-int128 survives, so the residual is a flat
-   word_xor identity over 64-bit vars that WORD_BITWISE_TAC closes. *)
-let ABBREV_ALL_SUBWORDS_TAC : tactic = fun (asl,w) ->
-  let is_sw64 t = try fst(dest_const(rator(rator t)))="word_subword" &&
-                      type_of t = `:(64)word` &&
-                      type_of (rand(rator t)) = `:int128` with _->false in
-  let sws = setify(find_terms is_sw64 w) in
-  let used = ref 0 in
-  let tac = itlist (fun t acc ->
-      let n = !used in used := n+1;
-      ABBREV_TAC (mk_eq(mk_var("zw"^string_of_int n,`:64 word`), t)) THEN acc)
-    sws ALL_TAC in
-  tac (asl,w);;
-
+   split the word_join equality lane-wise, finish each lane with WORD_BITWISE_TAC.
+   (ABBREV_ALL_SUBWORDS_TAC is defined above, shared with FAST_OPERAND_TAC.) *)
 let FINISH_2BLK_TAC : tactic =
   REWRITE_TAC[SUBW_XOR_256; SUBW_ZX_256; SUBW_SHL64_256; SUBW_SHL128_256;
               SUBW_ZX128_256; SUBW_SHL64_128_256; SUBW_SHL128_128_256] THEN

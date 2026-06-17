@@ -213,10 +213,24 @@ TRY(block-0: GSYM ct0-def THEN expand aes256_encrypt to the raw aese tower)
 |-------|-------|
 | 1-block dependency load (`needs`) | ~657s (one-time per session) |
 | Front (prologue + AES + cascade to s367) | ~180s |
-| Bridge (3 merge rounds + FINISH) | ~100s (most of it the one wv blast) |
-| ext+rev64 + store + close | ~30s |
-| **Full `loadt` (deps cached)** | **~385s** |
-| **Full `loadt` from cold (incl. 1-block dep)** | **~17 min** |
+| Bridge (3 merge rounds + FINISH) | ~73s (was ~155s before the FAST_OPERAND_TAC merge speedup) |
+| ext+rev64 + store + close | ~38s |
+| **Full `loadt` (deps cached)** | **~290s** (was ~385s) |
+| **Full `loadt` from cold (incl. 1-block dep)** | **~16 min** |
+
+### Bridge merge speedup (the wv operand)
+Profiling showed the bridge was dominated by ONE step: round-3's `wv` W-reduction merge,
+whose operand equality closed by `CONV_TAC WORD_BLAST` in ~144s (the flattened operand alone
+is ~93s of BDD blasting over ~6 opaque qq atoms). Both operands are the SAME GF product's
+structural lane form (`word_zx`/`word_shl`/`word_subword` over the qq atoms, no `pmul`), so it
+is really a flat XOR lane identity — exactly what `WORD_BITWISE_TAC` closes in <1s once the
+256-bit Karatsuba lanes are collapsed to 64-bit. `FAST_OPERAND_TAC` does that collapse
+(the `SUBW_*` lemmas + the new `SUBSUB_JOIN_DUP` for the duplicated mid-half `word_subword
+(word_subword (word_join a a) (64,128)) (lo,64)`), abbreviates the residual atom-lanes, then
+`WORD_BITWISE_TAC`. `MERGE_ONE_2BLK_TAC` now closes each operand with
+`FAST_OPERAND_TAC ORELSE CONV_TAC WORD_BLAST`, dropping the wv merge from ~93s to ~1s and the
+whole bridge from ~155s to ~73s. (Pure-XOR-identity ⇒ `WORD_BITWISE_TAC` not `WORD_BLAST` is
+the same lesson as §7.2 / the FINISH close.)
 
 ---
 
