@@ -2,6 +2,152 @@
 
 **Status: PLAN (not started). Author target: whoever picks up the 8-block / general AES-CTR work.**
 
+---
+
+## ⚠ REVISION (2026-06-17) — ADOPT MILA'S SPEC LAYER; DON'T REBUILD IT
+
+After reading Mila's `aes256_gcm_whole` branch in full (see memory
+[[reference_mila_aes256_gcm_whole]] and the status writeup), the premise of the
+original plan below has shifted. **Mila has already built — and proven — the entire
+XTS-style generalized spec layer and the generic bridges this plan set out to construct.**
+So most of Tasks 3/4/5/7 are "adopt", not "build". What is genuinely still ours to do is
+different (the main loop, our binary, decrypt). Read this section first; treat the
+detailed Tasks 0–9 further down as the *fallback "build from scratch" reference*, now
+superseded where it overlaps Mila's work.
+
+### What Mila already has (reuse verbatim — `manastasova/s2n-bignum-dev@756df852 arm/proofs/aes256_gcm.ml`)
+[permalink](https://github.com/manastasova/s2n-bignum-dev/blob/756df852a0e42ac0229d7d67fb223b843d4afb49/arm/proofs/aes256_gcm.ml)
+- **Spec layer (XTS-modeled, byte-list):** `bytes_to_int128` / `int128_to_bytes` /
+  `byte_list_at` (verbatim from XTS); `gcm_ctr_iter` (the recursive counter iterator =
+  our planned `gcm_ctr_inc_iter`, ALREADY EXISTS); `gcm_keystream`; `gcm_ct_rec` /
+  `gcm_ct_bytes_rec` (recursive ciphertext via `prove_general_recursive_function_exists`);
+  `gcm_ctm_tail` (masked partial tail); `gcm_ghash_blocks`; `aes256_gcm_encrypt` (top
+  ciphertext spec); `gcm_final_xi` (tag spec).
+- **Generic bridges (the Task 5 work, done):** `OUT_BRIDGE_GEN` (N−1 full ct stores +
+  masked tail ⇔ `byte_list_at (aes256_gcm_encrypt …)`), `BYTE_LIST_AT_BLOCK` /
+  `INPUT_BLOCK_BL` / `INPUT_READS_128` (per-block input reads from `byte_list_at`),
+  `GHASH_BLOCKS_1..8`.
+- **GHASH N-block machinery (the Task 7 work, done):** in
+  `arm/proofs/utils/gcm_aesgcm_nblock_helpers.ml` — `kara_acc`/`kara_quad_pmul`/
+  `ghash_Nblock_karatsuba`, and the once-proven inductive bridge
+  `GHASH_NBLOCK_KARATSUBA_EQ_PROP3` reused for all N; plus the per-block counter-fold
+  LANE/CTR lemmas we already cited.
+- **Whole-routine theorem:** `AES256_GCM_ENCRYPT_CORRECT` — her binary `aes256_gcm.o`
+  correct for every `val len ≤ 128` (0–8 blocks) via length dispatch.
+
+### The crucial caveat — it's a DIFFERENT binary
+- Mila proves `aes256_gcm_mc = arm/aes-gcm/aes256_gcm.o`, entry pc+0, the *whole* routine
+  with internal length dispatch.
+- We prove `aesv8_gcm_8x_enc_256_mc = arm/aes-gcm/aesv8_gcm_8x_enc_256.o`, entry pc+0x18
+  (C_ARGUMENTS), the per-call routine.
+- Her **theorems** don't transfer to our binary, but her **spec layer + generic bridges +
+  counter iterator + GHASH inductive bridge are binary-agnostic** and are exactly what we
+  reuse.
+
+### What is actually still open (our real work, in priority order)
+1. **Coordinate the shared spec home.** Decide with Mila + upstream where the binary-agnostic
+   spec (`byte_list_at`, `aes256_gcm_encrypt`, `gcm_final_xi`, `gcm_ctr_iter`, the generic
+   bridges) lives so enc/dec/our-binary/her-binary all `needs` ONE copy (not a fork).
+   Likely `common/` or a shared `arm/proofs/utils/` file. This replaces plan Tasks 1/3/4/5.
+2. **Wire OUR binary's proofs to her spec.** Re-state `AESV8_GCM_8X_ENC_256_{1,2}BLOCK`
+   (and the future N-block) so the postcond is `byte_list_at (aes256_gcm_encrypt …) out_p len`
+   + `read xi_p = gcm_final_xi …`, discharged via `OUT_BRIDGE_GEN` / `INPUT_READS_*` /
+   the GHASH bridge — replacing our per-block `bytes128`+`gcm_ctr_inc`-literal postconds.
+   (This is plan Task 6/6b, but targeting Mila's spec instead of a home-grown `aes_ctr`.)
+3. **THE MAIN LOOP / >8 blocks (genuinely new — nobody has done it).** Mila stops at
+   `val len ≤ 128` (≤8-block tail dispatch); the bulk `Loop_mod2x_v8` (8-blocks-at-a-time,
+   trn1/trn2 interleave) is unproven. This is the largest remaining piece and the main
+   point of "reused in the main loop and all tail blocks": the same `gcm_ctr_iter` /
+   `gcm_ghash_blocks` / `OUT_BRIDGE_GEN` spec must cover loop iterations too (the loop is
+   just `nfull` large), so the spec already fits — the work is the loop *invariant* +
+   simulating the interleaved body.
+4. **DECRYPT.** Carry the same shared spec to dec (CTR is symmetric: dec keystream is the
+   identical `word_xor <cph> (aes256_block_enc (gcm_ctr_iter i ivec) …)`). Only
+   `AESV8_GCM_8X_DEC_256_1BLOCK` exists; produce 2-/N-block dec + its main loop.
+5. **EVALUATE the GHASH closure (ours vs Mila's) on ONE shared N-block goal, then pick one.**
+   Not yet decided — needs a measured head-to-head (see "GHASH closure findings" below).
+6. **STACK POSTURE: aim for XTS-style no-stack-clause, but defer the decision to the
+   main-loop proof.** Our binary cannot fully skip the stack the way XTS does (see "Stack
+   findings" below); the cleanest option is to enter *after* the reduction-constant spill and
+   supply that constant as a precond. Decide this once, for the main-loop/whole-binary proof,
+   not retrofitted per tail band.
+
+### GHASH closure findings (2026-06-17 evaluation; both approaches read at the pinned commits)
+- **Ours** (`aesv8_gcm_8x_enc_256_2block.ml` bridge + `common/polyval_ghash.ml`): per-product
+  atom-merge by structural signature (`MERGE_2BLK_TAC`), operand equalities closed by
+  `FAST_OPERAND_TAC` (lane-flatten + `WORD_BITWISE`, ~1s) instead of `WORD_BLAST` (~90s). The
+  spec side is ALSO list-generic — `GHASH_POLYVAL_ACC_BATCHED` is proven once by induction.
+  **Measured: bridge ~73s.** Tactics are tuned to our 256-bit assembly lane shapes.
+- **Mila's** (`gcm_aesgcm_nblock_helpers.ml` + `aes256_gcm.ml`): the hard bridge
+  `GHASH_NBLOCK_KARATSUBA_EQ_PROP3` is proven ONCE and instantiable for any N, with only
+  trivial per-N pieces (`GHASH_BLOCKS_k`, `POLYVAL_DOT_Hk_EQ`). **More scalable BY DESIGN.**
+  CAVEAT (verified at `756df852`): that inductive bridge is **not actually wired into her
+  concrete per-length bands yet** — each band still hand-closes with `bubble_sort_conv` +
+  many `WORD_BLAST` leaves, so its *realized* per-N cost today is comparable hand-work, no
+  in-file timings.
+- **Verdict:** faster *today* = ours (measured, WORD_BITWISE-optimized); more scalable *by
+  design* = Mila's once-proven-bridge pattern (once wired). Neither is a clean win as-shipped.
+  **Action (new task):** wire BOTH to one identical N-block bridge goal (e.g. 4-block), time
+  them, and adopt the winner — likely a hybrid: Mila's `…_EQ_PROP3` instantiation to avoid
+  per-product merging + our `FAST_OPERAND_TAC`/`GHASH_POLYVAL_ACC_BATCHED` for the leaves.
+  Promote the chosen lemmas to the shared spec file (item 1).
+
+### Stack findings (2026-06-17; how XTS skips the stack and why GCM can only go partway)
+- **XTS skips the stack completely** by (i) entering AFTER the prologue (`pc+28`, past the
+  `stp x19,x20,[sp]` / `stp x21,x22,[sp,#16]` callee-saves), (ii) exiting BEFORE the epilogue
+  (`pc + LENGTH - 8*4`, before the `ldp` restores + `ret`), so no `[sp]` byte is ever written
+  — its MAYCHANGE has NO `bytes(stackpointer,…)` clause (only registers/Qs/flags/ciphertext).
+  Sound because it never models the saves/restores; clobbering callee-saved x19–x22 is fine
+  in a body lemma since caller-preservation is simply not part of this spec.
+- **Our GCM binary has TWO kinds of prologue stack store.** (a) the `d8–d15` callee-saves
+  (sp+0..56) — we ALREADY skip these by entering at `pc+0x18`, exactly XTS-style. (b)
+  `stp x5,xzr,[sp,#64]` writes the **0xC2000…01 Barrett/Prop3 reduction constant**, which the
+  code **reloads 3× as `ldr d16,[x10]` at the MODULO reductions** (`.S` ~lines 682/1101/1503).
+  This is an ALGORITHMIC spill→reload, NOT a callee-save — which is why our spec steps it
+  inline and carries the `bytes(stackpointer+64,16)` MAYCHANGE clause.
+- **So a clean XTS-style total skip is impossible while reaching those reloads.** The viable
+  option: enter at **`pc+0x28`** (after the spill), add preconds
+  `read (memory :> bytes64 (stackpointer+64)) s = 0xC200…` and `(+72)=word 0`, set
+  `X10 = stackpointer+64`, and DROP the `bytes(...,64,16)` clause from MAYCHANGE — then no
+  stack *write* occurs (one stack-memory *read* precond remains). Feasible, moderate effort,
+  low payoff for a single tail band — **but the right posture for the main-loop/whole-binary
+  proof**, where the constant is loaded once and reused across all iterations. Decide it
+  there (item 6), not per band.
+- **Mila's stance is the OPPOSITE of skipping:** her whole-binary `AES256_GCM_ENCRYPT_CORRECT`
+  enters at `pc` (full prologue), `SP=stackptr+80`, and carries the full 80-byte frame
+  (`MAYCHANGE [SP]` + `bytes64 stackptr … +72`) — a whole-binary proof must model the real
+  push/pop. If we want the XTS no-stack style, that is a deliberate divergence from her shape.
+
+### Revised order of attack
+adopt-spec (shared file) → **GHASH-closure bench (pick winner)** → wire enc 1+2 block to it
+→ enc main loop (Loop_mod2x_v8, **settle stack posture here**) → decrypt (1,2,…, then its
+main loop). Counter-iterator + the N-block spec are already done by Mila; we consume them;
+the GHASH *closure tactic* and the *stack posture* are the two things still to decide (above).
+Keep everything pointing at ONE shared spec file.
+
+### Open questions to settle before coding
+- **Q-stack:** do we want the XTS no-stack-clause posture for our GCM proofs? If yes, the
+  target is: enter at `pc+0x28` (after the 0xC2 reduction-constant spill), supply that
+  constant + `X10` as preconds, drop the `bytes(stackpointer+64,16)` MAYCHANGE clause. Decide
+  for the main-loop/whole-binary proof (not per tail band). Diverges from Mila's full-frame
+  shape (see Stack findings).
+- **Q-ghash:** which GHASH closure do we standardize on — ours (measured-fast,
+  `FAST_OPERAND_TAC`/`GHASH_POLYVAL_ACC_BATCHED`), Mila's (once-proven `…_EQ_PROP3`, scalable
+  by design but not yet wired into her bands), or a hybrid? Resolve by the bench in item 5.
+- **Q-share:** does Mila intend to upstream `aes256_gcm.ml`'s spec layer to
+  `common/`/`arm/proofs/utils/`? If yes, depend on that; if not, lift just the spec+bridges
+  into a shared file on our side and `needs` it from both her-style and our-binary proofs
+  (coordinate names verbatim so a later merge is a no-op — cf. R5).
+- **Q-binary:** are `aes256_gcm.o` and `aesv8_gcm_8x_enc_256.o` the same source compiled
+  differently, or different routines? Determines how much of her *concrete* sim/closers we
+  can reuse vs. only the spec. (Her concrete bands ARM_STEP her binary; our front/bridge
+  already work on ours.)
+- **Q-389:** the COPY-DON'T-STUB / `inc32` reconciliation (original Task 2) still applies,
+  but note Mila uses `gcm_ctr_inc`+`gcm_ctr_iter`, not `inc32` — the NIST `inc32` bridge is
+  still worth having and is still an @UPSTREAM-389 candidate.
+
+---
+
 ## Goal
 
 Move the AES-GCM encrypt proofs away from *per-block* spec clauses (one `bytes128`
@@ -156,7 +302,15 @@ exists (1-block); there is no 2-block dec proof yet, so Task 6c includes produci
 
 ## Tasks
 
-Each task lists: deliverable, files touched, acceptance criterion (AC), dependencies.
+> **NOTE (2026-06-17 revision):** the tasks below were written assuming we build the
+> spec layer + generic bridges + counter iterator + GHASH N-block bridge ourselves from
+> XTS + PR389. Mila's `aes256_gcm_whole` branch already provides all of those, proven
+> (see the REVISION section at the top). Treat Tasks 1, 3, 4, 5, 7 as **largely satisfied
+> by adopting Mila's work** — keep them only as the spec of *what those pieces must
+> contain* / a fallback if we cannot reuse hers. Tasks 0 (design decisions), 2 (inc32
+> reconciliation / @UPSTREAM-389), 6/6b/6c (wiring OUR binary + decrypt), 8 (4/8 blocks
+> AND the main loop), and 9 (PR389 convergence) remain the live work, now re-framed to sit
+> on top of her spec.
 
 ### Task 0 — Settle the design decisions D1–D4 and write the interfaces
 - Deliverable: a short ADDENDUM section in this doc recording the chosen list element type,
