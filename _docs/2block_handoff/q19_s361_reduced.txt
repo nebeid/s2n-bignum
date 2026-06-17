@@ -1,0 +1,27 @@
+read Q19 s361 =
+word_xor
+(word_pmul
+ (word_subword
+  (word_xor (word 0)
+  (word_subword
+   (word_join (word_reversefields 8 ct1) (word_reversefields 8 ct1))
+  (64,128)))
+ (0,64))
+(word_subword h (0,64)))
+(word_xor
+ (word_pmul
+  (word_subword
+   (word_xor
+    (word_subword
+     (word_join
+      (word_join (word_reversefields 8 (word_subword xi (0,64)))
+      (word_reversefields 8 (word_subword xi (64,64))))
+     (word_join (word_reversefields 8 (word_subword xi (0,64)))
+     (word_reversefields 8 (word_subword xi (64,64)))))
+    (64,128))
+   (word_subword
+    (word_join (word_reversefields 8 ct0) (word_reversefields 8 ct0))
+   (64,128)))
+  (0,64))
+ (word_subword h2 (0,64)))
+(word 0))
