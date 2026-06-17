@@ -1,5 +1,11 @@
 # The 2-block GHASH bridge — the one remaining lemma
 
+> **SUPERSEDED (2026-06-17): the proof is DONE.** This file is the historical
+> development log. For the clean writeup (methodology, timing, lessons,
+> comparison to 1-block) see
+> `_docs/aesv8-gcm-8x-enc-256-2block-methodology-20260617.md`. The "DONE"
+> section at the bottom of this file records the resolution inline.
+
 The full 2-block simulation is complete (direct C_ARGUMENTS entry pc+0x18, no
 wrapper) up to `read Q19 s367` = the final reduced GHASH result (pc+0x11cc, the
 ~18.4k-char byte-form, just before the ext+rev64 byte-reorder and the store).
@@ -304,3 +310,89 @@ spec form = word_xor plaintext1 (aes256_encrypt CTR1 keys), CTR1 = the lane-leve
 once-incremented counter -- model it as a spec var/fn), and xi_p =
 word_bytereverse gval (closes trivially via the gval store readback). Do this
 AFTER the bare version loads.
+
+## *** DONE (2026-06-17): both items closed, FULL spec proven ***
+
+AESV8_GCM_8X_ENC_256_2BLOCK now loads clean and binds with the COMPLETE
+postcondition (out_p block-0, out_p block-1, xi_p GHASH tag), no cheats, 3
+standard axioms. Full loadt ~17 min (657s 1-block dep + ~6 min sim/bridge).
+
+(A) PERFORMANCE -- SOLVED. MERGE_2BLK_TAC no longer does blind all-pairs blasting
+    (~30 min). MERGE_ONE_2BLK_TAC now picks exactly ONE structurally-determined
+    pair per call and blasts only it; REPEAT to a fixpoint. Two atom classes:
+      - PRODUCT atoms (op2 is a key-lane subword h/h2, or an xor of two such):
+        paired by the signature (sorted non-key free-var names of operand 1,
+        sorted free-var names of operand 2, operand-2's subword lane index).
+        EXCLUDE k0..k14 from operand-1's free-var set -- the assembly's `ins`
+        leaves a spurious k13 in one mid-term form that would otherwise split a
+        genuine pair (this was the qq9/qq11 non-merge in session 4).
+      - W-REDUCTION atoms (operand 2 = the same word-CONSTANT 0xC200...): the wa
+        and wv rounds differ structurally in operand 1 but multiply the same
+        constant, so pair them by "operand 2 is the identical word-constant".
+    RULE_ASSUM propagation of each merge eq is kept (the wv atom's def references
+    the wa atom merged the round before). Bridge: ~3.6s + 3s (products) + ~92s
+    (the one big wv blast) + 2.8s (FINISH) instead of ~30 min. The 3x
+    (ABBREV_INNER_PMULS_TAC THEN MERGE_2BLK_TAC) THEN FINISH_2BLK_TAC structure
+    in the file is unchanged -- only the merge tactic's internals.
+
+(B) FINAL CLOSE -- SOLVED. After s370: ENSURES_FINAL_STATE_TAC, then ASM_REWRITE
+    + REPEAT CONJ_TAC + TRY(MAYCHANGE..NO_TAC) + TRY(block-0 ct0 spec-form
+    expansion). The earlier "Unsolved goals" was the block-0 conjunct: its store
+    happened at more_than_1 entry BEFORE ct0 was abbreviated, so the s370
+    readback is the RAW aese/aesmc tower (not the atom ct0). Fix: GSYM the ct0
+    def to put ct0 -> spec form on the goal RHS, then ONCE_REWRITE WORD_XOR_ASSOC
+    + REWRITE aes256_encrypt/EL_15_128_CLAUSES/aes256_encrypt_round/aese/aesmc +
+    let_CONV + WORD_XOR_ASSOC -- the two towers then match syntactically.
+
+FULL-SPEC METHODOLOGY (the genuinely new part):
+
+  ctr1 spec var. Block-1's AES input is the lane-level once-incremented ctr0
+  (rev32 of the byte-shuffled top 32-bit lane + 1). We expose `ctr1:int128` as a
+  spec variable and pin it with a precond `ctr1 = <lane-shuffle of ctr0>`.
+
+  *** TYPE-INFERENCE GOTCHA (cost the most time). *** The lane-shuffle is a tower
+  of word_join's, and word_join : (M)word->(N)word->(P)word has its OUTPUT width P
+  as an independent type variable -- HOL CANNOT infer it from the operands
+  (join of two 8-bit words could be any width >= 16). Writing the precond as a
+  bare term leaves free type variables in the goal, and then GEN_TAC/STRIP_TAC
+  SILENTLY NO-OP (the goal is an open polymorphic prop, not closed) -- the front
+  tactic appears to "not run" with no error. FIX: the precond must be FULLY
+  TYPE-ANNOTATED -- every word_join/word_subword/word_add/word literal carries an
+  explicit (n)word. We generated the annotated literal by building the term
+  programmatically with concrete widths (mk_finty(num n) for the index type, and
+  width = sum of operand widths for each join), then printing it with
+  `print_types_of_subterms := 2`. The annotations are absorbed during
+  type-checking; the displayed/stored term is clean, and the goal is now closed so
+  GEN_TAC/STRIP_TAC work. (Sanity check after editing the spec: `e GEN_TAC` must
+  actually strip a quantifier; if the goal is unchanged, you have free tyvars.)
+
+  ct1 in spec form. Abbreviate ct1 to `word_xor plaintext1 (aes256_encrypt ctr1
+  keys)` with the SAME MESON-SPEC idiom as ct0 (FIRST_X_ASSUM ... o MATCH_MP
+  (MESON[] `read Q9 s = a ==> !a'. a = a' ==> read Q9 s = a'`)), except the ANTS
+  first folds the spec var via the ctr1 precond
+  (GEN_REWRITE (RAND_CONV o ONCE_DEPTH_CONV) [ctr1_precond]) so `aes256_encrypt
+  ctr1` becomes `aes256_encrypt <lane-shuffle>` matching the Q9 readback, then
+  expands aes256_encrypt to the raw tower as usual. The bridge is unaffected: it
+  uses ct1 as an opaque atom.
+
+  out_p block-1 readback. The block-1 store (st1 v9,[x2] @ 0x1188, x2=out_p+16)
+  happens in the s346-353 fold window and is then dropped by DISCARD_OLDSTATE.
+  CAPTURE it as a self-contained fact BEFORE discarding:
+    SUBGOAL_THEN `read (memory :> bytes128 (word_add out_p (word 16))) s353 = ct1`
+      ASSUME_TAC THENL [EXPAND_TAC "ct1" THEN ASM_REWRITE_TAC[] THEN
+                        CONV_TAC WORD_BLAST; ALL_TAC]
+  (mask v0 is all-ones for x1=128, so the masked/bif stored value is exactly ct1).
+  out_p+16 is not written again, so this survives unchanged to s370. Same trick as
+  the dec 1-block out_p carry.
+
+  Close for the full postcond. After ENSURES_FINAL_STATE_TAC, FIRST fold the
+  postcond's literal CTR1 back to the spec var ctr1 (GSYM the ctr1 precond), so the
+  block-1 goal (= ct1 via its store readback) and the xi_p goal (GHASH over brev
+  ct1) both match ct1's spec-form def under ASM_REWRITE. Then REPEAT CONJ_TAC;
+  TRY(MAYCHANGE..NO_TAC); TRY(block-0 ct0 expansion). block-1 and xi_p fall out by
+  pure ASM_REWRITE once CTR1 is folded.
+
+  GENERAL LESSON: when a spec needs a literal bit-shuffle of a wider word, model it
+  as a precond-pinned spec VARIABLE (keeps the postcond readable, keeps it opaque
+  through the bridge) -- but fully type-annotate the pinning term, because
+  word_join/word_subword widths don't propagate through type inference.
