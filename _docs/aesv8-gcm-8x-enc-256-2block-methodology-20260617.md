@@ -39,7 +39,7 @@ Precondition adds, over the 1-block:
   `byteswap128 h2 = polyval_dot (byteswap128 h) (byteswap128 h)` (i.e. h2 = byteswap128(H^2)).
 - the packed-mid precond now has TWO lanes:
   `subword hk (0,64) = mid(h)` [block-1/H], `subword hk (64,64) = mid(h2)` [block-0/H^2].
-- a spec variable `ctr1:int128` pinned by a precond to the lane-level once-incremented `ctr0`
+- a spec variable `ctr1:int128` pinned by the precond `ctr1 = gcm_ctr_inc ctr0` (the lane-level once-incremented `ctr0`)
   (see §4 — this is the genuinely new modeling step).
 
 Postcondition (full):
@@ -124,32 +124,48 @@ vs ~30 min. (`MERGE_2BLK_TAC` is the only tactic that changed vs. the structural
 
 ---
 
-## 4. The block-1 counter `ctr1` (the genuinely new modeling, + the gotcha)
+## 4. The block-1 counter `ctr1` (the genuinely new modeling)
 
 Block 1's AES input is the lane-level once-incremented `ctr0`: rev32 of the byte-shuffled top
-32-bit lane + 1. We expose it as a **spec variable `ctr1:int128`** pinned by a precond
-`ctr1 = <lane-shuffle of ctr0>`. This keeps the postcond readable and lets `ct1` stay opaque
-through the bridge.
+32-bit lane + 1. We expose it as a **spec variable `ctr1:int128`** pinned by the precond
+`ctr1 = gcm_ctr_inc ctr0`, where
 
-**TYPE-INFERENCE GOTCHA (the single biggest time sink — write this down).**
-The lane-shuffle is a tower of `word_join`, and `word_join : (M)word->(N)word->(P)word` has its
-OUTPUT width `P` as an INDEPENDENT type variable — HOL cannot infer it from the operands (join
-of two 8-bit words could be any width ≥ 16). A bare term leaves free type variables in the
-goal, and then **`GEN_TAC`/`STRIP_TAC` silently no-op** (the goal is an open polymorphic prop,
-not a closed proposition) — the front tactic appears to "not run" with no error message.
+```
+gcm_ctr_inc (ivec:128 word) =
+  word_insert ivec (96,32)
+    (word_bytereverse (word_add (word_bytereverse (word_subword ivec (96,32):32 word))
+                                (word 1:32 word)))
+```
 
-FIX: the pinning term must be **fully type-annotated** — every `word_join`/`word_subword`/
-`word_add`/`word` literal carries an explicit `(n)word`. Generate it by building the term
-programmatically with concrete widths (`mk_finty(num n)` for the index type `:n`, and
-`width = wa+wb` for each join), then printing with `print_types_of_subterms := 2`. The
-annotations are absorbed during type-checking; the displayed/stored term is clean.
-**Sanity check after any spec edit:** `e GEN_TAC` must actually strip a quantifier — if the
-goal is unchanged, you still have free type variables.
+is the clean rev32+ADD+rev32 increment, matching `gcm_ctr_inc` in manastasova's `s2n-bignum-dev`
+(`aes256_gcm_whole` branch):
+[arm/proofs/utils/gcm_aesgcm_nblock_helpers.ml#L38](https://github.com/manastasova/s2n-bignum-dev/blob/756df852a0e42ac0229d7d67fb223b843d4afb49/arm/proofs/utils/gcm_aesgcm_nblock_helpers.ml#L38).
+This keeps the precond a one-liner and the postcond readable
+(block-1 ciphertext = `word_xor plaintext1 (aes256_encrypt (gcm_ctr_inc ctr0) keys)`), and lets
+`ct1` stay opaque through the bridge. A single bit-blasted bridge lemma connects it to the
+explicit lane-byte form the simulator emits:
 
-`ct1` is then abbreviated to `word_xor plaintext1 (aes256_encrypt ctr1 keys)` with the SAME
-MESON-SPEC idiom as ct0, except the ANTS first folds `ctr1 → <lane-shuffle>` via the precond
-(`GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [ctr1_precond]`) so the spec form matches the
-Q9 readback before expanding `aes256_encrypt`.
+```
+GCM_CTR_INC_LANES : gcm_ctr_inc ctr0 = <the 8-bit-subword word_join lane tower>   (BITBLAST, ~1s)
+```
+
+`ct1` is abbreviated to `word_xor plaintext1 (aes256_encrypt ctr1 keys)` with the SAME
+MESON-SPEC idiom as ct0; the ANTS folds `ctr1 → gcm_ctr_inc ctr0` (the precond) then
+`→ lane tower` (`GCM_CTR_INC_LANES`) so the spec form matches the Q9 keystream readback before
+expanding `aes256_encrypt`.
+
+**HISTORICAL GOTCHA (kept as a lesson; no longer hit now that `gcm_ctr_inc` is used).**
+The first version pinned `ctr1` to the *literal* lane-shuffle (a bare tower of `word_join`).
+`word_join : (M)word->(N)word->(P)word` has its OUTPUT width `P` as an INDEPENDENT type variable
+— HOL cannot infer it from the operands (join of two 8-bit words could be any width ≥ 16). A
+bare literal therefore left free type variables in the goal, and **`GEN_TAC`/`STRIP_TAC`
+silently no-op** on an open polymorphic prop (the front tactic appears to "not run", no error).
+The literal had to be fully type-annotated (every node `:(n)word`), generated programmatically
+and printed with `print_types_of_subterms := 2`. Wrapping the shuffle in the typed constant
+`gcm_ctr_inc` removes the problem entirely — its body is closed, so the precond is well-typed by
+construction. **Lesson:** model a literal bit-shuffle of a wider word as a *named typed
+function*, not a bare `word_join` literal; and after any spec edit, sanity-check that
+`e GEN_TAC` actually strips a quantifier (if the goal is unchanged, free type variables remain).
 
 ---
 
@@ -168,13 +184,21 @@ not written again, so this survives unchanged to s370.
 Close (after the bridge, ext+rev64, the gval store):
 ```
 ENSURES_FINAL_STATE_TAC THEN
-(* fold the postcond's literal CTR1 back to the spec var ctr1, so block-1/xi_p match ct1's def *)
-FIRST_ASSUM(GSYM ctr1_precond) THEN ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THEN
+(* fold ctr1 = gcm_ctr_inc ctr0 UNIFORMLY into goal AND the ct0/ct1 defs *)
+FIRST_ASSUM(fun th -> if lhs(concl th) = `ctr1` then
+              RULE_ASSUM_TAC(REWRITE_RULE[th]) THEN REWRITE_TAC[th] else NO_TAC) THEN
+ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THEN
 TRY(MAYCHANGE close THEN NO_TAC) THEN
 TRY(block-0: GSYM ct0-def THEN expand aes256_encrypt to the raw aese tower)
 ```
-- **block-1** and **xi_p** fall out by pure ASM_REWRITE once CTR1 is folded to `ctr1` (then the
-  ct1 store readback and ct1's spec-form def match).
+- The first step eliminates `ctr1` everywhere by rewriting it to `gcm_ctr_inc ctr0` in BOTH the
+  goal and the ct0/ct1 spec-form def hypotheses. This is essential: the postcond's block-1
+  clause reaches the final state as `aes256_encrypt (gcm_ctr_inc ctr0)`, so the ct1-def
+  (`aes256_encrypt ctr1`) must be rewritten the same way or the two won't match.
+  (Discarding the precond instead, or rewriting only the goal, leaves a residual
+  `ct1 = aes256_encrypt (gcm_ctr_inc ctr0)` that can't close — a trap I hit; see the commit log.)
+- **block-1** and **xi_p** then fall out by pure ASM_REWRITE (the ct1 store readback and the
+  now-aligned spec-form def match).
 - **block-0** is the only conjunct needing the aes256_encrypt expansion: its store predates the
   ct0 abbreviation, so the s370 readback is the RAW aese/aesmc tower; GSYM the ct0 def to get
   ct0 → spec form on the RHS, then `ONCE_REWRITE WORD_XOR_ASSOC; aes256_encrypt;
@@ -205,10 +229,14 @@ TRY(block-0: GSYM ct0-def THEN expand aes256_encrypt to the raw aese tower)
 2. **`WORD_BITWISE_TAC`, not `WORD_BLAST`, for the final flat-XOR lane identity.** Once the goal
    is a pure XOR identity over 64-bit vars (no subword/join/shift/pmul), `WORD_BITWISE_TAC`
    closes each lane in <1s; BDD-blasting the same goal times out >16 min.
-3. **Model a literal bit-shuffle counter as a precond-pinned spec VARIABLE** — readable
-   postcond, opaque through the bridge — **but fully type-annotate the pinning term**, because
-   `word_join`/`word_subword` widths do not propagate through type inference and free type
-   variables silently no-op `GEN_TAC`/`STRIP_TAC`.
+3. **Model a literal bit-shuffle counter as a precond-pinned spec VARIABLE defined by a NAMED
+   typed function** (here `ctr1 = gcm_ctr_inc ctr0`), not a bare `word_join` literal. The named
+   function's body is closed so the precond is well-typed by construction (a bare `word_join`
+   tower leaves free output-width type variables that silently no-op `GEN_TAC`/`STRIP_TAC`), and
+   a single BITBLAST lemma (`GCM_CTR_INC_LANES`) bridges it to the simulator's lane-byte form.
+   In the close, fold the precond UNIFORMLY into the goal and all spec-form defs (RULE_ASSUM +
+   REWRITE) so the spec var is eliminated consistently — rewriting only the goal leaves a
+   residual the defs can't match.
 4. **Capture a store readback as a self-contained equality before `DISCARD_OLDSTATE`** if the
    stored region isn't written again — it then survives to the final state unchanged.
 5. **Fold spec literals back to spec vars in the close** (GSYM the pinning precond) so the
@@ -223,7 +251,7 @@ TRY(block-0: GSYM ct0-def THEN expand aes256_encrypt to the raw aese tower)
 | Path | `less_than_1` only | `more_than_1` (block 0) + `less_than_1` (block 1) |
 | GHASH | 1 product, `GMULT_FULL_CORRECT_BA` | 2 products, `GHASH_POLYVAL_ACC_2` |
 | htable | H + mid | H + H^2 + 2 mids (+ `byteswap128 h2 = polyval_dot K K` invariant) |
-| counter | ctr0 only | + ctr1 (precond-pinned spec var, lane-incremented) |
+| counter | ctr0 only | + ctr1 = gcm_ctr_inc ctr0 (named typed increment fn) |
 | bridge merge | `MERGE_PMUL_ATOMS_TAC` (≈3 atoms) | `MERGE_2BLK_TAC` (≈8 atoms, signature-targeted) |
 | flat close | manual r1/u/r2 lane-fold | `FINISH_2BLK_TAC` (`ABBREV_ALL_SUBWORDS` + `WORD_BITWISE_TAC`) |
 | postcond | out_p + xi_p | out_p (2 blocks) + xi_p |

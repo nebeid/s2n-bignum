@@ -11,7 +11,8 @@
 (* out_p block-1 = word_xor plaintext1 (aes256_encrypt ctr1 keys), and          *)
 (* xi_p = word_bytereverse (ghash_polyval_acc (byteswap128 h)(brev xi)          *)
 (* [brev ct0; brev ct1]).  The block-1 AES counter ctr1 is exposed as a spec    *)
-(* var pinned by a precond to the lane-level once-incremented ctr0 (rev32).     *)
+(* var pinned by the precond ctr1 = gcm_ctr_inc ctr0 (the rev32+ADD+rev32 of    *)
+(* the top 32-bit lane); GCM_CTR_INC_LANES bridges it to the lane-byte form.    *)
 (* The 2-product GHASH bridge closes via the targeted MERGE_2BLK_TAC (products  *)
 (* paired by free-var/lane signature, W-reduction pmuls by shared word-const)   *)
 (* + FINISH_2BLK_TAC; ~6 min in the bridge, ~17 min total loadt incl. the       *)
@@ -391,6 +392,84 @@ needs "arm/proofs/aesv8_gcm_8x_enc_256_1block.ml";;
    ------------------------------------------------------------------------- *)
 
 (* ========================================================================= *)
+(* The AES-GCM counter increment (block-1's CTR input).                        *)
+(* gcm_ctr_inc ivec = ivec with its top 32-bit lane byte-reversed, +1, and     *)
+(* byte-reversed back -- i.e. the rev32+ADD+rev32 increment the binary does.   *)
+(* Matches gcm_ctr_inc in manastasova's s2n-bignum-dev (aes256_gcm_whole):     *)
+(* https://github.com/manastasova/s2n-bignum-dev/blob/756df852a0e42ac0229d7d67fb223b843d4afb49/arm/proofs/utils/gcm_aesgcm_nblock_helpers.ml#L38 *)
+(* The block-1 counter is exposed in the spec as ctr1 = gcm_ctr_inc ctr0; this  *)
+(* def replaces the lengthy literal word_join byte-shuffle in the precond, and  *)
+(* GCM_CTR_INC_LANES bridges it to the lane-byte form the simulator produces.   *)
+(* ========================================================================= *)
+
+let gcm_ctr_inc = new_definition
+ `gcm_ctr_inc (ivec:(128)word) : (128)word =
+   word_insert ivec (96,32)
+     (word_bytereverse
+        (word_add (word_bytereverse
+                     (word_subword ivec (96,32):(32)word))
+                  (word 1:(32)word)))`;;
+
+(* gcm_ctr_inc as the explicit per-byte lane-shuffle the front simulation     *)
+(* emits (rev32 of the top lane incremented, low 96 bits unchanged, all built  *)
+(* from 8-bit subwords of ctr0).  One BITBLAST (~1s); used to fold the spec     *)
+(* var ctr1 to the form the Q9 keystream readback carries.                     *)
+let GCM_CTR_INC_LANES = prove(
+ `!ctr0:int128.
+    gcm_ctr_inc ctr0 =
+    word_join
+    (word_join
+     (word_join
+      (word_join
+       (word_subword
+        (word_add
+         (word_join
+          (word_join (word_subword ctr0 (96,8):(8)word) (word_subword ctr0 (104,8):(8)word)
+           :(16)word)
+          (word_join (word_subword ctr0 (112,8):(8)word) (word_subword ctr0 (120,8):(8)word)
+           :(16)word) :(32)word)
+         (word 1:(32)word)) (0,8) :(8)word)
+       (word_subword
+        (word_add
+         (word_join
+          (word_join (word_subword ctr0 (96,8):(8)word) (word_subword ctr0 (104,8):(8)word)
+           :(16)word)
+          (word_join (word_subword ctr0 (112,8):(8)word) (word_subword ctr0 (120,8):(8)word)
+           :(16)word) :(32)word)
+         (word 1:(32)word)) (8,8) :(8)word) :(16)word)
+      (word_join
+       (word_subword
+        (word_add
+         (word_join
+          (word_join (word_subword ctr0 (96,8):(8)word) (word_subword ctr0 (104,8):(8)word)
+           :(16)word)
+          (word_join (word_subword ctr0 (112,8):(8)word) (word_subword ctr0 (120,8):(8)word)
+           :(16)word) :(32)word)
+         (word 1:(32)word)) (16,8) :(8)word)
+       (word_subword
+        (word_add
+         (word_join
+          (word_join (word_subword ctr0 (96,8):(8)word) (word_subword ctr0 (104,8):(8)word)
+           :(16)word)
+          (word_join (word_subword ctr0 (112,8):(8)word) (word_subword ctr0 (120,8):(8)word)
+           :(16)word) :(32)word)
+         (word 1:(32)word)) (24,8) :(8)word) :(16)word) :(32)word)
+     (word_join
+      (word_join (word_subword ctr0 (88,8):(8)word) (word_subword ctr0 (80,8):(8)word) :(16)word)
+      (word_join (word_subword ctr0 (72,8):(8)word) (word_subword ctr0 (64,8):(8)word) :(16)word)
+      :(32)word) :(64)word)
+    (word_join
+     (word_join
+      (word_join (word_subword ctr0 (56,8):(8)word) (word_subword ctr0 (48,8):(8)word) :(16)word)
+      (word_join (word_subword ctr0 (40,8):(8)word) (word_subword ctr0 (32,8):(8)word) :(16)word)
+      :(32)word)
+     (word_join
+      (word_join (word_subword ctr0 (24,8):(8)word) (word_subword ctr0 (16,8):(8)word) :(16)word)
+      (word_join (word_subword ctr0 (8,8):(8)word) (word_subword ctr0 (0,8):(8)word) :(16)word)
+      :(32)word) :(64)word) :(128)word`,
+  GEN_TAC THEN REWRITE_TAC[gcm_ctr_inc] THEN BITBLAST_TAC);;
+
+(* ========================================================================= *)
 (* Helper lemmas for the 2-product GHASH bridge (session 3).                 *)
 (* ========================================================================= *)
 
@@ -620,78 +699,7 @@ let AESV8_GCM_8X_ENC_256_2BLOCK = prove(
     word_subword hk (64,64) :64 word =
       word_xor (word_subword h2 (0,64):64 word) (word_subword h2 (64,64):64 word) /\
     byteswap128 h2 = polyval_dot (byteswap128 h) (byteswap128 h) /\
-    ctr1:int128 =
-      (word_join:(64)word->(64)word->(128)word)
-      ((word_join:(32)word->(32)word->(64)word)
-       ((word_join:(16)word->(16)word->(32)word)
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(32)word->num#num->(8)word)
-          ((word_add:(32)word->(32)word->(32)word)
-           ((word_join:(16)word->(16)word->(32)word)
-            ((word_join:(8)word->(8)word->(16)word)
-             ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (96,8))
-            ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (104,8)))
-           ((word_join:(8)word->(8)word->(16)word)
-            ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (112,8))
-           ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-          ((word:num->(32)word) 1))
-         (0,8))
-        ((word_subword:(32)word->num#num->(8)word)
-         ((word_add:(32)word->(32)word->(32)word)
-          ((word_join:(16)word->(16)word->(32)word)
-           ((word_join:(8)word->(8)word->(16)word)
-            ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (96,8))
-           ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (104,8)))
-          ((word_join:(8)word->(8)word->(16)word)
-           ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (112,8))
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-         ((word:num->(32)word) 1))
-        (8,8)))
-       ((word_join:(8)word->(8)word->(16)word)
-        ((word_subword:(32)word->num#num->(8)word)
-         ((word_add:(32)word->(32)word->(32)word)
-          ((word_join:(16)word->(16)word->(32)word)
-           ((word_join:(8)word->(8)word->(16)word)
-            ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (96,8))
-           ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (104,8)))
-          ((word_join:(8)word->(8)word->(16)word)
-           ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (112,8))
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-         ((word:num->(32)word) 1))
-        (16,8))
-       ((word_subword:(32)word->num#num->(8)word)
-        ((word_add:(32)word->(32)word->(32)word)
-         ((word_join:(16)word->(16)word->(32)word)
-          ((word_join:(8)word->(8)word->(16)word)
-           ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (96,8))
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (104,8)))
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (112,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-        ((word:num->(32)word) 1))
-       (24,8))))
-      ((word_join:(16)word->(16)word->(32)word)
-       ((word_join:(8)word->(8)word->(16)word)
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (88,8))
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (80,8)))
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (72,8))
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (64,8)))))
-      ((word_join:(32)word->(32)word->(64)word)
-       ((word_join:(16)word->(16)word->(32)word)
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (56,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (48,8)))
-       ((word_join:(8)word->(8)word->(16)word)
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (40,8))
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (32,8))))
-      ((word_join:(16)word->(16)word->(32)word)
-       ((word_join:(8)word->(8)word->(16)word)
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (24,8))
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (16,8)))
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (8,8))
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (0,8)))))
+    ctr1:int128 = gcm_ctr_inc ctr0
     ==> ensures arm
      (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_enc_256_mc /\
           read PC s = word (pc + 0x18) /\ read SP s = stackpointer /\
@@ -783,8 +791,9 @@ let AESV8_GCM_8X_ENC_256_2BLOCK = prove(
   ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_ENC_256_EXEC (316--325) THEN
   (* abbreviate ct1 (block-1 ciphertext) to its SPEC FORM word_xor plaintext1
      (aes256_encrypt ctr1 keys) -- same MESON-SPEC idiom as ct0.  The ANTS
-     rewrites the spec var ctr1 back to its lane-shuffle precond value, then
-     expands aes256_encrypt to the raw aese/aesmc tower the Q9 readback holds. *)
+     rewrites the spec var ctr1 to gcm_ctr_inc ctr0 (its precond) and then to
+     the explicit lane-byte form (GCM_CTR_INC_LANES) the Q9 readback carries,
+     then expands aes256_encrypt to the raw aese/aesmc tower. *)
   FIRST_X_ASSUM(MP_TAC o SPEC
     `word_xor plaintext1 (aes256_encrypt (ctr1:int128)
        [k0:int128;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14])`
@@ -793,6 +802,7 @@ let AESV8_GCM_8X_ENC_256_2BLOCK = prove(
    [FIRST_X_ASSUM(fun th ->
       if (try lhs(concl th) = `ctr1:int128` with _ -> false)
       then GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [th] else NO_TAC) THEN
+    GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [GCM_CTR_INC_LANES] THEN
     ONCE_REWRITE_TAC[WORD_XOR_ASSOC] THEN
     REWRITE_TAC[aes256_encrypt] THEN REWRITE_TAC EL_15_128_CLAUSES THEN
     REWRITE_TAC[aes256_encrypt_round; aese; aesmc] THEN
@@ -873,12 +883,17 @@ let AESV8_GCM_8X_ENC_256_2BLOCK = prove(
      abbreviation, so the readback is the RAW aese/aesmc tower) and the MAYCHANGE
      frame needs MONOTONE_MAYCHANGE_TAC. *)
   ENSURES_FINAL_STATE_TAC THEN
-  (* fold the postcond's literal CTR1 back to the spec var ctr1 (GSYM the ctr1
-     precond), so the block-1 readback (= ct1) and the xi_p GHASH (over brev ct1)
-     match ct1's spec-form def under ASM_REWRITE. *)
+  (* Fold `ctr1 = gcm_ctr_inc ctr0` UNIFORMLY into the goal AND the ct0/ct1
+     spec-form def hypotheses, so ctr1 is eliminated consistently everywhere.
+     (Discarding the precond is wrong -- the postcond's block-1 clause carries
+     gcm_ctr_inc ctr0 in the final state, so the ct1-def must too for them to
+     match; just unfolding the goal but not the def hypotheses leaves a residual.) *)
   FIRST_ASSUM(fun th ->
      if (try lhs(concl th) = `ctr1:int128` with _ -> false)
-     then GEN_REWRITE_TAC (ONCE_DEPTH_CONV) [SYM th] else NO_TAC) THEN
+     then RULE_ASSUM_TAC(REWRITE_RULE[th]) THEN REWRITE_TAC[th] else NO_TAC) THEN
+  (* block-1 (= ct1 via its store readback) and xi_p (= word_bytereverse gval,
+     gval = the spec GHASH over brev ct0/ct1) now match ct1's spec-form def under
+     ASM_REWRITE (both sides in terms of gcm_ctr_inc ctr0). *)
   ASM_REWRITE_TAC[] THEN
   REPEAT CONJ_TAC THEN
   TRY(REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
