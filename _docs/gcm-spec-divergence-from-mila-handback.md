@@ -101,6 +101,34 @@ different N. Converges automatically when we state our band over `byte_list_at .
 
 ---
 
+## DECISION (2026-06-18): reuse the XTS substrate → sidesteps D2
+
+Both our tree AND Mila's `byte_list_at` / `bytes_to_int128` / `int128_to_bytes` are
+**byte-identical copies of the AES-XTS originals** (`arm/proofs/utils/aes_xts_common.ml:17`,
+`aes_xts_common_spec.ml:19,29`). And XTS's own output spec (`aes256_xts_encrypt_round`) is
+built on **`aes256_encrypt`** — OUR primitive, the one our binary simulation produces — NOT
+`aes256_block_enc`.
+
+So the maximum-reuse path (what XTS is built on) is: build the GCM output layer on the
+**existing XTS `byte_list_at`/`bytes_to_int128`/`int128_to_bytes` + `aes256_encrypt`**. This
+**ELIMINATES divergence D2** (no `aes256_block_enc ⇔ aes256_encrypt` bridge needed) while
+staying name-compatible with Mila for free (she copied the same XTS defs). The ONLY thing we
+decline to adopt from Mila is her `aes256_block_enc` substitution; everything else converges.
+
+Concrete shape (mirrors XTS `aes256_xts_encrypt_rec` → `aes256_xts_encrypt : byte list`):
+- block layer  = our `aes_ctr` (int128 list, structural recursion) — keep (D3).
+- byte top spec = `aes_ctr_bytes ctr0 P keys : byte list` = APPEND of `int128_to_bytes` over
+  full blocks ++ `SUB_LIST(0,tail)(int128_to_bytes (masked last block))` — SAME shape as Mila's
+  `aes256_gcm_encrypt`, but keystream via `aes256_encrypt` (XTS substrate) not `aes256_block_enc`.
+- masked tail  = `word_and ct (word (2 EXP (8*tail)-1))` — identical to Mila's `gcm_ctm_tail`
+  AND our LE1BLOCK.
+- output postcond = `byte_list_at (aes_ctr_bytes ...) out_p len s`.
+- readback bridge = GCM analog of XTS `READ_BYTES_EQ_READ_BYTE128_*BLOCKS` (reuse XTS proof shape).
+
+For Mila: if she standardizes her keystream on `aes256_encrypt` (the XTS substrate) instead of
+`aes256_block_enc`, our layers become a single shared file with no D2 bridge at all. That is the
+recommended convergence (D2 resolution = "use the XTS primitive both XTS and we already use").
+
 ## Recommended convergence path (proposed; confirm with Mila)
 1. **Adopt her spec NAMES** for the output/tag layer (`byte_list_at`, `bytes_to_int128`,
    `int128_to_bytes`, `gcm_keystream`, `gcm_ct_bytes_rec`, `gcm_ctm_tail`, `aes256_gcm_encrypt`,
@@ -118,6 +146,48 @@ different N. Converges automatically when we state our band over `byte_list_at .
 | Item | Load time | Axioms | Notes |
 |---|---|---|---|
 | `gcm_ctr_helpers.ml` (ours) | 1.90s | 3 | counter core |
-| `aes_ctr_spec.ml` (ours) | 2.5s | 3 | int128 CTR list spec |
+| `aes_ctr_spec.ml` (ours, int128 layer only) | 2.5s | 3 | int128 CTR list spec |
+| `aes_ctr_spec.ml` (ours, + byte-list layer) | 94s | 3 | adds `needs aes_xts_common.ml` (GF/tweak machinery is the cost); `aes_ctr_bytes` byte spec built on XTS substrate + aes256_encrypt, name/shape-compatible with Mila's `aes256_gcm_encrypt` |
 | Mila's `aes256_gcm.ml` | (not measured) | — | 8305 lines incl. all proofs |
-| `byte_list_at` wiring on our 2-block | (pending) | — | Task 6 |
+| `byte_list_at` postcond wiring on our 2-block | ~1050s (full binary loadt) | 3 | DONE for whole-block (len=32). `AESV8_GCM_8X_ENC_256_2BLOCK_BYTELIST` proved: out_p postcond is one `byte_list_at (aes_ctr_bytes ...) out_p (word 32)` clause. Derived as a CHEAP postcond-weakening corollary of the main theorem (no re-simulation). |
+
+## Where we stand vs Mila (status 2026-06-19)
+
+**Output postcondition shape: PARITY reached (whole-block).** Our
+`AESV8_GCM_8X_ENC_256_2BLOCK_BYTELIST` now states the output exactly like Mila's
+`AES256_GCM_ENCRYPT_CORRECT`: a single `byte_list_at (<top ct spec>) out_p len s` clause.
+Our top ct spec is `aes_ctr_bytes` (= `int128_list_to_bytes (aes_ctr ...)`); hers is
+`aes256_gcm_encrypt`. Same SHAPE, and both reduce to `int128_to_bytes` of the per-block
+`word_xor pt (cipher (ctr) keys)`. The substantive remaining differences are the two
+divergences below, plus that hers is length-generic (`val len <= 128`) while ours is fixed
+at `len = 32` (2 whole blocks) so far.
+
+**How we got byte_list_at without an `aes256_block_enc` bridge (D2 stays resolved):** the
+whole readback chain reuses the AES-XTS substrate verbatim -- `byte_list_at`,
+`bytes_to_int128`/`int128_to_bytes`, `READ_BYTES_AND_BYTE128_SPLIT`,
+`READ_MEMORY_BYTES_BYTES128`, `BYTE_LIST_TO_NUM_THM`, the `*_INT128_TO_BYTES` round-trip
+lemmas (all in `aes_xts_common.ml`) -- built on `aes256_encrypt`. New shared bridges added
+(`aes_ctr_spec.ml`): `CTR_BLOCK0_BYTES16`, `READ_BYTES_EQ_BYTE128_2BLOCKS_CTR`,
+`BYTE_LIST_AT_2BLOCKS_CTR` (the GCM analogs of XTS `READ_BYTES_EQ_READ_BYTE128_*BLOCKS_ENC`).
+
+**Outstanding to fully match Mila's whole-routine theorem:**
+1. **Length-generic + partial tail (1 <= len <= 32):** Mila's `gcm_ctm_tail` masked tail
+   (`word_and ct (word (2 EXP (8*tail)-1))`) = our LE1BLOCK mask form; the masked-tail
+   `byte_list_at` bridge (analog of the whole-block one, last block masked, `len < 32`) is
+   the next step. Our binary reads the partial block as a full register and writes a masked
+   blend full register, so `byte_list_at(out_p,len)` is the faithful clause (it constrains
+   only the first `len` bytes).
+2. **D1 rename** `gcm_ctr_inc_iter -> gcm_ctr_iter` (cosmetic; defer to the shared-file merge).
+3. **D2 spec-primitive convergence:** recommend Mila standardize her keystream on
+   `aes256_encrypt` (the XTS primitive) so the two layers become ONE shared file with no
+   `aes256_block_enc`. Until then our layer and hers differ only by that primitive.
+4. **Scale to 4/8 blocks + the main loop** (Loop_mod2x_v8) -- unchanged from the plan.
+
+## Spec layer built so far (ours, reusing XTS substrate)
+`arm/proofs/utils/aes_ctr_spec.ml` now has BOTH layers:
+- int128 block layer: `aes_ctr_block` / `aes_ctr_rec` / `aes_ctr` + `LENGTH_AES_CTR` /
+  `EL_AES_CTR` (any N) / `AES_CTR_2_EL` / `AES_CTR_2_MAP_BREV`.
+- byte-list layer (XTS-substrate, NO aes256_block_enc): `int128_list_to_bytes` +
+  `LENGTH_INT128_LIST_TO_BYTES` + `aes_ctr_bytes` (= `int128_list_to_bytes (aes_ctr ...)`) +
+  `LENGTH_AES_CTR_BYTES` + `AES_CTR_BYTES_2`. This is the value a `byte_list_at(out_p,32)`
+  postcond unfolds to; whole-block (tail=16) only so far.

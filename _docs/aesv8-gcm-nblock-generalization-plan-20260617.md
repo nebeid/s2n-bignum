@@ -689,3 +689,25 @@ bridges (`READ_MEMORY_BYTES_MERGE_FOUR128` etc. in `bignum_copy_row_from_table_8
 MAYCHANGE frame is already `bytes(out_p,32)`. So the value-level list spec (above) is the
 right granularity; a `byte_list_at`-style single-clause read only pays off for SYMBOLIC
 length (the partial-tail / N-block bands), where it can be added later.
+
+---
+
+## ADDENDUM 3 (2026-06-19) — byte_list_at output postcond PROVED on the 2-block binary
+
+`AESV8_GCM_8X_ENC_256_2BLOCK_BYTELIST` (in `arm/proofs/aesv8_gcm_8x_enc_256_2block.ml`):
+the out_p postcondition is now a SINGLE XTS-style clause
+`byte_list_at (aes_ctr_bytes ctr0 [pt0;pt1] keys) out_p (word 32) s`, matching Mila's
+`AES256_GCM_ENCRYPT_CORRECT` shape. Proved as a CHEAP postcondition-weakening corollary of
+the main (EL-form) theorem via `ENSURES_POSTCONDITION_THM` + the new readback bridge
+`BYTE_LIST_AT_2BLOCKS_CTR` — NO re-simulation, and the costly main proof is untouched.
+
+Reuse: the entire `bytes128 -> byte_list_at` chain reuses the AES-XTS substrate verbatim
+(`byte_list_at`, `bytes_to_int128`/`int128_to_bytes`, `READ_BYTES_AND_BYTE128_SPLIT`,
+`READ_MEMORY_BYTES_BYTES128`, `BYTE_LIST_TO_NUM_THM`, `*_INT128_TO_BYTES` round-trips in
+`aes_xts_common.ml`), built on `aes256_encrypt` — so NO `aes256_block_enc` bridge (D2 stays
+resolved). New shared bridges in `aes_ctr_spec.ml`: `CTR_BLOCK0_BYTES16`,
+`READ_BYTES_EQ_BYTE128_2BLOCKS_CTR`, `BYTE_LIST_AT_2BLOCKS_CTR`.
+
+loadt-clean ~1050s, 3 axioms, no cheats; both the EL-form theorem and the byte_list_at
+corollary bind. Status vs Mila + remaining work (partial tail 1..32, D1 rename, D2 primitive
+convergence, 4/8 + main loop) tracked in `_docs/gcm-spec-divergence-from-mila-handback.md`.
