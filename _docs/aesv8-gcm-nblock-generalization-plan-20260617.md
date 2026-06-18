@@ -649,3 +649,43 @@ No existing proof file was modified this session (per the session constraint).
 ### Remaining @UPSTREAM-389 markers in source
 `GCM_CTR_INC_INC32` and `GCM_CTR_INC_ITER_INC32` are tagged `@UPSTREAM-389?` (NIST↔ARM counter
 bridge — authors decide). The `inc32` copy block carries the PR#389 removal marker.
+
+---
+
+## ADDENDUM 2 (2026-06-18) — recursive CTR ciphertext spec landed (Task 4); enc 2-block list-based
+
+**New file:** `arm/proofs/utils/aes_ctr_spec.ml` — the recursive AES-256 CTR ciphertext
+spec (plan Task 4), over an `int128` block list. `needs gcm_ctr_helpers.ml +
+aes_encrypt_spec.ml`. **loadt-clean 2.5s, 3 axioms, no cheats.**
+
+Design choices realized: **D1 = int128 list** (one element per 16-byte block);
+**D3** counter = the shared `gcm_ctr_inc_iter k ctr0`. Recursion is **plain structural
+recursion on the block list** (`define`), NOT the XTS `prove_general_recursive_function_exists`
++ WF-measure machinery — simpler, and sufficient because we recurse on the list, not a
+numeric bound (so plan R3's recursion-existence boilerplate is avoided).
+
+Contents:
+| Name | Statement |
+|------|-----------|
+| `aes_ctr_block ctr0 k pt keys` | `word_xor pt (aes256_encrypt (gcm_ctr_inc_iter k ctr0) keys)` |
+| `aes_ctr_rec ctr0 k pts keys` | structural recursion; block at position i uses `gcm_ctr_inc_iter (k+i) ctr0` |
+| `aes_ctr ctr0 pts keys` | `aes_ctr_rec ctr0 0 pts keys` (top spec) |
+| `LENGTH_AES_CTR` | `LENGTH(aes_ctr ctr0 pts keys) = LENGTH pts` |
+| `EL_AES_CTR_REC` / `EL_AES_CTR` | per-block element reduction for ANY N (the reusable workhorse) |
+| `AES_CTR_2_EL` / `AES_CTR_2_MAP_BREV` | concrete 2-block reductions used to discharge the wired postcond |
+
+**Wired (31c0678b):** `AESV8_GCM_8X_ENC_256_2BLOCK`'s postcond is now list-based —
+`out_p` block i = `EL i (aes_ctr ctr0 [plaintext0;plaintext1] keys)`, and the GHASH input
+list = `MAP word_bytereverse (aes_ctr ctr0 [pt0;pt1] keys)`. The proof opening reduces these
+to the concrete blocks via `AES_CTR_2_EL`/`AES_CTR_2_MAP_BREV` then re-introduces
+`ctr1 = gcm_ctr_inc ctr0`, so the front/bridge/close are unchanged. loadt ~951s (no
+slowdown), 3 axioms, no cheats. The plaintext now appears as a LIST in the statement — the
+per-block enumeration is gone.
+
+**Task 5 note (memory-read collapse) — deliberately NOT done.** Collapsing the two
+`bytes128` reads into one `bytes(out_p,32)` clause is non-idiomatic here: the only s2n-bignum
+bridges (`READ_MEMORY_BYTES_MERGE_FOUR128` etc. in `bignum_copy_row_from_table_8n.ml`) are
+*numeric* (val-based), and **Mila's own 2-block keeps two `bytes128` clauses** too. The
+MAYCHANGE frame is already `bytes(out_p,32)`. So the value-level list spec (above) is the
+right granularity; a `byte_list_at`-style single-clause read only pays off for SYMBOLIC
+length (the partial-tail / N-block bands), where it can be added later.
