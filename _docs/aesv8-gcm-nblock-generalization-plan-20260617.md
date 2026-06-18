@@ -2,6 +2,12 @@
 
 **Status: PLAN (not started). Author target: whoever picks up the 8-block / general AES-CTR work.**
 
+**Written:** bulk authored 2026-06-17 (original plan + the "adopt Mila's spec layer" revision
++ GHASH/stack findings). Later additions are tagged inline with their date — currently:
+- **[2026-06-18]** byte-aligned (partial-tail) lengths made explicit in the wiring step;
+- **[2026-06-18]** "Reuse posture between bands" evaluation (why `ENSURES_SEQUENCE`/theorem-
+  nesting doesn't fit; reuse via shared tactic/lemma instead).
+
 ---
 
 ## ⚠ REVISION (2026-06-17) — ADOPT MILA'S SPEC LAYER; DON'T REBUILD IT
@@ -49,11 +55,26 @@ superseded where it overlaps Mila's work.
    spec (`byte_list_at`, `aes256_gcm_encrypt`, `gcm_final_xi`, `gcm_ctr_iter`, the generic
    bridges) lives so enc/dec/our-binary/her-binary all `needs` ONE copy (not a fork).
    Likely `common/` or a shared `arm/proofs/utils/` file. This replaces plan Tasks 1/3/4/5.
-2. **Wire OUR binary's proofs to her spec.** Re-state `AESV8_GCM_8X_ENC_256_{1,2}BLOCK`
-   (and the future N-block) so the postcond is `byte_list_at (aes256_gcm_encrypt …) out_p len`
-   + `read xi_p = gcm_final_xi …`, discharged via `OUT_BRIDGE_GEN` / `INPUT_READS_*` /
-   the GHASH bridge — replacing our per-block `bytes128`+`gcm_ctr_inc`-literal postconds.
-   (This is plan Task 6/6b, but targeting Mila's spec instead of a home-grown `aes_ctr`.)
+2. **Wire OUR binary's proofs to her spec, OVER GENERAL `val len` (byte-aligned tail included).**
+   Re-state `AESV8_GCM_8X_ENC_256_{1,2}BLOCK` (and the future N-block) so the postcond is
+   `byte_list_at (aes256_gcm_encrypt (val len) …) out_p len` + `read xi_p = gcm_final_xi (val len) …`,
+   discharged via `OUT_BRIDGE_GEN` / `INPUT_READS_*` / the GHASH bridge — replacing our per-block
+   `bytes128`+`gcm_ctr_inc`-literal postconds. (Plan Task 6/6b, targeting Mila's spec.)
+   **[2026-06-18] KEY: state the GENERAL length from the start (k−1 full blocks + a masked
+   partial tail, `1 ≤ tail ≤ 16`), NOT just whole blocks.** Mila's bands ARE "≤ 16·k bytes" = (k−1) full +
+   tail; `gcm_ctm_tail`/`OUT_BRIDGE_GEN`/`GHASH_BLOCKS_k` already model the mask
+   (`word_and CT (word (2 EXP (8·tail) − 1))`). So "byte-aligned up to 128 bytes" is NOT a
+   separate phase — it is the general statement, and a whole-block proof is the special case
+   `tail = 16`.
+   **GAP (the reason this is called out):** our **1-block** enc already HAS the byte-aligned
+   variant (`AESV8_GCM_8X_ENC_256_LE1BLOCK_BODY`, `1 ≤ bl ≤ 16`, with the mask path). Our
+   **2-block** enc (`AESV8_GCM_8X_ENC_256_2BLOCK`) currently proves ONLY `bit_len = 256`
+   (two whole blocks, `tail = 16`); it has no partial-tail path, so a 17–31-byte input (1 full
+   + partial) is not yet covered. Closing this = re-proving the 2-block (and each N-block) band
+   in Mila's "(k−1) full + masked tail over `1 ≤ tail ≤ 16`" form — i.e. the binary's
+   `.L256_enc_blocks_less_than_1` mask path, which the 1-block LE1BLOCK already exercises.
+   Do this AS PART OF the wiring (don't defer it); it is the same simulation with the mask
+   kept symbolic rather than collapsed to all-ones.
 3. **THE MAIN LOOP / >8 blocks (genuinely new — nobody has done it).** Mila stops at
    `val len ≤ 128` (≤8-block tail dispatch); the bulk `Loop_mod2x_v8` (8-blocks-at-a-time,
    trn1/trn2 interleave) is unproven. This is the largest remaining piece and the main
@@ -120,12 +141,61 @@ superseded where it overlaps Mila's work.
 
 ### Revised order of attack
 adopt-spec (shared file) → **GHASH-closure bench (pick winner)** → wire enc 1+2 block to it
-→ enc main loop (Loop_mod2x_v8, **settle stack posture here**) → decrypt (1,2,…, then its
-main loop). Counter-iterator + the N-block spec are already done by Mila; we consume them;
-the GHASH *closure tactic* and the *stack posture* are the two things still to decide (above).
-Keep everything pointing at ONE shared spec file.
+**over general `val len` (incl. byte-aligned partial tail, not just whole blocks)** → enc
+main loop (Loop_mod2x_v8, **settle stack posture here**) → decrypt (1,2,…, then its main
+loop, all over general `val len`). Counter-iterator + the N-block spec (with the masked tail)
+are already done by Mila; we consume them; the GHASH *closure tactic* and the *stack posture*
+are the two things still to decide (above). Keep everything pointing at ONE shared spec file.
+
+Each "wire k-block" step proves the band `val len ≤ 16·k` = (k−1) full blocks + a `1 ≤ tail ≤ 16`
+masked partial last block; whole-block is the `tail = 16` special case. (Our 2-block enc today
+covers only `tail = 16`; see item 2's GAP.)
+
+### [2026-06-18] Reuse posture between bands — NOT theorem-nesting / ENSURES_SEQUENCE
+A natural idea is to reuse the le-1block theorem *inside* le-2block, le-2block inside le-3block,
+… via `ENSURES_SEQUENCE_TAC` (k-block = "(k−1)-block run, then one more block"). **This does NOT
+fit this binary** — checked against the `.S` and the existing proofs:
+- **The tail is an unrolled length dispatch, not a loop.** `.L256_enc_blocks_more_than_7 …
+  _more_than_1` are SEPARATE straight-line handlers that FALL THROUGH to each other; the
+  `cmp x5,#112/…/16; b.gt` cascade jumps in ONCE for the current length. There is no PC where the
+  k-block execution "contains" a complete (k−1)-block execution.
+- **GHASH is aggregate-then-reduce-ONCE.** All blocks XOR into shared hi/mid/lo accumulators with
+  a SINGLE final Barrett reduction; per-block the tag is never finalized. The le-(k−1) theorem
+  reduces + stores `xi_p`; at the matching PC the k-block run is still mid-accumulation against a
+  DIFFERENT htable power (block 0 vs H², block 1 vs H, …). So the intermediate-state postcondition
+  `ENSURES_SEQUENCE_TAC` would need does not exist in a matching register/memory shape.
+- **`ENSURES_SEQUENCE_TAC` is already known-incompatible with our frame:** its
+  `MAYCHANGE_IDEMPOT_TAC` throws on the 4-memory-region stack frame (recorded at
+  `aesv8_gcm_8x_dec_256_1block.ml:1821`); we compose with `ENSURES_TRANS` + `ENSURES_FRAME_SUBSUMED`.
+- **Mila, who has all 9 bands, does NOT chain them** — each `…_kBLOCK_ABS` is standalone from its
+  own `…_kBLOCK_CONCRETE`; the dispatch just routes to them (`aes256_gcm.ml:8281-8303`).
+**Correct reuse = shared TACTIC/LEMMA, not nested theorems.** The fall-through suffix simulates
+identically across bands, so factor the per-block step into ONE reusable closer tactic (cf. Mila's
+`gcm_{one..eight}_block_closers.ml`) and prove the GHASH bridge ONCE
+(`GHASH_NBLOCK_KARATSUBA_EQ_PROP3` / our `GHASH_POLYVAL_ACC_BATCHED`). The only `ENSURES_TRANS`-style
+split that DOES apply is the prologue-front ⊕ body split we already use. The MAIN LOOP
+(`Loop_mod2x_v8`) IS a real counted loop — THAT is where `ENSURES_WHILE_*`/loop-invariant
+composition applies (item 3), not the tail bands.
 
 ### Open questions to settle before coding
+- **Q-tail:** confirm the binary's partial-tail path for k ≥ 2 is the SAME mask construction
+  the 1-block LE1BLOCK already proves (`csel`-built mask → `word_and CT (word (2 EXP (8·tail)−1))`,
+  `bif` for the out-of-range output bytes), just reached after (k−1) full-block iterations. If
+  so, the k-block byte-aligned proof = the k-block whole-block front + the LE1BLOCK tail closer,
+  with the mask kept symbolic. (Mila's per-band concrete closers already do exactly this — see
+  her `gcm_{one..eight}_block_closers.ml`; reuse the shape.)
+- **Q-stack:** do we want the XTS no-stack-clause posture for our GCM proofs? If yes, the
+  target is: enter at `pc+0x28` (after the 0xC2 reduction-constant spill), supply that
+  constant + `X10` as preconds, drop the `bytes(stackpointer+64,16)` MAYCHANGE clause. Decide
+  for the main-loop/whole-binary proof (not per tail band). Diverges from Mila's full-frame
+  shape (see Stack findings).
+- **Q-ghash:** which GHASH closure do we standardize on — ours (measured-fast,
+  `FAST_OPERAND_TAC`/`GHASH_POLYVAL_ACC_BATCHED`), Mila's (once-proven `…_EQ_PROP3`, scalable
+  by design but not yet wired into her bands), or a hybrid? Resolve by the bench in item 5.
+- **Q-share:** does Mila intend to upstream `aes256_gcm.ml`'s spec layer to
+  `common/`/`arm/proofs/utils/`? If yes, depend on that; if not, lift just the spec+bridges
+  into a shared file on our side and `needs` it from both her-style and our-binary proofs
+  (coordinate names verbatim so a later merge is a no-op — cf. R5).
 - **Q-stack:** do we want the XTS no-stack-clause posture for our GCM proofs? If yes, the
   target is: enter at `pc+0x28` (after the 0xC2 reduction-constant spill), supply that
   constant + `X10` as preconds, drop the `bytes(stackpointer+64,16)` MAYCHANGE clause. Decide
