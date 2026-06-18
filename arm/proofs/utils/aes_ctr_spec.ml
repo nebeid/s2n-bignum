@@ -23,6 +23,13 @@
 
 needs "arm/proofs/utils/gcm_ctr_helpers.ml";;
 needs "arm/proofs/utils/aes_encrypt_spec.ml";;
+(* Reuse the AES-XTS byte-list substrate VERBATIM: byte_list_at, bytes_to_int128, *)
+(* int128_to_bytes (and the readback machinery READ_BYTES_AND_BYTE128_SPLIT +      *)
+(* SUB_LIST_OF_INT128_TO_BYTES etc.).  These are exactly the defs Mila copied into *)
+(* her GCM spec, and they are built on aes256_encrypt (our primitive) -- so reusing *)
+(* them keeps us name-compatible with Mila with NO aes256_block_enc bridge (see    *)
+(* _docs/gcm-spec-divergence-from-mila-handback.md, decision 2026-06-18).           *)
+needs "arm/proofs/utils/aes_xts_common.ml";;
 
 (* One CTR block: data XOR the AES-256 keystream for block index k.           *)
 let aes_ctr_block = new_definition
@@ -99,3 +106,116 @@ let AES_CTR_2_MAP_BREV = prove
   REWRITE_TAC[aes_ctr; aes_ctr_rec; aes_ctr_block; gcm_ctr_inc_iter] THEN
   CONV_TAC NUM_REDUCE_CONV THEN
   REWRITE_TAC[GCM_CTR_INC_ITER_1; gcm_ctr_inc_iter; MAP]);;
+
+(* ========================================================================= *)
+(* Byte-list view of the ciphertext, for a byte_list_at(out_p,len) postcond.  *)
+(* Mirrors AES-XTS (aes256_xts_encrypt : byte list) and Mila's                 *)
+(* aes256_gcm_encrypt, but built on the XTS substrate int128_to_bytes +        *)
+(* aes256_encrypt (NO aes256_block_enc -- handback doc decision).             *)
+(* ========================================================================= *)
+
+(* Flatten an int128 block list to a byte list (APPEND of int128_to_bytes),    *)
+(* exactly the XTS/Mila APPEND-of-int128_to_bytes shape.                        *)
+let int128_list_to_bytes = define
+ `int128_list_to_bytes ([]:int128 list) : byte list = [] /\
+  int128_list_to_bytes (CONS w ws) =
+    APPEND (int128_to_bytes w) (int128_list_to_bytes ws)`;;
+
+(* LENGTH of the flattened byte list = 16 * number of blocks.                  *)
+let LENGTH_INT128_TO_BYTES = prove
+ (`!w:int128. LENGTH(int128_to_bytes w) = 16`,
+  REWRITE_TAC[int128_to_bytes; LENGTH] THEN CONV_TAC NUM_REDUCE_CONV);;
+
+let LENGTH_INT128_LIST_TO_BYTES = prove
+ (`!ws. LENGTH(int128_list_to_bytes ws) = 16 * LENGTH ws`,
+  LIST_INDUCT_TAC THEN
+  ASM_REWRITE_TAC[int128_list_to_bytes; LENGTH; LENGTH_APPEND;
+                  LENGTH_INT128_TO_BYTES] THEN ARITH_TAC);;
+
+(* whole-block (tail = 16) byte ciphertext for the full block buffer.          *)
+let aes_ctr_bytes = new_definition
+ `aes_ctr_bytes (ctr0:int128) (pts:int128 list) (keys:int128 list) : byte list =
+    int128_list_to_bytes (aes_ctr ctr0 pts keys)`;;
+
+let LENGTH_AES_CTR_BYTES = prove
+ (`!pts ctr0 keys. LENGTH(aes_ctr_bytes ctr0 pts keys) = 16 * LENGTH pts`,
+  REWRITE_TAC[aes_ctr_bytes; LENGTH_INT128_LIST_TO_BYTES; LENGTH_AES_CTR]);;
+
+(* Concrete 2-block byte ciphertext (whole blocks): the two int128_to_bytes     *)
+(* blocks appended -- the value a byte_list_at(out_p,32) postcond unfolds to.   *)
+let AES_CTR_BYTES_2 = prove
+ (`aes_ctr_bytes ctr0 [pt0;pt1] keys =
+   APPEND (int128_to_bytes (word_xor pt0 (aes256_encrypt ctr0 keys)))
+          (int128_to_bytes (word_xor pt1 (aes256_encrypt (gcm_ctr_inc ctr0) keys)))`,
+  REWRITE_TAC[aes_ctr_bytes] THEN
+  REWRITE_TAC[aes_ctr; aes_ctr_rec; aes_ctr_block; gcm_ctr_inc_iter] THEN
+  CONV_TAC NUM_REDUCE_CONV THEN
+  REWRITE_TAC[GCM_CTR_INC_ITER_1; gcm_ctr_inc_iter;
+              int128_list_to_bytes; APPEND_NIL]);;
+
+(* ========================================================================= *)
+(* Readback bridges: two per-block bytes128 store readbacks  =>  one          *)
+(* byte_list_at(out_p,32) buffer clause.  GCM analog of the AES-XTS            *)
+(* READ_BYTES_EQ_READ_BYTE128_2BLOCKS_ENC, reusing the XTS substrate           *)
+(* (READ_BYTES_AND_BYTE128_SPLIT, READ_MEMORY_BYTES_BYTES128, the             *)
+(* int128_to_bytes round-trip lemmas, BYTE_LIST_TO_NUM_THM) from              *)
+(* aes_xts_common.ml -- so NO new memory-model infrastructure is invented.    *)
+(* ========================================================================= *)
+
+(* base: one bytes128 read => bytes(out_p,16) in num_of_bytelist form.        *)
+let CTR_BLOCK0_BYTES16 = prove(
+ `!(out_p:int64) ctr0 (pt0:int128) (keys:int128 list) s.
+    read (memory :> bytes128 out_p) s = word_xor pt0 (aes256_encrypt ctr0 keys)
+    ==> read (memory :> bytes (out_p, 16)) s =
+        num_of_bytelist (int128_to_bytes (word_xor pt0 (aes256_encrypt ctr0 keys)))`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[READ_MEMORY_BYTES_BYTES128] THEN
+  ASM_REWRITE_TAC[NUM_OF_BYTELIST_OF_INT128_TO_BYTES]);;
+
+(* num form: two bytes128 reads => bytes(out_p,32) = num_of_bytelist(aes_ctr_bytes). *)
+let READ_BYTES_EQ_BYTE128_2BLOCKS_CTR = prove(
+ `!(out_p:int64) ctr0 (pt0:int128) (pt1:int128) (keys:int128 list) s.
+    read (memory :> bytes128 out_p) s = word_xor pt0 (aes256_encrypt ctr0 keys) /\
+    read (memory :> bytes128 (word_add out_p (word 16))) s =
+      word_xor pt1 (aes256_encrypt (gcm_ctr_inc ctr0) keys)
+    ==> read (memory :> bytes (out_p, 32)) s =
+        num_of_bytelist (aes_ctr_bytes ctr0 [pt0;pt1] keys)`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `LENGTH (aes_ctr_bytes ctr0 [pt0;pt1] keys) = 32` ASSUME_TAC THENL
+   [REWRITE_TAC[LENGTH_AES_CTR_BYTES; LENGTH] THEN CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
+  IMP_REWRITE_TAC[ARITH_RULE `32 = 16 + 16`; READ_BYTES_AND_BYTE128_SPLIT] THEN
+  EXISTS_TAC `aes_ctr_bytes ctr0 [pt0;pt1] keys` THEN
+  ASM_SIMP_TAC[SUB_LIST_LENGTH_IMPLIES; ARITH_RULE `16 + 16 <= 32`] THEN
+  REWRITE_TAC[AES_CTR_BYTES_2] THEN
+  SUBGOAL_THEN `LENGTH(int128_to_bytes (word_xor pt0 (aes256_encrypt ctr0 keys))) = 16`
+    ASSUME_TAC THENL [REWRITE_TAC[LENGTH_INT128_TO_BYTES]; ALL_TAC] THEN
+  ASM_SIMP_TAC[SUB_LIST_APPEND_RIGHT_LEMMA; SUB_LIST_OF_INT128_TO_BYTES;
+               BYTES_TO_INT128_OF_INT128_TO_BYTES] THEN
+  CONJ_TAC THENL
+   [MATCH_MP_TAC(MESON[] `s = l ==> num_of_bytelist s = num_of_bytelist l`) THEN
+    MATCH_MP_TAC SUB_LIST_LENGTH_IMPLIES THEN
+    REWRITE_TAC[LENGTH_APPEND] THEN ASM_REWRITE_TAC[LENGTH_INT128_TO_BYTES] THEN
+    CONV_TAC NUM_REDUCE_CONV;
+    ASM_SIMP_TAC[SUB_LIST_APPEND_LEFT; ARITH_RULE `16 <= 16`;
+                 SUB_LIST_OF_INT128_TO_BYTES] THEN
+    MP_TAC(SPECL [`out_p:int64`;`ctr0:int128`;`pt0:int128`;`keys:int128 list`;`s:armstate`]
+      CTR_BLOCK0_BYTES16) THEN ASM_REWRITE_TAC[]]);;
+
+(* the wrapper a postcond uses: two bytes128 reads => byte_list_at(out_p,32).  *)
+let BYTE_LIST_AT_2BLOCKS_CTR = prove(
+ `!(out_p:int64) ctr0 (pt0:int128) (pt1:int128) (keys:int128 list) s.
+    read (memory :> bytes128 out_p) s = word_xor pt0 (aes256_encrypt ctr0 keys) /\
+    read (memory :> bytes128 (word_add out_p (word 16))) s =
+      word_xor pt1 (aes256_encrypt (gcm_ctr_inc ctr0) keys)
+    ==> byte_list_at (aes_ctr_bytes ctr0 [pt0;pt1] keys) out_p (word 32) s`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `LENGTH (aes_ctr_bytes ctr0 [pt0;pt1] keys) = 32` ASSUME_TAC THENL
+   [REWRITE_TAC[LENGTH_AES_CTR_BYTES; LENGTH] THEN CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
+  REWRITE_TAC[byte_list_at] THEN
+  SUBGOAL_THEN `val(word 32:int64) = 32` SUBST1_TAC THENL
+   [CONV_TAC WORD_REDUCE_CONV; ALL_TAC] THEN
+  MP_TAC(SPECL [`32`; `out_p:int64`; `aes_ctr_bytes ctr0 [pt0;pt1] keys`; `s:armstate`]
+    BYTE_LIST_TO_NUM_THM) THEN
+  ASM_REWRITE_TAC[LE_REFL] THEN DISCH_THEN SUBST1_TAC THEN
+  ASM_SIMP_TAC[SUB_LIST_LENGTH_IMPLIES] THEN
+  MATCH_MP_TAC READ_BYTES_EQ_BYTE128_2BLOCKS_CTR THEN ASM_REWRITE_TAC[]);;
