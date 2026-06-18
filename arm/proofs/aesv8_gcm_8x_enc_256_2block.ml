@@ -635,7 +635,7 @@ let FINISH_2BLK_TAC : tactic =
 
 let AESV8_GCM_8X_ENC_256_2BLOCK = prove(
  `!pc stackpointer out_p xi_p ivec_p in_p key_p htbl_p
-    plaintext0 plaintext1 xi ctr0 ctr1 k0 k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13 k14 h hk h2.
+    plaintext0 plaintext1 xi ctr0 k0 k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13 k14 h hk h2.
     aligned 16 stackpointer /\
     nonoverlapping (word pc, 4600) (stackpointer:int64, 80) /\
     nonoverlapping (word pc, 4600) (out_p:int64, 32) /\
@@ -663,8 +663,7 @@ let AESV8_GCM_8X_ENC_256_2BLOCK = prove(
       word_xor (word_subword h (0,64):64 word) (word_subword h (64,64):64 word) /\
     word_subword hk (64,64) :64 word =
       word_xor (word_subword h2 (0,64):64 word) (word_subword h2 (64,64):64 word) /\
-    byteswap128 h2 = polyval_dot (byteswap128 h) (byteswap128 h) /\
-    ctr1:int128 = gcm_ctr_inc ctr0
+    byteswap128 h2 = polyval_dot (byteswap128 h) (byteswap128 h)
     ==> ensures arm
      (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_enc_256_mc /\
           read PC s = word (pc + 0x18) /\ read SP s = stackpointer /\
@@ -697,7 +696,7 @@ let AESV8_GCM_8X_ENC_256_2BLOCK = prove(
           word_xor plaintext0 (aes256_encrypt ctr0
             [(k0:int128);k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]) /\
           read (memory :> bytes128 (word_add out_p (word 16))) s =
-          word_xor plaintext1 (aes256_encrypt ctr1
+          word_xor plaintext1 (aes256_encrypt (gcm_ctr_inc_iter 1 ctr0)
             [(k0:int128);k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]) /\
           read (memory :> bytes128 xi_p) s =
           word_bytereverse
@@ -706,7 +705,7 @@ let AESV8_GCM_8X_ENC_256_2BLOCK = prove(
                  (word_xor plaintext0 (aes256_encrypt ctr0
                    [k0;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]));
                word_bytereverse
-                 (word_xor plaintext1 (aes256_encrypt ctr1
+                 (word_xor plaintext1 (aes256_encrypt (gcm_ctr_inc_iter 1 ctr0)
                    [k0;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]))]))
      (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
       MAYCHANGE [memory :> bytes(out_p, 32); memory :> bytes(xi_p, 16);
@@ -715,6 +714,16 @@ let AESV8_GCM_8X_ENC_256_2BLOCK = prove(
       MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
                  Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;Q29;Q30;Q31])`,
   REPEAT GEN_TAC THEN STRIP_TAC THEN
+  (* Block-1's counter is stated as gcm_ctr_inc_iter 1 ctr0 (the shared
+     iterator).  Collapse it to gcm_ctr_inc ctr0 (GCM_CTR_INC_ITER_1), then
+     re-introduce the spec atom ctr1 = gcm_ctr_inc ctr0 by abbreviation (flipped
+     to lhs = ctr1) so the rest of the proof body runs verbatim as before --
+     this is purely a restatement of the postcond's block-1 counter. *)
+  REWRITE_TAC[GCM_CTR_INC_ITER_1] THEN
+  ABBREV_TAC `ctr1:int128 = gcm_ctr_inc ctr0` THEN
+  FIRST_X_ASSUM(fun th ->
+    if (try rhs(concl th) = `ctr1:int128` with _ -> false)
+    then ASSUME_TAC(SYM th) else NO_TAC) THEN
   REWRITE_TAC[C_ARGUMENTS; SOME_FLAGS] THEN
   ENSURES_INIT_TAC "s0" THEN
   RULE_ASSUM_TAC(REWRITE_RULE[C_ARGUMENTS]) THEN
