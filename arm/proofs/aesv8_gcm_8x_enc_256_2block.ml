@@ -343,6 +343,9 @@ needs "arm/proofs/utils/aes.ml";;
 needs "arm/proofs/utils/aes_encrypt_spec.ml";;
 needs "common/karatsuba_pmul.ml";;
 needs "common/polyval_ghash.ml";;
+(* Counter-mode spec layer: gcm_ctr_inc + GCM_CTR_INC_LANES (+ inc32 bridge and *)
+(* the gcm_ctr_inc_iter iterator) now live in the shared utils file.            *)
+needs "arm/proofs/utils/gcm_ctr_helpers.ml";;
 
 (* The machine code + EXEC rule are shared with the 1-block proof; load that
    file so aesv8_gcm_8x_enc_256_mc / _EXEC and all helper lemmas are in scope.
@@ -393,82 +396,12 @@ needs "arm/proofs/aesv8_gcm_8x_enc_256_1block.ml";;
    ------------------------------------------------------------------------- *)
 
 (* ========================================================================= *)
-(* The AES-GCM counter increment (block-1's CTR input).                        *)
-(* gcm_ctr_inc ivec = ivec with its top 32-bit lane byte-reversed, +1, and     *)
-(* byte-reversed back -- i.e. the rev32+ADD+rev32 increment the binary does.   *)
-(* Matches gcm_ctr_inc in manastasova's s2n-bignum-dev (aes256_gcm_whole):     *)
-(* https://github.com/manastasova/s2n-bignum-dev/blob/756df852a0e42ac0229d7d67fb223b843d4afb49/arm/proofs/utils/gcm_aesgcm_nblock_helpers.ml#L38 *)
-(* The block-1 counter is exposed in the spec as ctr1 = gcm_ctr_inc ctr0; this  *)
-(* def replaces the lengthy literal word_join byte-shuffle in the precond, and  *)
-(* GCM_CTR_INC_LANES bridges it to the lane-byte form the simulator produces.   *)
+(* The AES-GCM counter increment (block-1's CTR input) + its lane-byte form    *)
+(* now live in the shared utils file arm/proofs/utils/gcm_ctr_helpers.ml       *)
+(* (needs'd above): gcm_ctr_inc, GCM_CTR_INC_LANES (used by the ctr1 fold), the *)
+(* NIST inc32 bridge GCM_CTR_INC_INC32, and the gcm_ctr_inc_iter iterator.      *)
+(* They were lifted byte-identically out of this file; nothing else changes.   *)
 (* ========================================================================= *)
-
-let gcm_ctr_inc = new_definition
- `gcm_ctr_inc (ivec:(128)word) : (128)word =
-   word_insert ivec (96,32)
-     (word_bytereverse
-        (word_add (word_bytereverse
-                     (word_subword ivec (96,32):(32)word))
-                  (word 1:(32)word)))`;;
-
-(* gcm_ctr_inc as the explicit per-byte lane-shuffle the front simulation     *)
-(* emits (rev32 of the top lane incremented, low 96 bits unchanged, all built  *)
-(* from 8-bit subwords of ctr0).  One BITBLAST (~1s); used to fold the spec     *)
-(* var ctr1 to the form the Q9 keystream readback carries.                     *)
-let GCM_CTR_INC_LANES = prove(
- `!ctr0:int128.
-    gcm_ctr_inc ctr0 =
-    word_join
-    (word_join
-     (word_join
-      (word_join
-       (word_subword
-        (word_add
-         (word_join
-          (word_join (word_subword ctr0 (96,8):(8)word) (word_subword ctr0 (104,8):(8)word)
-           :(16)word)
-          (word_join (word_subword ctr0 (112,8):(8)word) (word_subword ctr0 (120,8):(8)word)
-           :(16)word) :(32)word)
-         (word 1:(32)word)) (0,8) :(8)word)
-       (word_subword
-        (word_add
-         (word_join
-          (word_join (word_subword ctr0 (96,8):(8)word) (word_subword ctr0 (104,8):(8)word)
-           :(16)word)
-          (word_join (word_subword ctr0 (112,8):(8)word) (word_subword ctr0 (120,8):(8)word)
-           :(16)word) :(32)word)
-         (word 1:(32)word)) (8,8) :(8)word) :(16)word)
-      (word_join
-       (word_subword
-        (word_add
-         (word_join
-          (word_join (word_subword ctr0 (96,8):(8)word) (word_subword ctr0 (104,8):(8)word)
-           :(16)word)
-          (word_join (word_subword ctr0 (112,8):(8)word) (word_subword ctr0 (120,8):(8)word)
-           :(16)word) :(32)word)
-         (word 1:(32)word)) (16,8) :(8)word)
-       (word_subword
-        (word_add
-         (word_join
-          (word_join (word_subword ctr0 (96,8):(8)word) (word_subword ctr0 (104,8):(8)word)
-           :(16)word)
-          (word_join (word_subword ctr0 (112,8):(8)word) (word_subword ctr0 (120,8):(8)word)
-           :(16)word) :(32)word)
-         (word 1:(32)word)) (24,8) :(8)word) :(16)word) :(32)word)
-     (word_join
-      (word_join (word_subword ctr0 (88,8):(8)word) (word_subword ctr0 (80,8):(8)word) :(16)word)
-      (word_join (word_subword ctr0 (72,8):(8)word) (word_subword ctr0 (64,8):(8)word) :(16)word)
-      :(32)word) :(64)word)
-    (word_join
-     (word_join
-      (word_join (word_subword ctr0 (56,8):(8)word) (word_subword ctr0 (48,8):(8)word) :(16)word)
-      (word_join (word_subword ctr0 (40,8):(8)word) (word_subword ctr0 (32,8):(8)word) :(16)word)
-      :(32)word)
-     (word_join
-      (word_join (word_subword ctr0 (24,8):(8)word) (word_subword ctr0 (16,8):(8)word) :(16)word)
-      (word_join (word_subword ctr0 (8,8):(8)word) (word_subword ctr0 (0,8):(8)word) :(16)word)
-      :(32)word) :(64)word) :(128)word`,
-  GEN_TAC THEN REWRITE_TAC[gcm_ctr_inc] THEN BITBLAST_TAC);;
 
 (* ========================================================================= *)
 (* Helper lemmas for the 2-product GHASH bridge (session 3).                 *)
