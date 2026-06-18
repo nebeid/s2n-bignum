@@ -346,6 +346,9 @@ needs "common/polyval_ghash.ml";;
 (* Counter-mode spec layer: gcm_ctr_inc + GCM_CTR_INC_LANES (+ inc32 bridge and *)
 (* the gcm_ctr_inc_iter iterator) now live in the shared utils file.            *)
 needs "arm/proofs/utils/gcm_ctr_helpers.ml";;
+(* Recursive list-based CTR ciphertext spec (aes_ctr) + its 2-block reductions  *)
+(* AES_CTR_2_EL / AES_CTR_2_MAP_BREV, used to state the out_p / GHASH postcond.  *)
+needs "arm/proofs/utils/aes_ctr_spec.ml";;
 
 (* The machine code + EXEC rule are shared with the 1-block proof; load that
    file so aesv8_gcm_8x_enc_256_mc / _EXEC and all helper lemmas are in scope.
@@ -693,20 +696,17 @@ let AESV8_GCM_8X_ENC_256_2BLOCK = prove(
           read (memory :> bytes128 (word_add htbl_p (word 32))) s = h2)
      (\s. read PC s = word (pc + 0x11d8) /\
           read (memory :> bytes128 out_p) s =
-          word_xor plaintext0 (aes256_encrypt ctr0
-            [(k0:int128);k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]) /\
+          EL 0 (aes_ctr ctr0 [plaintext0;plaintext1]
+                 [(k0:int128);k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]) /\
           read (memory :> bytes128 (word_add out_p (word 16))) s =
-          word_xor plaintext1 (aes256_encrypt (gcm_ctr_inc_iter 1 ctr0)
-            [(k0:int128);k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]) /\
+          EL 1 (aes_ctr ctr0 [plaintext0;plaintext1]
+                 [(k0:int128);k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]) /\
           read (memory :> bytes128 xi_p) s =
           word_bytereverse
             (ghash_polyval_acc (byteswap128 h) (word_bytereverse xi)
-              [word_bytereverse
-                 (word_xor plaintext0 (aes256_encrypt ctr0
-                   [k0;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]));
-               word_bytereverse
-                 (word_xor plaintext1 (aes256_encrypt (gcm_ctr_inc_iter 1 ctr0)
-                   [k0;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]))]))
+              (MAP word_bytereverse
+                (aes_ctr ctr0 [plaintext0;plaintext1]
+                  [k0;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]))))
      (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
       MAYCHANGE [memory :> bytes(out_p, 32); memory :> bytes(xi_p, 16);
                  memory :> bytes(ivec_p, 16);
@@ -714,12 +714,14 @@ let AESV8_GCM_8X_ENC_256_2BLOCK = prove(
       MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
                  Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;Q29;Q30;Q31])`,
   REPEAT GEN_TAC THEN STRIP_TAC THEN
-  (* Block-1's counter is stated as gcm_ctr_inc_iter 1 ctr0 (the shared
-     iterator).  Collapse it to gcm_ctr_inc ctr0 (GCM_CTR_INC_ITER_1), then
+  (* The out_p / GHASH postcond is stated via the shared list spec aes_ctr:
+       out_p block i = EL i (aes_ctr ctr0 [pt0;pt1] keys)
+       GHASH input    = MAP word_bytereverse (aes_ctr ctr0 [pt0;pt1] keys).
+     Reduce those to the concrete per-block ciphertext forms (block 0 uses
+     ctr0, block 1 uses gcm_ctr_inc ctr0) via the proven reductions, then
      re-introduce the spec atom ctr1 = gcm_ctr_inc ctr0 by abbreviation (flipped
-     to lhs = ctr1) so the rest of the proof body runs verbatim as before --
-     this is purely a restatement of the postcond's block-1 counter. *)
-  REWRITE_TAC[GCM_CTR_INC_ITER_1] THEN
+     to lhs = ctr1) so the rest of the proof body runs verbatim as before. *)
+  REWRITE_TAC[AES_CTR_2_EL; AES_CTR_2_MAP_BREV] THEN
   ABBREV_TAC `ctr1:int128 = gcm_ctr_inc ctr0` THEN
   FIRST_X_ASSUM(fun th ->
     if (try rhs(concl th) = `ctr1:int128` with _ -> false)
