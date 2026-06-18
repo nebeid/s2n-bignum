@@ -192,26 +192,29 @@ composition applies (item 3), not the tail bands.
 - **Q-ghash:** which GHASH closure do we standardize on — ours (measured-fast,
   `FAST_OPERAND_TAC`/`GHASH_POLYVAL_ACC_BATCHED`), Mila's (once-proven `…_EQ_PROP3`, scalable
   by design but not yet wired into her bands), or a hybrid? Resolve by the bench in item 5.
-- **Q-share:** does Mila intend to upstream `aes256_gcm.ml`'s spec layer to
-  `common/`/`arm/proofs/utils/`? If yes, depend on that; if not, lift just the spec+bridges
-  into a shared file on our side and `needs` it from both her-style and our-binary proofs
-  (coordinate names verbatim so a later merge is a no-op — cf. R5).
-- **Q-stack:** do we want the XTS no-stack-clause posture for our GCM proofs? If yes, the
-  target is: enter at `pc+0x28` (after the 0xC2 reduction-constant spill), supply that
-  constant + `X10` as preconds, drop the `bytes(stackpointer+64,16)` MAYCHANGE clause. Decide
-  for the main-loop/whole-binary proof (not per tail band). Diverges from Mila's full-frame
-  shape (see Stack findings).
-- **Q-ghash:** which GHASH closure do we standardize on — ours (measured-fast,
-  `FAST_OPERAND_TAC`/`GHASH_POLYVAL_ACC_BATCHED`), Mila's (once-proven `…_EQ_PROP3`, scalable
-  by design but not yet wired into her bands), or a hybrid? Resolve by the bench in item 5.
-- **Q-share:** does Mila intend to upstream `aes256_gcm.ml`'s spec layer to
-  `common/`/`arm/proofs/utils/`? If yes, depend on that; if not, lift just the spec+bridges
-  into a shared file on our side and `needs` it from both her-style and our-binary proofs
-  (coordinate names verbatim so a later merge is a no-op — cf. R5).
-- **Q-binary:** are `aes256_gcm.o` and `aesv8_gcm_8x_enc_256.o` the same source compiled
-  differently, or different routines? Determines how much of her *concrete* sim/closers we
-  can reuse vs. only the spec. (Her concrete bands ARM_STEP her binary; our front/bridge
-  already work on ours.)
+- **Q-share [PARTIALLY RESOLVED 2026-06-18]:** Mila's spec files (`aes256_gcm.ml`,
+  `gcm_aesgcm_nblock_helpers.ml`) are NOT present locally (only on remote `mila`), and there is
+  no signal yet that she intends to upstream them to `common/`/`arm/proofs/utils/`. DECISION for
+  the counter core (this session): lift onto OUR side into a shared file, coordinating names
+  verbatim so a later merge is a no-op (cf. R5). DONE: `arm/proofs/utils/gcm_ctr_helpers.ml`
+  (see ADDENDUM) holds `gcm_ctr_inc` + `GCM_CTR_INC_LANES` (lifted byte-identical from
+  `aesv8_gcm_8x_enc_256_2block.ml`, same names as Mila's), the NIST `inc32` (PR#389 copy) + the
+  `GCM_CTR_INC_INC32` byteswap bridge, and the defined iterator `gcm_ctr_inc_iter` (= `ITER k
+  gcm_ctr_inc`) with its `_1`/`_ADD`/`_INC32` lemmas. STILL OPEN: the rest of the spec home
+  (`byte_list_at`, `aes256_gcm_encrypt`, `gcm_final_xi`, `OUT_BRIDGE_GEN`, GHASH N-block) — to be
+  added to this same file / a sibling as enc-2block is wired (Task 6); confirm with Mila whether
+  she will upstream hers before we duplicate those larger pieces.
+- **Q-binary [RESOLVED 2026-06-18]:** SAME SOURCE ROUTINE, different entry/framing. Mila's
+  local artifact `_tmp/mila2blk/two_blocks_aes256_gcm_preloop_tail.S` is explicitly labelled
+  *"the COMPLETE `aesv8_gcm_8x_enc_256` function from aws-lc's `aesv8-gcm-armv8-unroll8.S`"*
+  with *"Arguments (same as `aesv8_gcm_8x_enc_256`)"* — i.e. her `aes256_gcm.o` is OUR routine,
+  entered at pc+0 with the full prologue (`SP = stackptr+80`, full 80-byte frame); ours
+  (`aesv8_gcm_8x_enc_256.o`) enters at pc+0x18 (C_ARGUMENTS, prologue skipped). CONSEQUENCE:
+  her **spec layer + generic bridges + counter iterator + GHASH inductive bridge are reusable
+  verbatim** (binary-agnostic), but her **concrete per-band sim/closers are NOT directly
+  transferable** (they ARM_STEP from her pc+0 entry; our front/bridge already step from pc+0x18).
+  So "reuse" = her spec/bridges, "re-derive on our entry" = the concrete stepping. Matches the
+  REVISION section's split.
 - **Q-389:** the COPY-DON'T-STUB / `inc32` reconciliation (original Task 2) still applies,
   but note Mila uses `gcm_ctr_inc`+`gcm_ctr_iter`, not `inc32` — the NIST `inc32` bridge is
   still worth having and is still an @UPSTREAM-389 candidate.
@@ -594,3 +597,55 @@ originate in Mila's dev branch; coordinate THOSE with her, not with #389 — see
 Two upstreams to keep distinct: **#389** = the cipher-agnostic NIST spec layer; **Mila's dev
 branch** = the ARM N-block proof machinery. Spec-level additions go to #389; proof machinery
 coordinates with Mila.
+
+---
+
+## ADDENDUM (2026-06-18) — counter-core shared file landed (Task 0/1/2/3 subset)
+
+**Deliverable this session:** `arm/proofs/utils/gcm_ctr_helpers.ml` — the **counter core** of
+the "shared spec home" (item 1). Self-contained: `needs "arm/proofs/base.ml"` only.
+**loadt-clean: 1.90s, 3 axioms (unchanged), no CHEAT_TAC / new_axiom.**
+
+Scope deliberately bounded to the part that is provable in one session AND keeps the existing
+proofs closing without slowdown (the user's stated bar). The larger spec-home pieces
+(`byte_list_at`, `aes256_gcm_encrypt`, `gcm_final_xi`, `OUT_BRIDGE_GEN`, GHASH N-block) are NOT
+in this file yet — they land as enc-2block is wired to the spec (Task 6), pending the Q-share
+coordination with Mila.
+
+### Contents (names final — coordinate verbatim with Mila per R5)
+| Name | Kind | Notes |
+|------|------|-------|
+| `gcm_ctr_inc` | def | **lifted byte-identical** from `aesv8_gcm_8x_enc_256_2block.ml`; = Mila's def |
+| `GCM_CTR_INC_LANES` | thm | **lifted byte-identical** from 2block (`GEN_TAC THEN REWRITE_TAC[gcm_ctr_inc] THEN BITBLAST_TAC`) |
+| `inc32` | def | **COPY from PR#389** `sgmenda:gcm-spec@2f81c762` `common/gcm.ml`, in a BEGIN/END block |
+| `GCM_CTR_INC_INC32` | thm | bridge `gcm_ctr_inc x = word_bytereverse (inc32 (word_bytereverse x))`; `@UPSTREAM-389?` |
+| `gcm_ctr_inc_iter` | def | `gcm_ctr_inc_iter 0 x = x /\ gcm_ctr_inc_iter (SUC k) x = gcm_ctr_inc (gcm_ctr_inc_iter k x)` |
+| `GCM_CTR_INC_ITER_ITER` | thm | `gcm_ctr_inc_iter k x = ITER k gcm_ctr_inc x` (so ITER lemmas apply) |
+| `GCM_CTR_INC_ITER_1` | thm | `gcm_ctr_inc_iter 1 x = gcm_ctr_inc x` (the 2-block block-1 form) |
+| `GCM_CTR_INC_ITER_ADD` | thm | `gcm_ctr_inc_iter (m+n) x = gcm_ctr_inc_iter m (gcm_ctr_inc_iter n x)` (peel one block) |
+| `GCM_CTR_INC_ITER_INC32` | thm | iterated NIST bridge `= word_bytereverse (ITER k inc32 (word_bytereverse x))`; `@UPSTREAM-389?` |
+
+### Design decisions resolved
+- **D2 (canonical increment):** keep BOTH. `gcm_ctr_inc` (ARM lane form) is canonical for the
+  proof; `inc32` (NIST) for the spec; `GCM_CTR_INC_INC32` is the byteswap conjugation bridge
+  (`gcm_ctr_inc x = word_bytereverse (inc32 (word_bytereverse x))`) — proved, BITBLAST ~0.7s.
+  The endianness (R2): `inc32` increments the LOW 32 bits, `gcm_ctr_inc` the TOP byte-reversed
+  lane; full 128-bit byteswap conjugates them.
+- **D3 (iterator form):** DEFINED `gcm_ctr_inc_iter` (recursive), proven equal to
+  `ITER k gcm_ctr_inc`. A defined iterator (not a tactic phrase) composes in the N-block
+  induction; `GCM_CTR_INC_ITER_ADD` peels one block.
+- **D4 (file location):** `arm/proofs/utils/gcm_ctr_helpers.ml` (next to the AES/XTS spec utils),
+  exactly as D4 recommended for the LANE/CTR fold-lemma home.
+- D1 (list element type) and the recursive ciphertext spec (Task 4) are NOT decided here —
+  deferred to the spec-home wiring step.
+
+### How this keeps proofs closing and not slower
+The lifted `gcm_ctr_inc` / `GCM_CTR_INC_LANES` are **byte-identical** to the 2-block originals,
+so when `aesv8_gcm_8x_enc_256_2block.ml` later drops its inline copies and adds
+`needs "arm/proofs/utils/gcm_ctr_helpers.ml"`, the swap is a no-op (same theorem statements,
+same proof cost — actually the BITBLAST is paid once in the shared file instead of inline).
+No existing proof file was modified this session (per the session constraint).
+
+### Remaining @UPSTREAM-389 markers in source
+`GCM_CTR_INC_INC32` and `GCM_CTR_INC_ITER_INC32` are tagged `@UPSTREAM-389?` (NIST↔ARM counter
+bridge — authors decide). The `inc32` copy block carries the PR#389 removal marker.
