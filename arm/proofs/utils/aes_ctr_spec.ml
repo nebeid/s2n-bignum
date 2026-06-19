@@ -219,3 +219,119 @@ let BYTE_LIST_AT_2BLOCKS_CTR = prove(
   ASM_REWRITE_TAC[LE_REFL] THEN DISCH_THEN SUBST1_TAC THEN
   ASM_SIMP_TAC[SUB_LIST_LENGTH_IMPLIES] THEN
   MATCH_MP_TAC READ_BYTES_EQ_BYTE128_2BLOCKS_CTR THEN ASM_REWRITE_TAC[]);;
+
+(* ========================================================================= *)
+(* Masked PARTIAL-TAIL byte_list_at bridge (1 <= bl <= 16 bytes).             *)
+(*                                                                            *)
+(* The binary reads a partial last block as a full 128-bit register and writes *)
+(* a masked BLEND: word_xor (word_and CT mask) (word_and outprev (~mask)), with *)
+(* mask = word (2 EXP (8*bl) - 1) -- the low bl bytes are ciphertext, the high  *)
+(* 16-bl bytes are the caller's pre-existing output (see the .S walkthrough).   *)
+(* byte_list_at over bl bytes constrains ONLY the low bl bytes, so it equals    *)
+(* the first bl bytes of the ciphertext block -- matching Mila's gcm_ctm_tail   *)
+(* (the nfull=0 tail of aes256_gcm_encrypt): word_and ct (word (2 EXP(8*tail)-1)).*)
+(*                                                                            *)
+(* The byte-extraction sublemmas are PORTED VERBATIM (names per plan R5) from   *)
+(* manastasova/s2n-bignum-dev@756df852 arm/proofs/aes256_gcm.ml: BYTE8_OF_BYTES128 *)
+(* SUBWORD_BYTES_TO_INT128, EL_SUB_LIST_0, EL_INT128_TO_BYTES, MASK_BYTE_OUT.    *)
+(* BYTES128_TO_BYTES8_THM is already in aes_xts_common.ml (shared XTS substrate).*)
+(* ========================================================================= *)
+
+let BYTES128_TO_BYTES8_0 =
+  REWRITE_RULE[ADD_CLAUSES; WORD_ADD_0] (SPEC `0` BYTES128_TO_BYTES8_THM);;
+
+let SUBWORD_BYTES_TO_INT128 = prove(
+ `!b0 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 i. i < 16
+   ==> word_subword (bytes_to_int128 [b0;b1;b2;b3;b4;b5;b6;b7;b8;b9;b10;b11;b12;b13;b14;b15]) (8*i,8):byte =
+       EL i [b0;b1;b2;b3;b4;b5;b6;b7;b8;b9;b10;b11;b12;b13;b14;b15]`,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  POP_ASSUM MP_TAC THEN SPEC_TAC(`i:num`,`i:num`) THEN
+  CONV_TAC EXPAND_CASES_CONV THEN
+  REWRITE_TAC[bytes_to_int128] THEN REWRITE_TAC EL_16_8_CLAUSES THEN
+  CONV_TAC(DEPTH_CONV WORD_NUM_RED_CONV) THEN CONV_TAC WORD_BLAST);;
+
+let BYTE8_OF_BYTES128 = prove(
+ `!p s i. i < 16 ==> read (memory :> bytes8 (word_add p (word i))) s =
+                     word_subword (read (memory :> bytes128 p) s) (8*i,8)`,
+  REPEAT STRIP_TAC THEN
+  GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [BYTES128_TO_BYTES8_0] THEN
+  ASM_SIMP_TAC[SUBWORD_BYTES_TO_INT128] THEN
+  POP_ASSUM MP_TAC THEN SPEC_TAC(`i:num`,`i:num`) THEN
+  CONV_TAC EXPAND_CASES_CONV THEN
+  REWRITE_TAC EL_16_8_CLAUSES THEN REWRITE_TAC[WORD_ADD_0]);;
+
+let EL_SUB_LIST_0 = prove(
+ `!(l:A list) n i. i < n ==> EL i (SUB_LIST(0,n) l) = EL i l`,
+  LIST_INDUCT_TAC THEN REPEAT GEN_TAC THEN DISCH_TAC THENL
+   [REWRITE_TAC[SUB_LIST_CLAUSES];
+    ASM_CASES_TAC `n = 0` THENL [ASM_MESON_TAC[LT]; ALL_TAC] THEN
+    SUBGOAL_THEN `n = SUC(n-1)` SUBST1_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+    REWRITE_TAC[SUB_LIST_CLAUSES] THEN
+    ASM_CASES_TAC `i = 0` THEN ASM_REWRITE_TAC[EL; HD; TL] THEN
+    SUBGOAL_THEN `i = SUC(i-1)` SUBST1_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+    REWRITE_TAC[EL; TL] THEN
+    FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC]);;
+
+let EL_INT128_TO_BYTES = prove(
+ `!w i. i < 16 ==> EL i (int128_to_bytes w):byte = word_subword w (8*i,8)`,
+  GEN_TAC THEN REWRITE_TAC[int128_to_bytes] THEN
+  CONV_TAC EXPAND_CASES_CONV THEN REWRITE_TAC EL_16_8_CLAUSES THEN
+  CONV_TAC(DEPTH_CONV WORD_NUM_RED_CONV) THEN REWRITE_TAC[]);;
+
+(* word_or form (Mila's gcm_ctm_tail blend) and word_xor form (our LE1BLOCK     *)
+(* blend; the two masks are disjoint so or = xor): the masked byte = ct byte.   *)
+let MASK_BYTE_OUT = prove(
+ `!(ct:int128) (out0:int128) (n:num) (i:num).
+    i < n /\ n <= 16
+    ==> word_subword (word_or (word_and ct (word (2 EXP (8*n) - 1):int128))
+                              (word_and out0 (word_not (word (2 EXP (8*n) - 1):int128)))) (8*i,8):byte =
+        word_subword ct (8*i,8)`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[WORD_EQ_BITS_ALT; BIT_WORD_SUBWORD; BIT_WORD_OR; BIT_WORD_AND; BIT_WORD_NOT;
+              BIT_MASK_WORD; DIMINDEX_8; DIMINDEX_128] THEN
+  X_GEN_TAC `j:num` THEN STRIP_TAC THEN
+  SUBGOAL_THEN `8 * i + j < 128` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `8 * i + j < 8 * n` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  ASM_REWRITE_TAC[]);;
+
+let MASK_BYTE_OUT_XOR = prove(
+ `!(ct:int128) (out0:int128) (n:num) (i:num).
+    i < n /\ n <= 16
+    ==> word_subword (word_xor (word_and ct (word (2 EXP (8*n) - 1):int128))
+                               (word_and out0 (word_not (word (2 EXP (8*n) - 1):int128)))) (8*i,8):byte =
+        word_subword ct (8*i,8)`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[WORD_EQ_BITS_ALT; BIT_WORD_SUBWORD; BIT_WORD_XOR; BIT_WORD_AND; BIT_WORD_NOT;
+              BIT_MASK_WORD; DIMINDEX_8; DIMINDEX_128] THEN
+  X_GEN_TAC `j:num` THEN STRIP_TAC THEN
+  SUBGOAL_THEN `8 * i + j < 128` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `8 * i + j < 8 * n` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  ASM_REWRITE_TAC[]);;
+
+(* Byte spec for one partial/full block: the first bl bytes of the ciphertext   *)
+(* block (= Mila's gcm_ctm_tail viewed as a byte list, the aes256_gcm_encrypt    *)
+(* nfull=0 tail).                                                               *)
+let aes_ctr_tail_bytes = new_definition
+ `aes_ctr_tail_bytes (ctr0:int128) (pt:int128) (keys:int128 list) (bl:num) : byte list =
+    SUB_LIST (0,bl) (int128_to_bytes (word_xor pt (aes256_encrypt ctr0 keys)))`;;
+
+(* The masked-tail readback bridge: a masked-blend bytes128 store (1<=bl<=16)    *)
+(* => byte_list_at over bl bytes.  Used to weaken the LE1BLOCK masked postcond.  *)
+let BYTE_LIST_AT_TAIL_CTR = prove(
+ `!(out_p:int64) ctr0 (pt:int128) (keys:int128 list) outprev (bl:num) s.
+    1 <= bl /\ bl <= 16 /\
+    read (memory :> bytes128 out_p) s =
+      word_xor (word_and (word_xor pt (aes256_encrypt ctr0 keys))
+                         (word (2 EXP (8 * bl) - 1)))
+               (word_and outprev (word_not (word (2 EXP (8 * bl) - 1))))
+    ==> byte_list_at (aes_ctr_tail_bytes ctr0 pt keys bl) out_p (word bl) s`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[byte_list_at; aes_ctr_tail_bytes] THEN
+  SUBGOAL_THEN `val(word bl:int64) = bl` SUBST1_TAC THENL
+   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  X_GEN_TAC `i:num` THEN DISCH_TAC THEN
+  SUBGOAL_THEN `i < 16` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  ASM_SIMP_TAC[BYTE8_OF_BYTES128] THEN
+  ASM_SIMP_TAC[EL_SUB_LIST_0; EL_INT128_TO_BYTES] THEN
+  ASM_REWRITE_TAC[] THEN
+  ASM_SIMP_TAC[MASK_BYTE_OUT_XOR]);;
