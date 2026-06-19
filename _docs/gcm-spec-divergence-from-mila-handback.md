@@ -181,8 +181,18 @@ lemmas (all in `aes_xts_common.ml`) -- built on `aes256_encrypt`. New shared bri
    (`word_xor (word_and CT mask) (word_and outprev (word_not mask))`) = Mila's `gcm_ctm_tail`
    blend; `MASK_BYTE_OUT`/`MASK_BYTE_OUT_XOR` cover both or/xor forms. Derived as a cheap
    postcond-weakening corollary of `AESV8_GCM_8X_ENC_256_LE1BLOCK` (no re-simulation). loadt
-   ~757s, 3 axioms. STILL OPEN: the 17..32-byte band (1 full + partial), i.e. the 2-block
-   masked-tail combining the whole-block bridge with this tail bridge.
+   ~757s, 3 axioms.
+1b. **GENERAL N-block masked-tail bridge DONE (2026-06-19, spec-level).**
+   `BYTE_LIST_AT_NBLOCK_CTR` (in `aes_ctr_spec.ml`) is the full **OUT_BRIDGE_GEN analog**:
+   `nfull` full-block `bytes128` stores (= `EL k (aes_ctr ...)`) + one masked-tail store
+   (block `nfull`, `1<=tail<=16`) ==> `byte_list_at (aes_ctr_full_tail_bytes ...) out_p len`
+   for `val len = 16*nfull+tail`. Unifies the whole-block and partial-single-block bridges;
+   proved by byte-index case split exactly like Mila's `OUT_BRIDGE_GEN`, reusing the ported
+   `BYTE8_OF_BYTES128`/`MASK_BYTE_OUT_XOR`/`EL_*` sublemmas + new `EL_INT128_LIST_TO_BYTES`,
+   `DIV16_STEP`/`MOD16_STEP`, `LENGTH_INT128_LIST_TO_BYTES_SUBLIST`. Spec-level (loadt 95s,
+   3 axioms, no cheats) -- this is what the 17..32-byte band and the 4/8-block tail
+   simulations consume directly. STILL OPEN: instantiate it on the binary for the 17..32-byte
+   2-block band (1 full + masked partial); then 4/8 + main loop.
 2. **D1 rename** `gcm_ctr_inc_iter -> gcm_ctr_iter` (cosmetic; defer to the shared-file merge).
 3. **D2 spec-primitive convergence:** recommend Mila standardize her keystream on
    `aes256_encrypt` (the XTS primitive) so the two layers become ONE shared file with no

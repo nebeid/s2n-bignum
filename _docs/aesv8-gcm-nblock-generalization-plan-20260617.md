@@ -739,3 +739,29 @@ unconstrained -- matching Mila's gcm_ctm_tail. See the .S walkthrough in the ses
 loadt-clean ~757s, 3 axioms, no cheats; both LE1BLOCK and the byte_list_at corollary bind.
 REMAINING: 17..32-byte band (1 full + masked partial) = compose the whole-block 2BLOCK bridge
 with this tail bridge; then 4/8 + main loop. Status vs Mila in the handback doc.
+
+---
+
+## ADDENDUM 5 (2026-06-19) — general N-block masked-tail byte_list_at bridge (OUT_BRIDGE_GEN analog)
+
+`BYTE_LIST_AT_NBLOCK_CTR` (in `arm/proofs/utils/aes_ctr_spec.ml`) is the binary-agnostic
+OUT_BRIDGE_GEN analog, spec-level and proved once:
+
+  nfull full-block bytes128 stores (= EL k (aes_ctr ctr0 pts keys), k<nfull) +
+  one masked-tail store at block nfull (word_xor (word_and CT mask)(word_and outprev ~mask),
+  mask = word(2 EXP (8*tail)-1), 1<=tail<=16)
+  ==> byte_list_at (aes_ctr_full_tail_bytes ctr0 pts keys nfull tail) out_p len s,
+  for val len = 16*nfull + tail.
+
+It UNIFIES the whole-block (BYTE_LIST_AT_2BLOCKS_CTR) and partial-single-block
+(BYTE_LIST_AT_TAIL_CTR) bridges: the 17..32-byte 2-block band is nfull=1, the 4/8-block tail
+bands are nfull=3..7, the all-whole case is tail=16.  Proof mirrors Mila OUT_BRIDGE_GEN (a
+byte-index case split into the full region and the masked tail), reusing the ported
+byte-extraction sublemmas.
+
+New supporting lemmas in aes_ctr_spec.ml: aes_ctr_full_tail_bytes (the general byte spec =
+nfull full blocks ++ first tail bytes of the masked block, the aes256_gcm_encrypt analog),
+EL_INT128_LIST_TO_BYTES, DIV16_STEP, MOD16_STEP, LENGTH_INT128_LIST_TO_BYTES_SUBLIST.
+
+loadt-clean ~95s (spec only, no binary), 3 axioms, no cheats.  REMAINING: instantiate on the
+binary for the 17..32-byte band (1 full + masked partial), then 4/8 + main loop.

@@ -335,3 +335,130 @@ let BYTE_LIST_AT_TAIL_CTR = prove(
   ASM_SIMP_TAC[EL_SUB_LIST_0; EL_INT128_TO_BYTES] THEN
   ASM_REWRITE_TAC[] THEN
   ASM_SIMP_TAC[MASK_BYTE_OUT_XOR]);;
+
+(* ========================================================================= *)
+(* GENERAL N-block masked-tail byte_list_at bridge (the OUT_BRIDGE_GEN analog).*)
+(*                                                                            *)
+(* nfull full-block stores (each = EL k (aes_ctr ...)) + one masked partial    *)
+(* tail store (block nfull, low `tail` bytes ciphertext, high bytes outprev)   *)
+(* ==> byte_list_at over the combined byte spec aes_ctr_full_tail_bytes, for    *)
+(* val len = 16*nfull + tail, 1 <= tail <= 16.  This unifies the whole-block    *)
+(* (BYTE_LIST_AT_2BLOCKS_CTR) and partial-single-block (BYTE_LIST_AT_TAIL_CTR)  *)
+(* bridges and is what the 17..32-byte band / 4/8-block tail simulations        *)
+(* consume.  Modeled on manastasova@756df852 OUT_BRIDGE_GEN (byte-index case    *)
+(* split, reusing the ported byte-extraction sublemmas).                       *)
+(* ========================================================================= *)
+
+(* General byte ciphertext spec: nfull full blocks ++ first `tail` bytes of the *)
+(* masked block nfull.  Built on aes_ctr; the analog of Mila's aes256_gcm_encrypt.*)
+let aes_ctr_full_tail_bytes = new_definition
+ `aes_ctr_full_tail_bytes (ctr0:int128) (pts:int128 list) (keys:int128 list)
+                          (nfull:num) (tail:num) : byte list =
+    APPEND (int128_list_to_bytes (SUB_LIST (0,nfull) (aes_ctr ctr0 pts keys)))
+           (SUB_LIST (0,tail) (int128_to_bytes
+              (word_and (EL nfull (aes_ctr ctr0 pts keys))
+                        (word (2 EXP (8 * tail) - 1)))))`;;
+
+(* num DIV/MOD step lemmas for the int128_list_to_bytes per-byte unfolding.    *)
+let DIV16_STEP = prove
+ (`!i. 16 <= i ==> i DIV 16 = SUC((i - 16) DIV 16)`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `i = (i - 16) + 1 * 16` SUBST1_TAC THENL
+   [ASM_ARITH_TAC; REWRITE_TAC[DIV_MULT_ADD; ARITH_EQ] THEN ARITH_TAC]);;
+
+let MOD16_STEP = prove
+ (`!i. 16 <= i ==> i MOD 16 = (i - 16) MOD 16`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `i MOD 16 = ((i - 16) + 1 * 16) MOD 16` SUBST1_TAC THENL
+   [AP_THM_TAC THEN AP_TERM_TAC THEN ASM_ARITH_TAC;
+    REWRITE_TAC[MOD_MULT_ADD]]);;
+
+(* byte i of the flattened block list = byte (i MOD 16) of block (i DIV 16).   *)
+let EL_INT128_LIST_TO_BYTES = prove
+ (`!cts i. i < 16 * LENGTH cts
+     ==> EL i (int128_list_to_bytes cts) =
+         word_subword (EL (i DIV 16) cts) (8 * (i MOD 16), 8):byte`,
+  LIST_INDUCT_TAC THEN REWRITE_TAC[LENGTH; int128_list_to_bytes; MULT_CLAUSES] THENL
+   [REWRITE_TAC[LT] THEN ARITH_TAC; ALL_TAC] THEN
+  X_GEN_TAC `i:num` THEN DISCH_TAC THEN
+  SUBGOAL_THEN `LENGTH(int128_to_bytes h) = 16` ASSUME_TAC THENL
+   [REWRITE_TAC[LENGTH_INT128_TO_BYTES]; ALL_TAC] THEN
+  ASM_CASES_TAC `i < 16` THENL
+   [ASM_SIMP_TAC[EL_APPEND] THEN
+    SUBGOAL_THEN `i DIV 16 = 0 /\ i MOD 16 = i`
+      (fun th -> REWRITE_TAC[CONJUNCT1 th; CONJUNCT2 th; EL; HD]) THENL
+     [ASM_SIMP_TAC[DIV_LT; MOD_LT]; ALL_TAC] THEN
+    ASM_SIMP_TAC[EL_INT128_TO_BYTES];
+    ASM_SIMP_TAC[EL_APPEND] THEN
+    SUBGOAL_THEN `i - 16 < 16 * LENGTH(t:int128 list)` ASSUME_TAC THENL
+     [ASM_ARITH_TAC; ALL_TAC] THEN
+    SUBGOAL_THEN `16 <= i` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+    ASM_SIMP_TAC[DIV16_STEP; MOD16_STEP; EL; TL]]);;
+
+let LENGTH_INT128_LIST_TO_BYTES_SUBLIST = prove
+ (`!cts nfull. nfull <= LENGTH cts
+     ==> LENGTH(int128_list_to_bytes (SUB_LIST (0,nfull) cts)) = 16 * nfull`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[LENGTH_INT128_LIST_TO_BYTES; LENGTH_SUB_LIST] THEN
+  ASM_SIMP_TAC[ARITH_RULE `nfull <= n ==> MIN (0 + nfull) n - 0 = nfull`] THEN
+  ASM_ARITH_TAC);;
+
+let BYTE_LIST_AT_NBLOCK_CTR = prove(
+ `!ctr0 pts keys nfull tail out_p (len:int64) outprev s.
+    1 <= tail /\ tail <= 16 /\ val len = 16 * nfull + tail /\ nfull < LENGTH pts /\
+    (!k. k < nfull
+         ==> read (memory :> bytes128 (word_add out_p (word (16 * k)))) s =
+             EL k (aes_ctr ctr0 pts keys)) /\
+    read (memory :> bytes128 (word_add out_p (word (16 * nfull)))) s =
+      word_xor (word_and (EL nfull (aes_ctr ctr0 pts keys))
+                         (word (2 EXP (8 * tail) - 1)))
+               (word_and outprev (word_not (word (2 EXP (8 * tail) - 1))))
+    ==> byte_list_at (aes_ctr_full_tail_bytes ctr0 pts keys nfull tail) out_p len s`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  REWRITE_TAC[byte_list_at; aes_ctr_full_tail_bytes] THEN
+  X_GEN_TAC `i:num` THEN ASM_REWRITE_TAC[] THEN DISCH_TAC THEN
+  SUBGOAL_THEN `LENGTH(int128_list_to_bytes (SUB_LIST (0,nfull) (aes_ctr ctr0 pts keys))) = 16 * nfull`
+     ASSUME_TAC THENL
+   [MATCH_MP_TAC LENGTH_INT128_LIST_TO_BYTES_SUBLIST THEN
+    ASM_SIMP_TAC[LENGTH_AES_CTR] THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  ASM_CASES_TAC `i < 16 * nfull` THENL
+   [ASM_SIMP_TAC[EL_APPEND] THEN
+    SUBGOAL_THEN `i DIV 16 < nfull` ASSUME_TAC THENL
+     [ASM_SIMP_TAC[RDIV_LT_EQ; ARITH_EQ] THEN ASM_ARITH_TAC; ALL_TAC] THEN
+    SUBGOAL_THEN `i < 16 * LENGTH(SUB_LIST (0,nfull) (aes_ctr ctr0 pts keys))` ASSUME_TAC THENL
+     [ASM_SIMP_TAC[LENGTH_SUB_LIST; LENGTH_AES_CTR] THEN ASM_ARITH_TAC; ALL_TAC] THEN
+    ASM_SIMP_TAC[EL_INT128_LIST_TO_BYTES; EL_SUB_LIST_0] THEN
+    SUBGOAL_THEN `word_add out_p (word i):int64 =
+         word_add (word_add out_p (word (16 * (i DIV 16)))) (word (i MOD 16))`
+       SUBST1_TAC THENL
+     [SUBGOAL_THEN `i = 16 * (i DIV 16) + i MOD 16`
+        (fun th -> GEN_REWRITE_TAC (LAND_CONV o RAND_CONV o RAND_CONV) [th]) THENL
+       [MESON_TAC[DIVISION_SIMP]; ALL_TAC] THEN CONV_TAC WORD_RULE; ALL_TAC] THEN
+    MP_TAC(SPECL [`word_add out_p (word (16 * (i DIV 16))):int64`; `s:armstate`; `i MOD 16`]
+       BYTE8_OF_BYTES128) THEN
+    ANTS_TAC THENL [REWRITE_TAC[MOD_LT_EQ; ARITH_EQ]; ALL_TAC] THEN
+    DISCH_THEN(fun th -> GEN_REWRITE_TAC (LAND_CONV o ONCE_DEPTH_CONV) [th]) THEN
+    FIRST_X_ASSUM(fun th -> if is_forall(concl th) then MP_TAC(SPEC `i DIV 16` th) else NO_TAC) THEN
+    ASM_REWRITE_TAC[] THEN DISCH_THEN SUBST1_TAC THEN REFL_TAC;
+    ASM_SIMP_TAC[EL_APPEND] THEN
+    ABBREV_TAC `j = i - 16 * nfull` THEN
+    SUBGOAL_THEN `j < tail /\ j < 16 /\ i = 16 * nfull + j` STRIP_ASSUME_TAC THENL
+     [EXPAND_TAC "j" THEN ASM_ARITH_TAC; ALL_TAC] THEN
+    ASM_SIMP_TAC[EL_SUB_LIST_0; EL_INT128_TO_BYTES] THEN
+    SUBGOAL_THEN `word_add out_p (word (16 * nfull + j)):int64 =
+         word_add (word_add out_p (word (16 * nfull))) (word j)` SUBST1_TAC THENL
+     [CONV_TAC WORD_RULE; ALL_TAC] THEN
+    MP_TAC(SPECL [`word_add out_p (word (16 * nfull)):int64`; `s:armstate`; `j:num`]
+       BYTE8_OF_BYTES128) THEN
+    ANTS_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
+    DISCH_THEN(fun th -> GEN_REWRITE_TAC (LAND_CONV o ONCE_DEPTH_CONV) [th]) THEN
+    FIRST_X_ASSUM(fun th ->
+       if (try lhs(concl th) =
+            `read (memory :> bytes128 (word_add out_p (word (16 * nfull)))) s` with _ -> false)
+       then GEN_REWRITE_TAC (LAND_CONV o ONCE_DEPTH_CONV) [th] else NO_TAC) THEN
+    REWRITE_TAC[WORD_EQ_BITS_ALT; BIT_WORD_SUBWORD; BIT_WORD_XOR; BIT_WORD_AND; BIT_WORD_NOT;
+                BIT_MASK_WORD; DIMINDEX_8; DIMINDEX_128] THEN
+    X_GEN_TAC `b:num` THEN STRIP_TAC THEN
+    SUBGOAL_THEN `8 * j + b < 8 * tail` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+    SUBGOAL_THEN `8 * j + b < 128` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+    ASM_REWRITE_TAC[]]);;
