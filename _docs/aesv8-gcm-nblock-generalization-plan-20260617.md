@@ -711,3 +711,31 @@ resolved). New shared bridges in `aes_ctr_spec.ml`: `CTR_BLOCK0_BYTES16`,
 loadt-clean ~1050s, 3 axioms, no cheats; both the EL-form theorem and the byte_list_at
 corollary bind. Status vs Mila + remaining work (partial tail 1..32, D1 rename, D2 primitive
 convergence, 4/8 + main loop) tracked in `_docs/gcm-spec-divergence-from-mila-handback.md`.
+
+---
+
+## ADDENDUM 4 (2026-06-19) — masked PARTIAL-TAIL byte_list_at PROVED (1<=bl<=16)
+
+`AESV8_GCM_8X_ENC_256_LE1BLOCK_BYTELIST` (in `arm/proofs/aesv8_gcm_8x_enc_256_1block.ml`):
+the out_p postcondition of the byte-aligned <=1-block theorem is now the single XTS-style
+clause `byte_list_at (aes_ctr_tail_bytes ctr0 plaintext keys bl) out_p (word bl) s` -- the
+masked partial block (nfull=0 tail of Mila's aes256_gcm_encrypt). Cheap postcond-weakening
+corollary of AESV8_GCM_8X_ENC_256_LE1BLOCK (ENSURES_POSTCONDITION_THM + the new masked-tail
+bridge BYTE_LIST_AT_TAIL_CTR); no re-simulation.
+
+Added to `arm/proofs/utils/aes_ctr_spec.ml`:
+  - `aes_ctr_tail_bytes` (byte spec = first bl bytes of the ciphertext block);
+  - `BYTE_LIST_AT_TAIL_CTR` (masked-blend bytes128 store => byte_list_at over bl bytes);
+  - byte-extraction sublemmas PORTED VERBATIM from Mila@756df852 (names per R5):
+    `BYTE8_OF_BYTES128`, `SUBWORD_BYTES_TO_INT128`, `EL_SUB_LIST_0`, `EL_INT128_TO_BYTES`,
+    `MASK_BYTE_OUT` (word_or, Mila's blend) + `MASK_BYTE_OUT_XOR` (word_xor, our LE1BLOCK blend).
+    `BYTES128_TO_BYTES8_THM` reused from aes_xts_common (shared XTS substrate).
+
+The binary reads a partial input block as a FULL register and writes a masked-BLEND full
+register (`bif`); `byte_list_at(out_p, bl)` constrains only the low bl bytes, so it faithfully
+captures "first bl output bytes = ciphertext", with the untouched high bytes (outprev) left
+unconstrained -- matching Mila's gcm_ctm_tail. See the .S walkthrough in the session log.
+
+loadt-clean ~757s, 3 axioms, no cheats; both LE1BLOCK and the byte_list_at corollary bind.
+REMAINING: 17..32-byte band (1 full + masked partial) = compose the whole-block 2BLOCK bridge
+with this tail bridge; then 4/8 + main loop. Status vs Mila in the handback doc.

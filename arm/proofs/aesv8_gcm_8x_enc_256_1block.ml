@@ -14,6 +14,10 @@ needs "arm/proofs/utils/aes.ml";;
 needs "arm/proofs/utils/aes_encrypt_spec.ml";;
 needs "common/karatsuba_pmul.ml";;
 needs "common/polyval_ghash.ml";;
+(* Recursive CTR spec + the masked partial-tail byte_list_at bridge            *)
+(* (aes_ctr_tail_bytes / BYTE_LIST_AT_TAIL_CTR), used for the list-based         *)
+(* postcondition corollary of the byte-aligned <=1-block theorem.              *)
+needs "arm/proofs/utils/aes_ctr_spec.ml";;
 
 (* Machine code definition *)
 let aesv8_gcm_8x_enc_256_mc = define_assert_from_elf "aesv8_gcm_8x_enc_256_mc"
@@ -2267,3 +2271,109 @@ let AESV8_GCM_8X_ENC_256_LE1BLOCK = prove(
   TRY(EXPAND_TAC "ct" THEN CONV_TAC WORD_BLAST) THEN
   TRY(REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
       REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC THEN ASM_REWRITE_TAC[])]);;
+
+(* ========================================================================= *)
+(* List-based (byte_list_at) ciphertext postcondition for the byte-aligned    *)
+(* <=1-block theorem: the out_p output is one byte_list_at clause over the      *)
+(* masked-tail byte spec aes_ctr_tail_bytes (= the first bl bytes of the        *)
+(* ciphertext block), instead of the masked-blend bytes128 read.  This is the   *)
+(* nfull=0 (partial single block) case of Mila's aes256_gcm_encrypt /           *)
+(* gcm_ctm_tail, in the XTS byte_list_at shape.  Derived from the masked-blend  *)
+(* theorem by postcondition-weakening (ENSURES_POSTCONDITION_THM) via the       *)
+(* shared bridge BYTE_LIST_AT_TAIL_CTR -- no re-simulation; a cheap corollary   *)
+(* of AESV8_GCM_8X_ENC_256_LE1BLOCK.                                            *)
+(* ========================================================================= *)
+
+let AESV8_GCM_8X_ENC_256_LE1BLOCK_BYTELIST = prove(
+ `!pc stackpointer out_p xi_p ivec_p in_p key_p htbl_p
+    plaintext xi ctr0 k0 k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13 k14 h hk outprev bl.
+    1 <= bl /\ bl <= 16 /\
+    aligned 16 stackpointer /\
+    nonoverlapping (word pc, 4600) (stackpointer:int64, 80) /\
+    nonoverlapping (word pc, 4600) (out_p:int64, 16) /\
+    nonoverlapping (word pc, 4600) (xi_p:int64, 16) /\
+    nonoverlapping (word pc, 4600) (ivec_p:int64, 16) /\
+    nonoverlapping (out_p, 16) (xi_p, 16) /\
+    nonoverlapping (out_p, 16) (ivec_p, 16) /\
+    nonoverlapping (xi_p, 16) (ivec_p, 16) /\
+    nonoverlapping (ivec_p, 16) (in_p:int64, 16) /\
+    nonoverlapping (ivec_p, 16) (key_p:int64, 240) /\
+    nonoverlapping (ivec_p, 16) (htbl_p:int64, 192) /\
+    nonoverlapping (in_p, 16) (stackpointer, 80) /\
+    nonoverlapping (key_p, 240) (stackpointer, 80) /\
+    nonoverlapping (htbl_p, 192) (stackpointer, 80) /\
+    nonoverlapping (ivec_p, 16) (stackpointer, 80) /\
+    nonoverlapping (xi_p, 16) (in_p, 16) /\
+    nonoverlapping (xi_p, 16) (key_p, 240) /\
+    nonoverlapping (xi_p, 16) (htbl_p, 192) /\
+    nonoverlapping (xi_p, 16) (stackpointer, 80) /\
+    nonoverlapping (out_p, 16) (in_p, 16) /\
+    nonoverlapping (out_p, 16) (key_p, 240) /\
+    nonoverlapping (out_p, 16) (htbl_p, 192) /\
+    nonoverlapping (out_p, 16) (stackpointer, 80) /\
+    word_subword hk (0,64) :64 word =
+      word_xor (word_subword h (0,64):64 word) (word_subword h (64,64):64 word)
+    ==> ensures arm
+     (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_enc_256_mc /\
+          read PC s = word (pc + 0x18) /\ read SP s = stackpointer /\
+          C_ARGUMENTS [in_p; word (8 * bl); out_p; xi_p; ivec_p; key_p; htbl_p] s /\
+          read X9 s = word bl /\
+          read Q30 s = ctr0 /\
+          read (memory :> bytes128 in_p) s = plaintext /\
+          read (memory :> bytes128 xi_p) s = xi /\
+          read (memory :> bytes128 ivec_p) s = ctr0 /\
+          read (memory :> bytes128 out_p) s = outprev /\
+          read (memory :> bytes128 key_p) s = k0 /\
+          read (memory :> bytes128 (word_add key_p (word 16))) s = k1 /\
+          read (memory :> bytes128 (word_add key_p (word 32))) s = k2 /\
+          read (memory :> bytes128 (word_add key_p (word 48))) s = k3 /\
+          read (memory :> bytes128 (word_add key_p (word 64))) s = k4 /\
+          read (memory :> bytes128 (word_add key_p (word 80))) s = k5 /\
+          read (memory :> bytes128 (word_add key_p (word 96))) s = k6 /\
+          read (memory :> bytes128 (word_add key_p (word 112))) s = k7 /\
+          read (memory :> bytes128 (word_add key_p (word 128))) s = k8 /\
+          read (memory :> bytes128 (word_add key_p (word 144))) s = k9 /\
+          read (memory :> bytes128 (word_add key_p (word 160))) s = k10 /\
+          read (memory :> bytes128 (word_add key_p (word 176))) s = k11 /\
+          read (memory :> bytes128 (word_add key_p (word 192))) s = k12 /\
+          read (memory :> bytes128 (word_add key_p (word 208))) s = k13 /\
+          read (memory :> bytes128 (word_add key_p (word 224))) s = k14 /\
+          read (memory :> bytes128 htbl_p) s = h /\
+          read (memory :> bytes128 (word_add htbl_p (word 16))) s = hk)
+     (\s. read PC s = word (pc + 0x11d8) /\
+          byte_list_at
+            (aes_ctr_tail_bytes ctr0 plaintext
+               [(k0:int128);k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14] bl)
+            out_p (word bl) s /\
+          read (memory :> bytes128 xi_p) s =
+          word_bytereverse
+            (ghash_polyval_acc (byteswap128 h) (word_bytereverse xi)
+              [word_bytereverse (word_and (word_xor plaintext (aes256_encrypt ctr0
+                [k0;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]))
+                (word (2 EXP (8 * bl) - 1)))]))
+     (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+      MAYCHANGE [memory :> bytes(out_p, 16); memory :> bytes(xi_p, 16);
+                 memory :> bytes(ivec_p, 16);
+                 memory :> bytes(stackpointer:int64, 80)] ,,
+      MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                 Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;Q29;Q30;Q31])`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC ENSURES_POSTCONDITION_THM THEN
+  EXISTS_TAC
+   `\s. read PC s = word (pc + 0x11d8) /\
+        read (memory :> bytes128 out_p) s =
+          word_xor (word_and (word_xor plaintext (aes256_encrypt ctr0
+            [(k0:int128);k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]))
+            (word (2 EXP (8 * bl) - 1)))
+            (word_and outprev (word_not (word (2 EXP (8 * bl) - 1)))) /\
+        read (memory :> bytes128 xi_p) s =
+        word_bytereverse
+          (ghash_polyval_acc (byteswap128 h) (word_bytereverse xi)
+            [word_bytereverse (word_and (word_xor plaintext (aes256_encrypt ctr0
+              [k0;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]))
+              (word (2 EXP (8 * bl) - 1)))])` THEN
+  CONJ_TAC THENL
+   [BETA_TAC THEN GEN_TAC THEN STRIP_TAC THEN ASM_REWRITE_TAC[] THEN
+    MATCH_MP_TAC BYTE_LIST_AT_TAIL_CTR THEN ASM_REWRITE_TAC[] THEN
+    EXISTS_TAC `outprev:int128` THEN REFL_TAC;
+    MATCH_MP_TAC AESV8_GCM_8X_ENC_256_LE1BLOCK THEN ASM_REWRITE_TAC[]]);;

@@ -171,12 +171,18 @@ lemmas (all in `aes_xts_common.ml`) -- built on `aes256_encrypt`. New shared bri
 `BYTE_LIST_AT_2BLOCKS_CTR` (the GCM analogs of XTS `READ_BYTES_EQ_READ_BYTE128_*BLOCKS_ENC`).
 
 **Outstanding to fully match Mila's whole-routine theorem:**
-1. **Length-generic + partial tail (1 <= len <= 32):** Mila's `gcm_ctm_tail` masked tail
-   (`word_and ct (word (2 EXP (8*tail)-1))`) = our LE1BLOCK mask form; the masked-tail
-   `byte_list_at` bridge (analog of the whole-block one, last block masked, `len < 32`) is
-   the next step. Our binary reads the partial block as a full register and writes a masked
-   blend full register, so `byte_list_at(out_p,len)` is the faithful clause (it constrains
-   only the first `len` bytes).
+1. **Partial tail 1 <= bl <= 16: DONE (2026-06-19).** `AESV8_GCM_8X_ENC_256_LE1BLOCK_BYTELIST`
+   proves the out_p postcond as `byte_list_at (aes_ctr_tail_bytes ctr0 plaintext keys bl) out_p
+   (word bl) s` for the masked partial single block -- the nfull=0 tail of Mila's
+   `aes256_gcm_encrypt`/`gcm_ctm_tail`. Built on a shared masked-tail bridge
+   `BYTE_LIST_AT_TAIL_CTR` + the byte-extraction sublemmas PORTED VERBATIM from Mila
+   (`BYTE8_OF_BYTES128`, `SUBWORD_BYTES_TO_INT128`, `EL_SUB_LIST_0`, `EL_INT128_TO_BYTES`,
+   `MASK_BYTE_OUT`; names per R5). Confirmed our LE1BLOCK mask form
+   (`word_xor (word_and CT mask) (word_and outprev (word_not mask))`) = Mila's `gcm_ctm_tail`
+   blend; `MASK_BYTE_OUT`/`MASK_BYTE_OUT_XOR` cover both or/xor forms. Derived as a cheap
+   postcond-weakening corollary of `AESV8_GCM_8X_ENC_256_LE1BLOCK` (no re-simulation). loadt
+   ~757s, 3 axioms. STILL OPEN: the 17..32-byte band (1 full + partial), i.e. the 2-block
+   masked-tail combining the whole-block bridge with this tail bridge.
 2. **D1 rename** `gcm_ctr_inc_iter -> gcm_ctr_iter` (cosmetic; defer to the shared-file merge).
 3. **D2 spec-primitive convergence:** recommend Mila standardize her keystream on
    `aes256_encrypt` (the XTS primitive) so the two layers become ONE shared file with no
