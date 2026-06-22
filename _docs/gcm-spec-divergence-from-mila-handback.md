@@ -215,3 +215,116 @@ lemmas (all in `aes_xts_common.ml`) -- built on `aes256_encrypt`. New shared bri
   `LENGTH_INT128_LIST_TO_BYTES` + `aes_ctr_bytes` (= `int128_list_to_bytes (aes_ctr ...)`) +
   `LENGTH_AES_CTR_BYTES` + `AES_CTR_BYTES_2`. This is the value a `byte_list_at(out_p,32)`
   postcond unfolds to; whole-block (tail=16) only so far.
+
+---
+
+## UPDATE 2026-06-22 — re-fetched `mila` remote; the picture changed materially
+
+**Method.** `git fetch mila --prune` pulled three GCM branches that were not present before.
+Everything below is read directly from those refs (not from memory of older snapshots).
+
+### Mila's current GCM branches (exact tips)
+| Branch | Tip | Date | What it is |
+|---|---|---|---|
+| `mila/aes256_gcm_tail` | `b2b19c83` ("Cleans") | **2026-06-21** | **The live, most-advanced line.** Band-by-band tail + a full top-level dispatch theorem. |
+| `mila/aes256_gcm_whole` | `756df852` ("Entire tail") | 2026-06-16 | The commit this doc originally cited as "her whole branch". Now superseded by `aes256_gcm_tail`. |
+| `mila/whole` | `854653b9` | 2026-06-08 | Older whole-binary line (0–8 standalone block proofs). |
+
+Recent `aes256_gcm_tail` history: `69234782` (2026-06-18, "AES256_GCM_ENCRYPT_CORRECT on rebased
+s2n-bignum and hollight") → `d5655ff1` → `7e112245` → `725de1c5` → `b2b19c83`.
+
+### BIG CORRECTION to this doc's earlier framing
+The TL;DR above said Mila has "the whole `byte_list_at` output layer" but implied she had NOT
+instantiated it band-by-band on the binary, and that our band-by-band work was the complement.
+**That is now wrong.** As of `b2b19c83` Mila has, in `arm/proofs/aes256_gcm.ml` ON THE SAME
+GCM FUNCTION:
+- concrete per-band theorems `AES256_GCM_ENCRYPT_LT_{0,1,2,3,4,5,6,7,8}BLOCK_CONCRETE`
+  (each a real ARM simulation of the tail, masked partial block included);
+- abstract `…_ABS` versions whose postcond is the uniform `byte_list_at (aes256_gcm_encrypt …)`;
+- a generic output bridge (N−1 full ct stores + masked tail ⇔ `byte_list_at`);
+- and a **single top-level theorem `AES256_GCM_ENCRYPT_CORRECT`** (`aes256_gcm.ml:8293`) covering
+  `val len <= 128` (all 0..8-block lengths, all tails) with postcond
+  `byte_list_at (aes256_gcm_encrypt (val len) pt_in ivec rks) out_ptr len s` +
+  `read xi_p = gcm_final_xi (val len) …`, dispatching by input length, full prologue/epilogue,
+  enters at `pc`, exits at `pc + (if val len = 0 then 4596 else 4588)`.
+
+**So Mila is substantially AHEAD of us on encrypt.** Our `AESV8_GCM_8X_ENC_256_LE2BLOCK`
+(17–31 byte band) is, modulo naming, the SAME theorem as her `AES256_GCM_ENCRYPT_LT_2BLOCK_CONCRETE`
+(`aes256_gcm.ml:1589`) — which she had on 2026-06-21, a day before us. We duplicated, not extended.
+
+### Where we AGREE (verified line-by-line, her `aes256_gcm_tail` vs our `le2block`)
+| Aspect | Hers | Ours | Agree? |
+|---|---|---|---|
+| Tail length precond | `1 <= byte_len <= 16`, `word(128 + 8*byte_len)` | `1 <= bl1 <= 16`, `word(128 + 8*bl1)` | ✅ identical |
+| Cascade control flow | `GCM_X5_LEMMA2`/`GCM_X5TAIL_LEMMA2`/`GCM_CASCADE2_TAC`: thresholds 32..112 fall through, `#0x10` taken → more_than_1 | `bl2_resolve_pc`/`_bdy`/`_16_taken`: same fall-through + #16 taken | ✅ same logic, independently built |
+| Masked partial out | `word_or (word_and ct2 mask) (word_and out0 (word_not mask))`, `mask = word(2 EXP (8*byte_len)-1)` | `word_xor (word_and ct1 MK) (word_and outprev (word_not MK))`, `MK = word(2 EXP (8*bl1)-1)` | ✅ same value (or≡xor on disjoint masks; cf. our `BLEND_OR_XOR`) |
+| Block-1 counter | `gcm_ctr_inc ivec` | `gcm_ctr_inc ctr0` | ✅ identical (`gcm_ctr_inc` lifted from her) |
+| Tag postcond shape | `…(ghash_polyval_acc h (… xi) [… ct1; … ctm2])` | `…(ghash_polyval_acc (byteswap128 h) (… xi) [… ct0; … (word_and ct1 MK)])` | ✅ same GHASH spec (key packaging differs, see D4) |
+| htable layout | `read htable = byteswap128 h`, `+32 = byteswap128(polyval_dot h h)`, mids via `karatsuba_mid` | `read htbl = h`, `+16 = hk`, `+32 = h2` with `byteswap128 h2 = polyval_dot(byteswap128 h)(byteswap128 h)` | ⚠️ same content, different variable packaging (D5) |
+
+### Divergences with a recommendation
+- **D2 (AES block primitive) — UNCHANGED, still the one real obstacle.** Hers: `aes256_block_enc`
+  (flat 15-arg `aesmc(aese …)` tower, matches the instruction trace). Ours: `aes256_encrypt`
+  (the **AES-XTS substrate**, `int128 list` keys + `aes256_encrypt_round` fold). They compute the
+  same AES-256 but are not syntactically equal (her `aese`-bundled last round vs our split last
+  round). **RECOMMENDATION (unchanged): prove `AES256_BLOCK_ENC_EQ_ENCRYPT` once** (our 2block proof
+  already rewrites `aes256_encrypt` down to her exact `aese`/`aesmc` tower at
+  `aesv8_gcm_8x_enc_256_2block.ml:761`), put it in shared utils. *Reusing the XTS `aes256_encrypt`
+  was the right call for us* — it shares all the XTS lemma infrastructure — but the shared GCM home
+  should pick ONE; her `aes256_block_enc` is closer to the metal, so the cheapest convergence is to
+  keep her primitive in the spec and carry the bridge.
+- **D4 (byte-reverse spelling) — NEW, decide now.** Hers uses `word_reversefields 8` everywhere
+  (186 occurrences). Ours uses `word_bytereverse` (the genuine 16-byte reverse) PLUS `byteswap128`
+  (which is NOT a byte reverse — it is the 64-bit **lane swap** `word_join (subword x (0,64))
+  (subword x (64,64))`, our htable-key convention). HOL Light proves `WORD_BYTEREVERSE_REVERSEFIELDS`
+  (`hol-light/Library/words.ml:6179`): `word_bytereverse = word_reversefields 8`. So hers and our
+  `word_bytereverse` are provably equal. **RECOMMENDATION: standardize on `word_reversefields 8`
+  (hers).** It is the words.ml primitive, she already uses it pervasively, and `word_bytereverse`
+  rewrites to it in one step. Keep `byteswap128` as a *separate named* lane-swap (it is a different
+  operation and both proofs need it for the htable key); do not conflate the two.
+- **D5 (htable key packaging) — cosmetic.** She exposes `byteswap128 h` / `byteswap128(polyval_dot
+  h h)` directly as the memory contents and `karatsuba_mid` for the mids; we carry `h`/`hk`/`h2`
+  as opaque vars + a `byteswap128 h2 = polyval_dot(byteswap128 h)(byteswap128 h)` side condition.
+  Same facts. **RECOMMENDATION: adopt her direct `byteswap128 …` + `karatsuba_mid` form** — it
+  removes our extra precond and matches her `AES256_GCM_ENCRYPT_CORRECT`.
+- **D6 (binary / entry) — NEW, important.** Her `aes256_gcm_mc` and our `aesv8_gcm_8x_enc_256_mc`
+  are the SAME function but our `.S` has a **reordered prologue**: ours does all four `stp d8..d15`
+  saves first then `lsr/mov/mov` (so C_ARGUMENTS holds and we enter the body at `pc+0x18`); hers
+  keeps the shipping interleaved order and enters at `pc` simulating the full prologue+epilogue.
+  (Compare `arm/aes-gcm/aes256_gcm.S:34-45` vs `aesv8_gcm_8x_enc_256.S:28-39`.) **RECOMMENDATION:
+  converge on the shipping order (hers) — our reorder was a local convenience (see the
+  cargs-prologue-reorder note) and her full-function theorem already lives at `pc` with the real
+  prologue/epilogue.** This is the biggest structural difference and the reason our band theorems
+  are body-only (pc+0x18 → pc+0x11d8) while hers are whole-function.
+
+### `aes_ctr_full_tail_bytes` vs her `aes256_gcm_encrypt` vs XTS (answers to the standing questions)
+- **Is `aes_ctr_full_tail_bytes` generic in the number of bytes?** YES, but only *parametrically*:
+  it takes `(nfull:num) (tail:num)` and returns `nfull` full blocks ++ first `tail` bytes of the
+  masked block `nfull`. Any length is expressible as some `(nfull,tail)`. BUT the **caller must
+  supply `nfull` and `tail`** — it is not driven by a single `len`.
+- **Why nfull + tail instead of one `len`?** Because that is exactly the shape the *binary tail
+  produces*: the .S stores `nfull` whole `bytes128` blocks via `st1` then one masked partial store,
+  so the readback bridge `BYTE_LIST_AT_NBLOCK_CTR` is cleanest with the split already explicit
+  (no `DIV`/`MOD` to unwind mid-proof). Her `aes256_gcm_encrypt (len:num)` does the SAME split but
+  *internally*: `let nfull = (len-1) DIV 16 and tail = len - 16*nfull in …` (`aes256_gcm.ml:6063`).
+  So **hers is the better top-level shape** (single `val len`, matches the C ABI arg and `byte_list_at
+  out_p len`); ours is the lower-level building block. RECOMMENDATION: keep an `(nfull,tail)` helper
+  for the per-band readback, but expose the TOP spec as `len`-driven like hers, with a
+  `len = 16*nfull+tail` reconciliation lemma (she effectively has this via `NFULL0_LEMMA` etc.).
+- **Is there something from XTS to use here?** Conceptually yes, mechanically no. AES-XTS's
+  `aes256_xts_encrypt (P len iv k1 k2)` (`aes_xts_encrypt_spec.ml:118`) is also `len`-driven and
+  splits into `aes256_xts_encrypt_rec` (full blocks) ++ `aes256_xts_encrypt_tail` — the SAME
+  full-blocks-plus-tail skeleton. But XTS's tail is **cipher-stealing** (`cipher_stealing_encrypt`,
+  borrows bytes from the last full block, GF-mult tweak), which is a fundamentally different tail
+  than GCM's **zero-pad-and-mask** (`word_and ct (word(2 EXP(8*tail)-1))`). So we reuse XTS's
+  *substrate* (`bytes_to_int128`/`int128_to_bytes`/`byte_list_at`/`SUB_LIST`/`aes256_encrypt`) and
+  its *len-driven recursion pattern*, but NOT its tail function. Our `aes_ctr_full_tail_bytes` is
+  the GCM analog of `aes256_xts_encrypt`'s rec+tail APPEND, with the mask tail instead of stealing.
+
+### Net recommendation / next move
+Encrypt is effectively DONE on Mila's side at the top level. Rather than push our own 33+-byte
+bands, we should: (1) land the D2 `AES256_BLOCK_ENC_EQ_ENCRYPT` bridge, (2) converge spellings
+(D4 `word_reversefields 8`, D5 htable form, D6 shipping prologue), then **pivot to DECRYPT**, where
+neither tree has the tail/whole theorem yet (her `aes256_gcm_tail` has NO decrypt; only the older
+`one_block_enc_dec_aes256-gcm` branch has a 1-block dec). Our dec 1-block (`AESV8_GCM_8X_DEC_256_1BLOCK`)
++ dec LE1BLOCK are the natural base to replicate the encrypt band-by-band ladder for decrypt.
