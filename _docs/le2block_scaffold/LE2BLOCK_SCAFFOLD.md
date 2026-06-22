@@ -30,10 +30,24 @@ BYTE_LIST_AT_NBLOCK_CTR (nfull=1). The 6 bridge antecedents discharge as:
   masked read [16*1 -> 16].
 This is the same cheap postcond-weakening pattern as 2BLOCK_BYTELIST / LE1BLOCK_BYTELIST.
 
-## REMAINING (expensive): the strong-ensures binary simulation
-`AESV8_GCM_8X_ENC_256_LE2BLOCK` (masked-blend postcond). ~22 ARM_STEPS sections, symbolic
-bit_len, ~17 min/loadt, multi-cycle. Front+block0 paste from 2block; tail mirrors LE1BLOCK.
-This is the only piece left and is a dedicated stepping effort.
+## DONE (2026-06-22): the strong-ensures binary simulation + byte_list corollary
+`AESV8_GCM_8X_ENC_256_LE2BLOCK` (masked-blend postcond) AND
+`AESV8_GCM_8X_ENC_256_LE2BLOCK_BYTELIST` (byte_list_at, nfull=1) PROVED end-to-end.
+Final proof: `arm/proofs/aesv8_gcm_8x_enc_256_le2block.ml` (loadt-clean, no cheats,
+3 standard axioms; ~8.4 min with the 2block dep cached).  Key pieces realised:
+- Front 1-259 = 2BLOCK verbatim; X9 via USHR_128_8BL_LEMMA, s260 tail branch via X5_ZERO_LEMMA2.
+- Tail cascade: x5 = word(16+bl1) symbolic.  New resolvers (LE32 ival lemmas):
+  bl2_resolve_pc (fall-through #112..#48), bl2_resolve_pc_bdy (#32, boundary 16+bl1=32
+  allowed), bl2_resolve_pc16_taken (#16 b.gt TAKEN -> more_than_1 pc+4340).
+- Block-0 GHASH vs H^2 + block-1 GHASH vs H: 2BLOCK verbatim, EXCEPT less_than_1 mask.
+- less_than_1 mask: X1 = (128+8*bl1) AND 0x7f, bridged to (8*bl1) AND 0x7f by the new
+  X1_MOD128_BRIDGE so LE1BLOCK's MASK_LEMMA applies with bl:=bl1; Q9 collapses to
+  word_and ct1 MK (MK = word(2 EXP (8*bl1)-1)); masked-blend out_p store via BLEND_OR_XOR.
+- Bridge: 2BLOCK GHASH_POLYVAL_ACC_2 route, block-1 element = word_bytereverse(word_and ct1 MK).
+- byte_list close: VALIDATED ENSURES_POSTCONDITION_THM + BYTE_LIST_AT_NBLOCK_CTR nfull=1
+  (k<1 -> k=0 read EL 0; masked read EL 1; val(word(16+bl1))=16*1+bl1; 1<LENGTH[pt0;pt1]).
+- Step-index note: the symbolic cascade single-steps each b.gt, so LE2BLOCK reaches
+  more_than_1 at s313 (2BLOCK: s315), a -2 offset; downstream PCs identical (same code).
 
 ## PROGRESS 2026-06-22 — front replayed + helper lemmas proved
 
