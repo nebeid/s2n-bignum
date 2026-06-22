@@ -12,11 +12,33 @@ follow the steps top to bottom, check the boxes, and update the RESUME pointer.
 
 ## RESUME HERE (update this block every session)
 
-- **Last completed step:** Step 0 (base proved: dec 1-block + LE1BLOCK). Plan doc created.
-- **Next action:** Step 1 — build `AESV8_GCM_8X_DEC_256_2BLOCK` (dec analog of the enc 2-block).
+- **Last completed step:** Step 1 (DONE) — `AESV8_GCM_8X_DEC_256_2BLOCK` proved end-to-end.
+  `arm/proofs/aesv8_gcm_8x_dec_256_2block.ml`, loadt-clean (~615s incl. the 1-block dep),
+  binds, no cheats, `axioms()` = 3 core. Committed.
+- **Next action:** Step 2 — `AESV8_GCM_8X_DEC_256_LE2BLOCK` (17–31 byte band: 1 full + 1 masked).
 - **Blocked on:** nothing.
-- **Working file(s) in flight:** none yet (Step 1 will create `arm/proofs/aesv8_gcm_8x_dec_256_2block.ml`).
-- **Backups:** none yet.
+- **Working file(s) in flight:** none (Step 2 will create `arm/proofs/aesv8_gcm_8x_dec_256_le2block.ml`).
+- **Backups:** `_backups/aesv8_gcm_8x_dec_256_2block.ml.bck0001..0003`.
+
+> **Step-1 build notes (key deltas from the enc 2-block mirror):**
+> - HYBRID: dec binary (dec mc/EXEC + dec step→PC map + dec tail dataflow: Q9 = input
+>   ciphertext is GHASHed, Q12 = plaintext is stored) + the enc 2-block STRATEGY (keep Q1/ctr1,
+>   cascade to more_than_1 then less_than_1, GHASH_POLYVAL_ACC_2 bridge).
+> - Dec step→PC map (this proof): prologue 1–5 (pc+0x2c); CTR setup 6–30 (per-step fold);
+>   AES 31–84, 85–173; tag load+rev64 174–177; tail branch [255]; tail eor3→Q12 plaintext 266–272
+>   (abbrev pt0); cascade movs 273–312 (VSTEPS_FOLD then **DISCARD_OLDSTATE** — the mov v_k cascade
+>   copies Q1 into Q2..Q7 across ~40 states, so keeping all states blows the pile); branch [313]→
+>   more_than_1 (pc+0x10f4); block-0 store+GHASH 314–328 (capture out_p block-0 = pt0, abbrev pt1);
+>   into less_than_1 329–335 (pc+0x144c); mask setup+store 336–350; GHASH multiply+reduce 351–369;
+>   **bridge state s370 (pc+4568)** = the dec s351-analog (after the final `eor v19,v19,v18`,
+>   before `ext v19`); ext+rev64 371–372; store xi_p [373]; exit pc+0x11e4 (= pc+4580).
+> - **THE dec-specific bridge gotcha:** the block-1 GHASH input is the MASKED ciphertext
+>   `word_and <all-ones-mask> cph1` (from `and v9,v9,v0`), carried inside Q8's rev64 into the
+>   pmul atoms. Re-asserting Q9=cph1 is NOT enough (rev64 already consumed the masked value).
+>   Fix = `MASK_COLLAPSE_CPH1_TAC` (in the file): find `word_and <mask> cph1` in Q8, prove it
+>   `= cph1` by WORD_BLAST, rewrite everywhere — THEN GHASH_POLYVAL_ACC_2 + MERGE_2BLK + FINISH_2BLK
+>   close exactly as enc. Without the collapse the merge can't pair block-1 atoms with `brev cph1`.
+> - nonoverlapping (word pc, **4612**) (dec is 4612 bytes, not enc's 4600).
 
 > When context gets heavy: write a `PROGRESS` comment block into the work file (what's proven,
 > current subgoal, next steps, dead ends), do a numbered backup (bckNNNN), run `/compact`, read
@@ -76,7 +98,7 @@ is the same tactic block.
 
 ## Steps (checklist — work top to bottom)
 
-### [ ] Step 1 — `AESV8_GCM_8X_DEC_256_2BLOCK` (two whole blocks)
+### [x] Step 1 — `AESV8_GCM_8X_DEC_256_2BLOCK` (two whole blocks) — DONE
 - **Create** `arm/proofs/aesv8_gcm_8x_dec_256_2block.ml`, mirroring `aesv8_gcm_8x_enc_256_2block.ml`.
   `needs "arm/proofs/aesv8_gcm_8x_dec_256_1block.ml"` (gives the dec mc/EXEC + GHASH bridge lemmas).
 - Spec: `out_p` blocks 0,1 = `EL i (aes_ctr ...)` over **ciphertext** inputs; tag over `MAP brev (aes_ctr ...)`.
