@@ -37,7 +37,7 @@ OUR binary**, NOT rebuild. The only genuine divergences are (1) the AES block pr
 | Recursive CT (byte list) | `gcm_ct_bytes_rec` (APPEND of `int128_to_bytes`) | (not built — we stop at int128 list) | hers needed for `byte_list_at`; adopt |
 | Masked partial tail | `gcm_ctm_tail i tail .. = word_and ct (word (2 EXP (8*tail)-1))` | LE1BLOCK postcond inline: `word_and CT (word (2 EXP (8*bl)-1))` | **IDENTICAL mask form** — adopt `gcm_ctm_tail`. |
 | Top CT spec | `aes256_gcm_encrypt len P ivec rks : byte list` | `aes_ctr ctr0 pts keys : int128 list` | hers is the length-uniform `byte list`; adopt as the OUTPUT TARGET. Ours is the int128 block layer underneath. |
-| Output postcond | `byte_list_at (aes256_gcm_encrypt ...) out_p len s` (ONE clause, all lengths) | `EL i (aes_ctr ...)` per block (+ LE1BLOCK masked `bytes128` for partial) | **HERS more elegant for whole algorithm.** Adopt. |
+| Output postcond | `byte_list_at (aes256_gcm_encrypt ...) out_p len s` (ONE clause, all lengths) | `EL i (aes_ctr ...)` per block (+ LE1BLOCK masked `bytes128` for partial) | **MILA's more elegant for whole algorithm.** Adopt. |
 | Tag spec | `gcm_final_xi len P ivec rks xi h` | inline `word_bytereverse (ghash_polyval_acc (byteswap128 h) (brev xi) (MAP brev (aes_ctr ...)))` | adopt `gcm_final_xi` (same shape; hers uses `word_reversefields 8` = our `byteswap128`/`brev`) |
 | GHASH block list | `gcm_ghash_blocks len P ivec rks` (+ `GHASH_BLOCKS_1..8`) | `MAP word_bytereverse (aes_ctr ...)` | adopt `gcm_ghash_blocks` |
 | Output readback bridge | `OUT_BRIDGE_GEN` (N-1 full + masked tail ⇔ `byte_list_at`), `BYTE_LIST_AT_BLOCK`, `INPUT_*` | (none — we read per-block `bytes128`) | adopt; these are the reusable Task 5 bridges |
@@ -70,8 +70,9 @@ SAME definition (recursive, `SUC n => gcm_ctr_inc (...)`). Ours additionally pro
 - Which is more elegant? Hers (`aese`/`aesmc`) is closer to the metal / the proof's working
   form; ours (`aes256_encrypt`) is the abstract FIPS-197 form used across the kiro AES/XTS
   proofs. Neither is wrong — they sit at different abstraction levels and want a bridge, not a
-  merge. (Open question for Mila: standardize the GCM *spec* on the abstract `aes256_encrypt`
-  with `aes256_block_enc` as the proof-side unfolding, or vice versa?)
+  merge. (This was posed as an open question here; **RESOLVED 2026-06-22 — see the D2 entry in
+  the UPDATE section below: standardize on `aes256_encrypt`, retire `aes256_block_enc`, bridge is
+  migration-only.**)
 
 ### D3 — recursive ciphertext: `define` (ours) vs `new_specification`+WF (hers)
 - Hers: `gcm_ct_rec`/`gcm_ct_bytes_rec` via `prove_general_recursive_function_exists` (recurses
@@ -150,6 +151,8 @@ recommended convergence (D2 resolution = "use the XTS primitive both XTS and we 
 | `aes_ctr_spec.ml` (ours, + byte-list layer) | 94s | 3 | adds `needs aes_xts_common.ml` (GF/tweak machinery is the cost); `aes_ctr_bytes` byte spec built on XTS substrate + aes256_encrypt, name/shape-compatible with Mila's `aes256_gcm_encrypt` |
 | Mila's `aes256_gcm.ml` | (not measured) | — | 8305 lines incl. all proofs |
 | `byte_list_at` postcond wiring on our 2-block | ~1050s (full binary loadt) | 3 | DONE for whole-block (len=32). `AESV8_GCM_8X_ENC_256_2BLOCK_BYTELIST` proved: out_p postcond is one `byte_list_at (aes_ctr_bytes ...) out_p (word 32)` clause. Derived as a CHEAP postcond-weakening corollary of the main theorem (no re-simulation). |
+| GHASH closure on s367 — **MILA** (`EQ_PROP3`) | **0.047 / 0.078 / 0.103s** (N=2/3/4) | 3 | spike `_spike/time_ghash_closure.ml`. Mila's layer loads on our `polyval_ghash`+`karatsuba_pmul` (5.6s). Flat ~+25ms/block; the hard induction is proven once. |
+| GHASH closure on s367 — OURS (`MERGE/FINISH`) | ~73s (N=2, real term) | 3 | per-band lane-flatten+merge; brittle to XOR-nesting (157s+FAIL on reconstructed tower). See D7-MEASURED. |
 
 ## Where we stand vs Mila (status 2026-06-19)
 
@@ -263,16 +266,22 @@ GCM FUNCTION:
 | htable layout | `read htable = byteswap128 h`, `+32 = byteswap128(polyval_dot h h)`, mids via `karatsuba_mid` | `read htbl = h`, `+16 = hk`, `+32 = h2` with `byteswap128 h2 = polyval_dot(byteswap128 h)(byteswap128 h)` | ⚠️ same content, different variable packaging (D9) |
 
 ### Divergences with a recommendation
-- **D2 (AES block primitive) — UNCHANGED, still the one real obstacle.** Hers: `aes256_block_enc`
-  (flat 15-arg `aesmc(aese …)` tower, matches the instruction trace). Ours: `aes256_encrypt`
-  (the **AES-XTS substrate**, `int128 list` keys + `aes256_encrypt_round` fold). They compute the
-  same AES-256 but are not syntactically equal (her `aese`-bundled last round vs our split last
-  round). **RECOMMENDATION (unchanged): prove `AES256_BLOCK_ENC_EQ_ENCRYPT` once** (our 2block proof
-  already rewrites `aes256_encrypt` down to her exact `aese`/`aesmc` tower at
-  `aesv8_gcm_8x_enc_256_2block.ml:761`), put it in shared utils. *Reusing the XTS `aes256_encrypt`
-  was the right call for us* — it shares all the XTS lemma infrastructure — but the shared GCM home
-  should pick ONE; her `aes256_block_enc` is closer to the metal, so the cheapest convergence is to
-  keep her primitive in the spec and carry the bridge.
+- **D2 (AES block primitive) — bridge PROVEN; converge on `aes256_encrypt`, retire `aes256_block_enc`.**
+  Hers: `aes256_block_enc` (flat 15-arg `aesmc(aese …)` tower, matches the instruction trace). Ours:
+  `aes256_encrypt` (the **AES-XTS substrate**, `int128 list` keys + `aes256_encrypt_round` fold). They
+  compute the same AES-256 but are not syntactically equal (her `aese`-bundled last round vs our split
+  last round). **RECOMMENDATION (updated 2026-06-22): standardize the GCM block primitive on the XTS
+  `aes256_encrypt`** — the spec XTS and we already build on — and **retire `aes256_block_enc`.** The
+  "closer to the metal" property is a *proof-side* convenience only: every binary proof must unfold
+  whatever spec primitive the postcond names down to the `aese`/`aesmc` instruction tower regardless
+  (our 2block does exactly this at `aesv8_gcm_8x_enc_256_2block.ml:761`; LE2BLOCK never mentions
+  `aes256_block_enc`), so it is *not* a reason to keep a second spec-level primitive. The bridge
+  `AES256_BLOCK_ENC_EQ_ENCRYPT` (PROVEN, commit bb2e2585, `arm/proofs/utils/aes256_block_enc_eq_encrypt.ml`)
+  is **transition scaffolding**, not the centerpiece: it migrates Mila's existing `aes256_block_enc`
+  theorems to `aes256_encrypt` in one rewrite each (no GF(2^8), no re-simulation); once they are
+  restated, both `aes256_block_enc` and the bridge are deleted. (Alternatively she re-closes directly
+  against `aes256_encrypt` and skips the bridge entirely.) End state: ONE block primitive shared by GCM
+  and XTS.
 - **D8 (byte-reverse spelling) — NEW, decide now.** (Renumbered to avoid clashing with the original
   D4/D5 above, which are distinct.) Hers uses `word_reversefields 8` everywhere
   (186 occurrences). Ours uses `word_bytereverse` (the genuine 16-byte reverse) PLUS `byteswap128`
@@ -292,11 +301,17 @@ GCM FUNCTION:
   are the SAME function but our `.S` has a **reordered prologue**: ours does all four `stp d8..d15`
   saves first then `lsr/mov/mov` (so C_ARGUMENTS holds and we enter the body at `pc+0x18`); hers
   keeps the shipping interleaved order and enters at `pc` simulating the full prologue+epilogue.
-  (Compare `arm/aes-gcm/aes256_gcm.S:34-45` vs `aesv8_gcm_8x_enc_256.S:28-39`.) **RECOMMENDATION:
-  converge on the shipping order (hers) — our reorder was a local convenience (see the
-  cargs-prologue-reorder note) and her full-function theorem already lives at `pc` with the real
-  prologue/epilogue.** This is the biggest structural difference and the reason our band theorems
-  are body-only (pc+0x18 → pc+0x11d8) while hers are whole-function.
+  (Compare `arm/aes-gcm/aes256_gcm.S:34-45` vs `aesv8_gcm_8x_enc_256.S:28-39`.) **RECOMMENDATION
+  (updated 2026-06-22): adopt the saves-first reorder as the shared convention.** The reorder is a
+  functional no-op — only prologue offsets change, the body bytes are byte-identical and total size
+  is unchanged — but it lets the band theorems state a clean `C_ARGUMENTS` body core at pc+0x18. The
+  whole-function theorem is then recovered by wrapping that core with `ARM_ADD_RETURN_STACK_TAC` to
+  prove the prologue/epilogue (XTS pattern, `AES_XTS_ENCRYPT_SUBROUTINE_CORRECT`), giving a
+  `..._SUBROUTINE_CORRECT` at pc+0. This requires landing the `.S` reorder in s2n-bignum + re-import
+  to aws-lc. (This supersedes the earlier "converge on her shipping order" note: keeping the reorder
+  gives both trees the clean C_ARGUMENTS entry without losing the whole-function theorem.)
+  This is the biggest structural difference and the reason our band theorems are body-only
+  (pc+0x18 → pc+0x11d8) while hers are whole-function.
 
 ### `aes_ctr_full_tail_bytes` vs her `aes256_gcm_encrypt` vs XTS (answers to the standing questions)
 - **Is `aes_ctr_full_tail_bytes` generic in the number of bytes?** YES, but only *parametrically*:
@@ -391,13 +406,13 @@ The RHS is LITERALLY the argument our `GHASH_POLYVAL_ACC_2` feeds to `polyval_re
 `ghash_spec.ml`-vs-`polyval_ghash.ml` clash. But the load-bearing question (do the specs meet?) is
 answered YES at the interface term above.
 
-**Which way closes faster (measured vs designed — be honest):**
-- Per-instance, TODAY: OURS is faster, and this is MEASURED. Our 2-block bridge is ~73s
-  (`FAST_OPERAND_TAC` = lane-flatten + `WORD_BITWISE` replaced a ~90s `WORD_BLAST` per W-reduction
-  operand; `2block.ml:18-19`).
-- Per-N SCALING, by design: HERS should win — `GHASH_NBLOCK_KARATSUBA_EQ_PROP3` is the hard induction
-  proven ONCE, each band then only instantiates it (+ per-N `GHASH_BLOCKS_k`/`POLYVAL_DOT_Hk_EQ`).
-  Ours re-runs the merge/flatten over a product set growing with N.
+**Which way closes faster — NOW MEASURED (2026-06-22), see the D7-MEASURED block below:**
+- MILA wins decisively and at every N: 0.047s / 0.078s / 0.103s for N=2/3/4 vs OURS ~73s at N=2.
+  The earlier "OURS is faster per-instance" framing is SUPERSEDED — it compared our ~73s bridge to a
+  hypothetical (her bridge was not yet timed). Measured, MILA is ~1500× faster at N=2 and scales flat.
+- Per-N SCALING, by design AND measured: MILA wins — `GHASH_NBLOCK_KARATSUBA_EQ_PROP3` is the hard
+  induction proven ONCE, each band then only instantiates it (~+25 ms/block).
+  Ours re-runs the merge/flatten over a product set growing with N (and is brittle to XOR-nesting).
 - CAVEAT: at the older snapshot (`756df852`) her `EQ_PROP3` was NOT wired into her concrete bands
   (each hand-closed via `bubble_sort_conv` + `WORD_BLAST`), so her REALIZED per-N cost was comparable
   to ours. Her newer `aes256_gcm_tail` DOES carry `GHASH_NBLOCK_KARATSUBA_EQ_PROP3` + the per-N
@@ -408,6 +423,53 @@ answered YES at the interface term above.
   for the residual operand equalities (the part that beats `WORD_BLAST`). Both reduce to the SAME
   `polyval_reduce_prop3` argument (proved), so the two halves compose. TO VALIDATE: time her current
   3-/4-block band close vs our merge machinery on the same goal — a measurement not yet taken.
+
+#### D7 — MEASURED (2026-06-22): MILA wins decisively; HYBRID is unnecessary
+Spike `_spike/time_2block.ml` (+ `_spike/her_nblock_layer.ml`, `_spike/our_bridge_helpers.ml`,
+`_spike/her_ghash_spec_body.ml`) builds the **faithful s367 register tower** — her
+`ghash_Nblock_karatsuba` unfolded IS the assembly lane tower the band sim produces at s367 (her
+spec is the instruction mirror) — instantiated with the real GHASH operands
+(`in0 = brev xi ⊕ brev ct0`, `in_k = brev ct_k`, htable lanes carry raw `h..h^N`), and closes the
+SAME goal (`s367 tower = ghash_polyval_acc (byteswap128 h) (brev xi) [brev ct0; ...]`) two ways:
+
+| route | N=2 | N=3 | N=4 |
+|---|---|---|---|
+| **MILA** (`EQ_PROP3` + `GHASH_POLYVAL_ACC_{2,3,4}`) | **0.047s** | **0.078s** | **0.103s** |
+| **OURS** (`ABBREV_INNER_PMULS`+`MERGE_2BLK`+`FINISH_2BLK`) | ~73s (real s367, recorded) | — | — |
+| OURS on the reconstructed tower | 157s then FAIL | — | — |
+
+- **MILA scales flat: ~+25 ms/block, linear, essentially free.** The hard induction
+  `GHASH_NBLOCK_KARATSUBA_EQ_PROP3` is proven ONCE at layer-load; each band only instantiates it,
+  discharges `kara_quad_ok` (trivial: `byteswap128` involution + `karatsuba_mid` symmetry), applies
+  the matching `GHASH_POLYVAL_ACC_N`, and at N≥3 finishes with one `AP_TERM_TAC THEN WORD_RULE` for
+  XOR-associativity. Reconciliation details that worked: s367 = the inner `word_join g f` (the outer
+  `word_reversefields 8` her spec carries = our ext+rev64 at steps 368–369, so the route adds one
+  `WORD_REVERSEFIELDS_REVERSEFIELDS` involution); htable lanes hold RAW `h..h^N`, the GHASH key
+  `h_true = byteswap128 htw`; the H-power preconds (`byteswap128 h2 = polyval_dot K K`, …) bridge to
+  `GHASH_POLYVAL_ACC_N`'s `polyval_dot` chains.
+- **HYBRID is MOOT at 2..4 blocks.** Her `EQ_PROP3` lands directly on `polyval_reduce_prop3` of the
+  XOR-of-`pmul input_k h_k` with **zero residual operand equalities** — the per-block Karatsuba pack
+  identity is baked into `KARATSUBA_BLOCK_PACKS_TO_PMUL_CLEAN` (proven once), so there is nothing for
+  `FAST_OPERAND_TAC` to clean up. The hybrid only helps if her bridge left residual lane equalities;
+  it does not.
+- **OURS is brittle, not just slow.** The merge atom-pairing heuristic (`MERGE_ONE_2BLK_TAC`) is tuned
+  to the exact XOR-nesting of the genuine assembly trace; on the reconstructed tower (her unfold, a
+  slightly different but mathematically equal nesting) it ran ~157s and then FAILED the final
+  `WORD_BITWISE` on a mis-paired atom. The ~73s figure is the authoritative OURS cost on the real
+  s367 term in the proof file.
+- **Clash check (Task 1): RESOLVED, no clash.** Her `common/ghash_spec.ml` `needs
+  "common/polyval_ghash.ml"` — it is built ON TOP of our file and only ADDS lemmas
+  (`BOOL_POLY_MUL_ASSOC`, `HELPER_3`, `GHASH_POLYVAL_ACC_3/4`); it defines ZERO new constants. Her
+  GHASH-karatsuba wrapper (`karatsuba_block_p{l,h,m}`, `kara_acc`, `karatsuba_reduce_shared`,
+  `ghash_Nblock_karatsuba`, `pack_corrected`, `kara_quad_*`, `project_triples`,
+  `GHASH_NBLOCK_KARATSUBA_EQ_PROP3`) loads cleanly on our `polyval_ghash.ml` + `karatsuba_pmul.ml`
+  with no redefinition of any of our constants. Only non-spec deps her FULL chain pulls are
+  `aes256_gcm_block_enc_spec.ml` (her `aes256_block_enc`, the D2 primitive — not needed for the GHASH
+  layer) and one helper `WORD_XOR_0_LEFT` (one-liner). `gcm_ctr_inc` is byte-identical to ours.
+
+**DECISION:** adopt HER `ghash_Nblock_karatsuba` + `GHASH_NBLOCK_KARATSUBA_EQ_PROP3` for the band
+ladder (3..8) and for decrypt. Drop the hybrid plan — it adds nothing. Our `MERGE/FINISH` machinery
+can be retired for GHASH closure once the bands are migrated to her layer.
 
 ### Net recommendation / next move
 Encrypt is effectively DONE on Mila's side at the top level. Rather than push our own 33+-byte
