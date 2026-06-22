@@ -260,7 +260,7 @@ GCM FUNCTION:
 | Masked partial out | `word_or (word_and ct2 mask) (word_and out0 (word_not mask))`, `mask = word(2 EXP (8*byte_len)-1)` | `word_xor (word_and ct1 MK) (word_and outprev (word_not MK))`, `MK = word(2 EXP (8*bl1)-1)` | ✅ same value (or≡xor on disjoint masks; cf. our `BLEND_OR_XOR`) |
 | Block-1 counter | `gcm_ctr_inc ivec` | `gcm_ctr_inc ctr0` | ✅ identical (`gcm_ctr_inc` lifted from her) |
 | Tag postcond shape | `…(ghash_polyval_acc h (… xi) [… ct1; … ctm2])` | `…(ghash_polyval_acc (byteswap128 h) (… xi) [… ct0; … (word_and ct1 MK)])` | ✅ same GHASH spec (key packaging differs, see D4) |
-| htable layout | `read htable = byteswap128 h`, `+32 = byteswap128(polyval_dot h h)`, mids via `karatsuba_mid` | `read htbl = h`, `+16 = hk`, `+32 = h2` with `byteswap128 h2 = polyval_dot(byteswap128 h)(byteswap128 h)` | ⚠️ same content, different variable packaging (D5) |
+| htable layout | `read htable = byteswap128 h`, `+32 = byteswap128(polyval_dot h h)`, mids via `karatsuba_mid` | `read htbl = h`, `+16 = hk`, `+32 = h2` with `byteswap128 h2 = polyval_dot(byteswap128 h)(byteswap128 h)` | ⚠️ same content, different variable packaging (D9) |
 
 ### Divergences with a recommendation
 - **D2 (AES block primitive) — UNCHANGED, still the one real obstacle.** Hers: `aes256_block_enc`
@@ -273,7 +273,8 @@ GCM FUNCTION:
   was the right call for us* — it shares all the XTS lemma infrastructure — but the shared GCM home
   should pick ONE; her `aes256_block_enc` is closer to the metal, so the cheapest convergence is to
   keep her primitive in the spec and carry the bridge.
-- **D4 (byte-reverse spelling) — NEW, decide now.** Hers uses `word_reversefields 8` everywhere
+- **D8 (byte-reverse spelling) — NEW, decide now.** (Renumbered to avoid clashing with the original
+  D4/D5 above, which are distinct.) Hers uses `word_reversefields 8` everywhere
   (186 occurrences). Ours uses `word_bytereverse` (the genuine 16-byte reverse) PLUS `byteswap128`
   (which is NOT a byte reverse — it is the 64-bit **lane swap** `word_join (subword x (0,64))
   (subword x (64,64))`, our htable-key convention). HOL Light proves `WORD_BYTEREVERSE_REVERSEFIELDS`
@@ -282,12 +283,12 @@ GCM FUNCTION:
   (hers).** It is the words.ml primitive, she already uses it pervasively, and `word_bytereverse`
   rewrites to it in one step. Keep `byteswap128` as a *separate named* lane-swap (it is a different
   operation and both proofs need it for the htable key); do not conflate the two.
-- **D5 (htable key packaging) — cosmetic.** She exposes `byteswap128 h` / `byteswap128(polyval_dot
+- **D9 (htable key packaging) — cosmetic.** She exposes `byteswap128 h` / `byteswap128(polyval_dot
   h h)` directly as the memory contents and `karatsuba_mid` for the mids; we carry `h`/`hk`/`h2`
   as opaque vars + a `byteswap128 h2 = polyval_dot(byteswap128 h)(byteswap128 h)` side condition.
   Same facts. **RECOMMENDATION: adopt her direct `byteswap128 …` + `karatsuba_mid` form** — it
   removes our extra precond and matches her `AES256_GCM_ENCRYPT_CORRECT`.
-- **D6 (binary / entry) — NEW, important.** Her `aes256_gcm_mc` and our `aesv8_gcm_8x_enc_256_mc`
+- **D10 (binary / entry) — NEW, important.** Her `aes256_gcm_mc` and our `aesv8_gcm_8x_enc_256_mc`
   are the SAME function but our `.S` has a **reordered prologue**: ours does all four `stp d8..d15`
   saves first then `lsr/mov/mov` (so C_ARGUMENTS holds and we enter the body at `pc+0x18`); hers
   keeps the shipping interleaved order and enters at `pc` simulating the full prologue+epilogue.
@@ -321,10 +322,98 @@ GCM FUNCTION:
   its *len-driven recursion pattern*, but NOT its tail function. Our `aes_ctr_full_tail_bytes` is
   the GCM analog of `aes256_xts_encrypt`'s rec+tail APPEND, with the mask tail instead of stealing.
 
+### D7 — GHASH reconciliation strategy: her instruction-mirror spec vs our direct state-to-math
+This is a genuine methodological divergence (verified 2026-06-22 by reading both trees), and it
+is the strongest reason to adopt HER layer as the band ladder grows.
+
+**Mila — instruction-mirroring spec + one inductive bridge.** She defines spec functions shaped
+like the GHASH assembly, then bridges to the math ONCE:
+- `kara_acc` (`gcm_aesgcm_nblock_helpers.ml:198`) is a list-fold whose three accumulators
+  `(pl, ph, pm)` are LITERALLY the assembly's lo/hi/mid `pmull` accumulators (Q19/Q17/Q18); each
+  block XORs `karatsuba_block_pl/ph/pm` (`:180/185/190`) — exactly the per-block pmull/eor chain.
+- `karatsuba_reduce_shared` (`:212`) is a `let`-chain mirroring the Barrett reduction
+  instruction-for-instruction (`wa`, `wv`, `word_pmul … w` with `w = 13979173243358019584`).
+- `ghash_Nblock_karatsuba` (`:233`) = `kara_acc` then `karatsuba_reduce_shared`.
+- `GHASH_NBLOCK_KARATSUBA_EQ_PROP3` (`:491`) bridges that assembly-shape spec to
+  `word_reversefields 8 (polyval_reduce_prop3 (kara_quad_pmul …))` — proved ONCE, by induction on
+  the block list. Per-N bands then close the GHASH conjunct cheaply because the simulated state
+  matches `ghash_Nblock_karatsuba` almost syntactically.
+
+**Ours — direct state-to-math, per band, no mirror spec.** Our spec is just the mathematical
+`ghash_polyval_acc` (Horner fold, `common/polyval_ghash.ml:56`) + `GHASH_POLYVAL_ACC_2` (`:167`).
+At the bridge we take the RAW simulated Q19 (the big byte-form pmull tower) and crunch it to that
+RHS in-place via `ABBREV_INNER_PMULS_TAC` + `MERGE_2BLK_TAC` + `FINISH_2BLK_TAC` (lane-flatten +
+`WORD_BITWISE`, ~73s for 2 blocks). We have NO analog of `kara_acc`/`ghash_Nblock_karatsuba`.
+
+**Shared foundations (verified):** she REUSES the common `polyval_reduce_prop3` (`common/polyval.ml:221`,
+the same one we use) and the same Barrett constant — only the assembly-shaped WRAPPER layer is hers.
+
+**Trade-off + recommendation.** Hers scales better by design: the instruction-mirror + one inductive
+bridge make incremental N-block cost small. Ours was lighter to bootstrap for 1–2 blocks but re-runs
+the merge/flatten machinery per band over a per-N-sized product set. **For the band ladder (3..8) and
+for decrypt, adopt her `ghash_Nblock_karatsuba` + `GHASH_NBLOCK_KARATSUBA_EQ_PROP3`** (binary-agnostic;
+would let our bands close the GHASH conjunct cheaply instead of re-deriving it).
+**FEASIBILITY CHECK (done 2026-06-22, partial — encouraging):**
+- Her wrapper defs (`karatsuba_block_pl/ph/pm`, `kara_acc`, `ghash_Nblock_karatsuba`) load
+  STANDALONE on OUR common foundations (`polyval_ghash.ml` + `karatsuba_pmul.ml`) with NO clashes
+  (her full helper chain `needs common/ghash_spec.ml` + `aes256_gcm_block_enc_spec.ml`, neither in
+  our tree, so a full load would import more — but the GHASH wrapper layer itself is clash-free).
+- `kara_acc [(in0,htw0,hk0);(in1,htw1,hk1)] 0 0 0` evaluates (proved `KARA_ACC_2`) to exactly the
+  lo/hi/mid accumulator triple `(pl0⊕pl1, ph0⊕ph1, pm0⊕pm1)` — structurally our Q19/Q17/Q18.
+- **Granularity difference, now understood:** her `kara_acc` uses 64-bit-LANE `word_pmul`s (the
+  Karatsuba decomposition, 64×64→128), whereas our `GHASH_POLYVAL_ACC_2` uses the WHOLE 128×128→256
+  `word_pmul` of the spec. Her `GHASH_NBLOCK_KARATSUBA_EQ_PROP3` is precisely the lemma proving these
+  equal. Our binary's Q19/Q17/Q18 ARE the 64-bit-lane form — i.e. they match HER `kara_acc`, not our
+  256-bit spec form (our bridge crunches the lanes back up to the 256-bit product each band; hers
+  names the lane form and bridges once). So her layer fits our SIMULATED STATE more directly than
+  our own spec does — a strong reason to adopt it.
+- **Lane-index reconciliation confirmed:** her `pl = pmul (subword in (0,64)) (subword h_tw (64,64))`
+  vs our `pmul (subword … (0,64)) (subword h (0,64))` line up because her `h_tw` is the htable's
+  `byteswap128 (h-power)` (lane-swapped), and `subword (byteswap128 x) (64,64) = subword x (0,64)`.
+  This is the SAME byteswap128 htable-key convention as our D9 — so it composes.
+
+**INTERFACE CONFIRMED (2026-06-22).** The two specs meet exactly at the `polyval_reduce_prop3`
+argument. Proved standalone (`kara_quad_pmul` def + `WORD_RULE`, no `ghash_spec.ml` needed):
+```
+kara_quad_pmul [(a⊕b,_,_,h²); (c,_,_,h)] 0  =  word_xor (word_pmul (a⊕b) h²) (word_pmul c h)
+```
+The RHS is LITERALLY the argument our `GHASH_POLYVAL_ACC_2` feeds to `polyval_reduce_prop3`. So:
+- her bridge: `ghash_Nblock_karatsuba (triples) = word_reversefields 8 (polyval_reduce_prop3 (kara_quad_pmul quads 0))`
+- our lemma: `ghash_polyval_acc h a [b;c] = polyval_reduce_prop3 (word_xor (pmul (a⊕b) h²) (pmul c h))`
+- the `polyval_reduce_prop3` arguments are the SAME term (mod the final `word_reversefields 8` byte-reverse
+  both apply at the store). So her `ghash_Nblock_karatsuba` and our spec land on the SAME reduced value;
+  chaining her bridge with our `GHASH_POLYVAL_ACC_2` / `GHASH_POLYVAL_ACC_BATCHED` (general N) is sound
+  and mechanical — no re-derivation of her inductive proof needed to establish compatibility.
+
+**STILL not done (lower-risk now):** a full in-session instantiation of her complete chain (it pulls
+`common/ghash_spec.ml` + her `kara_quad_ok`/`project_triples`/`KARATSUBA_REDUCE_AS_PROP3_CLEAN`/
+`pack_corrected` helpers) — worth doing once when we actually wire her layer in, to confirm no
+`ghash_spec.ml`-vs-`polyval_ghash.ml` clash. But the load-bearing question (do the specs meet?) is
+answered YES at the interface term above.
+
+**Which way closes faster (measured vs designed — be honest):**
+- Per-instance, TODAY: OURS is faster, and this is MEASURED. Our 2-block bridge is ~73s
+  (`FAST_OPERAND_TAC` = lane-flatten + `WORD_BITWISE` replaced a ~90s `WORD_BLAST` per W-reduction
+  operand; `2block.ml:18-19`).
+- Per-N SCALING, by design: HERS should win — `GHASH_NBLOCK_KARATSUBA_EQ_PROP3` is the hard induction
+  proven ONCE, each band then only instantiates it (+ per-N `GHASH_BLOCKS_k`/`POLYVAL_DOT_Hk_EQ`).
+  Ours re-runs the merge/flatten over a product set growing with N.
+- CAVEAT: at the older snapshot (`756df852`) her `EQ_PROP3` was NOT wired into her concrete bands
+  (each hand-closed via `bubble_sort_conv` + `WORD_BLAST`), so her REALIZED per-N cost was comparable
+  to ours. Her newer `aes256_gcm_tail` DOES carry `GHASH_NBLOCK_KARATSUBA_EQ_PROP3` + the per-N
+  derivation pattern, but **we have NOT timed her current bands**. "Hers is faster now" would be an
+  overclaim until measured.
+- **RECOMMENDATION — the HYBRID (the interface check above is exactly what makes it sound):** use HER
+  `EQ_PROP3` to reach the reduced form once per N (amortized), and OUR `FAST_OPERAND_TAC` lane-flatten
+  for the residual operand equalities (the part that beats `WORD_BLAST`). Both reduce to the SAME
+  `polyval_reduce_prop3` argument (proved), so the two halves compose. TO VALIDATE: time her current
+  3-/4-block band close vs our merge machinery on the same goal — a measurement not yet taken.
+
 ### Net recommendation / next move
 Encrypt is effectively DONE on Mila's side at the top level. Rather than push our own 33+-byte
 bands, we should: (1) land the D2 `AES256_BLOCK_ENC_EQ_ENCRYPT` bridge, (2) converge spellings
-(D4 `word_reversefields 8`, D5 htable form, D6 shipping prologue), then **pivot to DECRYPT**, where
+(D8 `word_reversefields 8`, D9 htable form, D10 shipping prologue), (3) adopt her GHASH layer (D7)
+after the feasibility check, then **pivot to DECRYPT**, where
 neither tree has the tail/whole theorem yet (her `aes256_gcm_tail` has NO decrypt; only the older
 `one_block_enc_dec_aes256-gcm` branch has a 1-block dec). Our dec 1-block (`AESV8_GCM_8X_DEC_256_1BLOCK`)
 + dec LE1BLOCK are the natural base to replicate the encrypt band-by-band ladder for decrypt.
