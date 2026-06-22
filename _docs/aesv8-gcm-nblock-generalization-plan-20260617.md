@@ -765,3 +765,33 @@ EL_INT128_LIST_TO_BYTES, DIV16_STEP, MOD16_STEP, LENGTH_INT128_LIST_TO_BYTES_SUB
 
 loadt-clean ~95s (spec only, no binary), 3 axioms, no cheats.  REMAINING: instantiate on the
 binary for the 17..32-byte band (1 full + masked partial), then 4/8 + main loop.
+
+## ADDENDUM 6 (2026-06-22) — 17..31-byte band PROVED on the binary (nfull=1)
+
+`AESV8_GCM_8X_ENC_256_LE2BLOCK` and `AESV8_GCM_8X_ENC_256_LE2BLOCK_BYTELIST` PROVED end-to-end
+in `arm/proofs/aesv8_gcm_8x_enc_256_le2block.ml` (loadt-clean, no cheats, 3 standard axioms;
+~8.4 min with the 2block dep cached).  bit_len = 128 + 8*bl1 (1<=bl1<=16): ONE full block 0
+(more_than_1, GHASH vs H^2) + ONE masked partial block 1 (less_than_1, MK = word(2 EXP(8*bl1)-1)).
+This is the FIRST binary consumer of `BYTE_LIST_AT_NBLOCK_CTR` at nfull=1 (ADDENDUM 5), closing
+the "instantiate on the binary for the 17..32-byte band" item.
+
+How it was built (mostly reuse, per the LE2BLOCK scaffold):
+- Front steps 1-259 = the whole-block 2BLOCK front VERBATIM (length-agnostic), with TWO swaps:
+  USHR_128_8BL_LEMMA collapses X9 = word_ushr(word(128+8*bl1)) 3 -> word(16+bl1); X5_ZERO_LEMMA2
+  collapses the s260 `cmp x0,x5; b.ge` tail branch (x5 = ((16+bl1-1)&~127)+in_p = in_p).
+- Tail cascade: x5 = word(16+bl1) is SYMBOLIC (2BLOCK had concrete 32).  Thresholds #112..#48
+  fall through (bl2_resolve_pc, LE32-ival), #32 falls through at the boundary 16+bl1<=32
+  (bl2_resolve_pc_bdy), #16 b.gt is TAKEN since bl1>=1 (bl2_resolve_pc16_taken) -> more_than_1.
+  (The single-step b.gt resolution shifts the step index -2 vs 2BLOCK: more_than_1 at s313.)
+- Block-0 GHASH vs H^2 + the GHASH_POLYVAL_ACC_2 bridge = 2BLOCK VERBATIM (MERGE_2BLK_TAC /
+  FINISH_2BLK_TAC over the two products); block-1 element in the list = word_bytereverse
+  (word_and ct1 MK).
+- less_than_1 mask = the LE1BLOCK symbolic-mask machinery (MASK_LEMMA, BLEND_OR_XOR, Q9 collapse
+  to word_and ct1 MK before rev64).  One new bridge X1_MOD128_BRIDGE rewrites the masking input
+  X1 = (128+8*bl1) AND 0x7f to (8*bl1) AND 0x7f so MASK_LEMMA applies with bl:=bl1 (128 = 0 mod 128).
+- byte_list corollary: ENSURES_POSTCONDITION_THM + BYTE_LIST_AT_NBLOCK_CTR with nfull=1, tail=bl1;
+  the 6 antecedents discharge via AES_CTR_2_EL (EL 0/EL 1), VAL_WORD_EQ (val(word(16+bl1))=16+bl1),
+  LENGTH, and the k<1 -> k=0 full-block read.
+
+REMAINING: 33..N-byte bands (>=2 full blocks + masked tail, nfull>=2), then 4/8-block tails and
+the Loop_mod2x_v8 main loop.

@@ -191,8 +191,16 @@ lemmas (all in `aes_xts_common.ml`) -- built on `aes256_encrypt`. New shared bri
    `BYTE8_OF_BYTES128`/`MASK_BYTE_OUT_XOR`/`EL_*` sublemmas + new `EL_INT128_LIST_TO_BYTES`,
    `DIV16_STEP`/`MOD16_STEP`, `LENGTH_INT128_LIST_TO_BYTES_SUBLIST`. Spec-level (loadt 95s,
    3 axioms, no cheats) -- this is what the 17..32-byte band and the 4/8-block tail
-   simulations consume directly. STILL OPEN: instantiate it on the binary for the 17..32-byte
-   2-block band (1 full + masked partial); then 4/8 + main loop.
+   simulations consume directly.
+1c. **17..31-byte band (nfull=1) DONE on the binary (2026-06-22).**
+   `AESV8_GCM_8X_ENC_256_LE2BLOCK` (strong masked-blend postcond) +
+   `AESV8_GCM_8X_ENC_256_LE2BLOCK_BYTELIST` (the byte_list_at form) PROVED end-to-end in
+   `arm/proofs/aesv8_gcm_8x_enc_256_le2block.ml` (bit_len = 128+8*bl1, 1 full block 0 +
+   1 masked partial block 1; loadt-clean, no cheats, 3 axioms).  This is the FIRST binary
+   consumer of `BYTE_LIST_AT_NBLOCK_CTR` at nfull=1.  Reuses the 2BLOCK front/cascade/GHASH
+   verbatim, swaps LE1BLOCK's symbolic mask (MK = word(2 EXP (8*bl1)-1)) into less_than_1,
+   and resolves the symbolic x5=word(16+bl1) tail cascade with new LE32-ival resolvers.
+   STILL OPEN: 33..N-byte bands (>=2 full blocks + masked tail), then 4/8 + main loop.
 2. **D1 rename** `gcm_ctr_inc_iter -> gcm_ctr_iter` (cosmetic; defer to the shared-file merge).
 3. **D2 spec-primitive convergence:** recommend Mila standardize her keystream on
    `aes256_encrypt` (the XTS primitive) so the two layers become ONE shared file with no
