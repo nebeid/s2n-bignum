@@ -28,6 +28,25 @@ needs "arm/proofs/aesv8_gcm_8x_enc_256_2block.ml";;
 
 (* ---- new symbolic-bit_len helper lemmas (scaffold-proved) ---- *)
 
+(* X1 = bit_len = 128 + 8*bl1 for the 2-block band.  The routine masks with X1 AND 0x7f;
+   128 = 0 mod 128, so (128+8*bl1) AND 127 = (8*bl1) AND 127, letting MASK_LEMMA (stated over
+   word(8*bl)) apply with bl:=bl1.  (Was referenced here but never defined; proved 2026-06-24.) *)
+let X1_MOD128_BRIDGE = prove
+ (`!bl1. bl1 <= 16
+    ==> word_and (word (128 + 8 * bl1):int64) (word 127) =
+        word_and (word (8 * bl1):int64) (word 127)`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[GSYM VAL_EQ] THEN
+  SUBGOAL_THEN `127 = 2 EXP 7 - 1` SUBST1_TAC THENL [CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
+  REWRITE_TAC[VAL_WORD_AND_MASK_WORD] THEN
+  SUBGOAL_THEN `val (word (128 + 8 * bl1):int64) = 128 + 8 * bl1` SUBST1_TAC THENL
+   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `val (word (8 * bl1):int64) = 8 * bl1` SUBST1_TAC THENL
+   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  CONV_TAC NUM_REDUCE_CONV THEN
+  REWRITE_TAC[ARITH_RULE `128 + 8 * bl1 = 8 * bl1 + 1 * 128`] THEN
+  REWRITE_TAC[MOD_MULT_ADD]);;
+
 let USHR_128_8BL_LEMMA = prove
  (`!bl1. bl1 <= 16 ==> word_ushr (word (128 + 8 * bl1):int64) 3 = word (16 + bl1)`,
   REPEAT STRIP_TAC THEN REWRITE_TAC[word_ushr] THEN
