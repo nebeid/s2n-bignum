@@ -230,6 +230,151 @@ let FINISH_2BLK_TAC : tactic =
   REWRITE_TAC[JOIN_EQ_SPLIT] THEN
   REPEAT CONJ_TAC THEN WORD_BITWISE_TAC;;
 
+(* ========================================================================= *)
+(* GMULT2 fast-reduce bridge (the ~35s route, replacing the ~73s MERGE/FINISH *)
+(* reduce-blast).  GMULT2_FULL_CORRECT_BA is the scalable 2-block fused        *)
+(* multiply+reduce: the assembly's byteform that XOR-accumulates TWO Karatsuba *)
+(* triples then runs the shared W-reduction equals                            *)
+(*   polyval_reduce_prop3 (word_pmul a0 b0 XOR word_pmul a1 b1).               *)
+(* Built from PMUL_KARATSUBA + GMULT_REDUCE_PROP3 (W-reduction proven ONCE in  *)
+(* the dec 1-block file), so the reduction is NEVER re-blasted.  This is OUR-  *)
+(* binary analog of Mila's GHASH_NBLOCK_KARATSUBA_EQ_PROP3; the per-block      *)
+(* operand transpose (rev64/h <-> brev/byteswap128) is reconciled by MERGE_2BLK *)
+(* and the W-reduction *surface* arrangement is closed by the r1/u/r2 hand     *)
+(* staging in DEC_2BLK_GMULT2_BRIDGE_TAC (generalized from the dec 1-block      *)
+(* s351 W-staging, 3 atoms -> 6).  See _docs/gmult2-fused-reduce-lemma.md and   *)
+(* _docs/dec-2block-gmult2-finish-handoff.md.                                  *)
+(* ------------------------------------------------------------------------- *)
+
+(* tL = XOR-sum of the two blocks' Karatsuba limb expansions (a-then-b pmul    *)
+(* order, matching PMUL_KARATSUBA output): zx plS ^ shl(zx crossS)64 ^          *)
+(* shl(zx phS)128, where plS/phS/crossS are the per-limb XOR-sums.             *)
+let dec2_tL =
+  `word_xor
+    (word_xor
+      (word_zx (word_xor (word_pmul (word_subword (a0:int128) (0,64):64 word) (word_subword (b0:int128) (0,64):64 word):128 word)
+                         (word_pmul (word_subword (a1:int128) (0,64):64 word) (word_subword (b1:int128) (0,64):64 word):128 word)) :256 word)
+      (word_shl (word_zx (word_xor
+         (word_xor (word_xor (word_pmul (word_xor (word_subword (a0:int128) (0,64):64 word) (word_subword (a0:int128) (64,64):64 word))
+                                        (word_xor (word_subword (b0:int128) (0,64):64 word) (word_subword (b0:int128) (64,64):64 word)):128 word)
+                             (word_pmul (word_subword (a0:int128) (0,64):64 word) (word_subword (b0:int128) (0,64):64 word):128 word))
+                   (word_pmul (word_subword (a0:int128) (64,64):64 word) (word_subword (b0:int128) (64,64):64 word):128 word))
+         (word_xor (word_xor (word_pmul (word_xor (word_subword (a1:int128) (0,64):64 word) (word_subword (a1:int128) (64,64):64 word))
+                                        (word_xor (word_subword (b1:int128) (0,64):64 word) (word_subword (b1:int128) (64,64):64 word)):128 word)
+                             (word_pmul (word_subword (a1:int128) (0,64):64 word) (word_subword (b1:int128) (0,64):64 word):128 word))
+                   (word_pmul (word_subword (a1:int128) (64,64):64 word) (word_subword (b1:int128) (64,64):64 word):128 word))) :256 word) 64))
+    (word_shl (word_zx (word_xor (word_pmul (word_subword (a0:int128) (64,64):64 word) (word_subword (b0:int128) (64,64):64 word):128 word)
+                                (word_pmul (word_subword (a1:int128) (64,64):64 word) (word_subword (b1:int128) (64,64):64 word):128 word)) :256 word) 128)
+    : 256 word`;;
+
+(* PACK2_ID: tL = word_pmul a0 b0 XOR word_pmul a1 b1 (the unpacked 256-bit    *)
+(* product sum).  ~1.1s via WORD_ZX_XOR/WORD_SHL_XOR + WORD_RULE.              *)
+let PACK2_ID = prove(
+  mk_eq(dec2_tL, `word_xor (word_pmul (a0:int128) (b0:int128):256 word) (word_pmul (a1:int128) (b1:int128):256 word)`),
+  GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [REWRITE_RULE[LET_DEF;LET_END_DEF] PMUL_KARATSUBA] THEN
+  REWRITE_TAC[WORD_ZX_XOR; WORD_SHL_XOR] THEN CONV_TAC WORD_RULE);;
+
+(* gmr_tL2: the W-reduction byteform over tL's lanes = polyval_reduce_prop3 tL. *)
+let dec2_gmr_tL2 =
+  REWRITE_RULE[REWRITE_RULE[LET_DEF;LET_END_DEF] KARATSUBA_LIMBS]
+    (SPEC dec2_tL (REWRITE_RULE[LET_DEF;LET_END_DEF] GMULT_REDUCE_PROP3));;
+
+(* GMULT2_FULL_CORRECT_BA: compose gmr_tL2 (byteform = prop3 tL) with           *)
+(* AP_TERM PACK2_ID (prop3 tL = prop3 (pmul a0 b0 ^ pmul a1 b1)).              *)
+let GMULT2_FULL_CORRECT_BA =
+  GENL [`a0:int128`;`b0:int128`;`a1:int128`;`b1:int128`]
+    (TRANS dec2_gmr_tL2 (AP_TERM `polyval_reduce_prop3` PACK2_ID));;
+
+(* XOR-commutativity helper for the wal lane (the two byteforms present the     *)
+(* wa-round lane sum in opposite operand order).                               *)
+let DEC2_WXSYM = WORD_RULE `word_xor qq6l qq1l = word_xor qq1l qq6l`;;
+
+(* Targeted lane closer: fold ONLY the 64-bit lane-subword equations (rhs a    *)
+(* qqNl/qqNh var), NOT the pmul atom defs (which would re-expand qq atoms),     *)
+(* then a flat 64-bit WORD_RULE (XOR-ACI over the named lanes).                 *)
+let LANE_CLOSE_TAC : tactic = fun (asl,w) ->
+  let is_lane_def (_,th) =
+    let c = concl th in is_eq c &&
+    (try let r = rhs c in is_var r &&
+       (let n = fst(dest_var r) in String.length n>=3 && String.sub n 0 2="qq" &&
+        (let last = n.[String.length n-1] in last='l' || last='h'))
+     with _ -> false) &&
+    (try let l = lhs c in is_comb l && fst(dest_const(rator(rator l)))="word_subword" with _ -> false) in
+  let lane_ths = map snd (filter is_lane_def asl) in
+  (REWRITE_TAC lane_ths THEN CONV_TAC WORD_RULE) (asl,w);;
+
+(* The full GMULT2 bridge close.  Assumes the goal is
+     <gq19 s370 byteform> = ghash_polyval_acc (byteswap128 h)(brev xi)
+                              [brev cph0; brev cph1]
+   with the hk preconditions + the H^2 relation (asm25) in the assumptions.
+   Steps: (1) fold the spec RHS to the GMULT2-instantiated byteform (operands
+   a0=brev xi^brev cph0, b0=byteswap128 h2, a1=brev cph1, b1=byteswap128 h) via
+   GHASH_POLYVAL_ACC_2 + asm25 GSYM + GMULT2_FULL_CORRECT_BA; (2) MERGE_2BLK the
+   block products to the 6 atoms {qq0,qq1,qq4,qq5,qq6,qq10}; (3) the r1/u/r2
+   W-reduction hand staging (generalized from the dec 1-block, 3 atoms -> 6) then
+   a flat per-lane WORD_RULE.  ~30s total (was ~73s MERGE/FINISH). *)
+let DEC_2BLK_GMULT2_BRIDGE_TAC : tactic =
+  let a0t = `word_xor (word_bytereverse xi) (word_bytereverse cph0):int128`
+  and a1t = `word_bytereverse cph1:int128` in
+  let gmult2_dec = REWRITE_RULE[LET_DEF;LET_END_DEF]
+    (SPECL [a0t; `byteswap128 h2:int128`; a1t; `byteswap128 h:int128`] GMULT2_FULL_CORRECT_BA) in
+  let r1def = `word_xor (word_xor (word_shl (word_zx (wal:64 word):128 word) 63) (word_shl (word_zx wal:128 word) 62)) (word_shl (word_zx wal:128 word) 57)` in
+  let udef = `word_xor (word_subword (r1:128 word) (0,64):64 word) (word_xor (word_xor qq1h qq6h) (word_xor (word_xor qq0l (word_xor qq1l qq4l)) (word_xor qq5l (word_xor qq10l qq6l))))` in
+  (* spec -> prop3(...) -> GMULT2 byteform LHS *)
+  FIRST_ASSUM(fun th ->
+    if (try lhs(concl th)=`byteswap128 h2` with _->false)
+    then GEN_REWRITE_TAC RAND_CONV
+           [REWRITE_RULE[GSYM gmult2_dec]
+             (GEN_REWRITE_RULE (RAND_CONV o ONCE_DEPTH_CONV) [GSYM th]
+               (SPECL [`byteswap128 h:int128`; `word_bytereverse xi:int128`;
+                       `word_bytereverse cph0:int128`; `word_bytereverse cph1:int128`]
+                 GHASH_POLYVAL_ACC_2))]
+    else NO_TAC) THEN
+  REWRITE_TAC[WORD_XOR_0; WORD_XOR_0_LEFT] THEN
+  REWRITE_TAC[byteswap128] THEN
+  REWRITE_TAC[WORD_BYTEREVERSE_REVERSEFIELDS] THEN
+  REWRITE_TAC[WORD_INSERT_SUBWORD; WORD_SUBWORD_SUBWORD] THEN
+  REWRITE_TAC[SUBWORD_XOR_JOIN_DIST] THEN
+  REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; RF8_SUBWORD] THEN
+  REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES] THEN
+  ABBREV_INNER_PMULS_TAC THEN MERGE_2BLK_TAC THEN
+  REWRITE_TAC[PMUL_W_64_128] THEN REWRITE_TAC[JOINMID] THEN
+  REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
+  EVERY (map (fun a ->
+    let av = mk_var(a,`:int128`) in
+    ABBREV_TAC (mk_eq(mk_var(a^"l",`:64 word`), mk_comb(mk_comb(`word_subword:int128->num#num->64 word`, av), `(0,64)`))) THEN
+    ABBREV_TAC (mk_eq(mk_var(a^"h",`:64 word`), mk_comb(mk_comb(`word_subword:int128->num#num->64 word`, av), `(64,64)`))))
+    ["qq0";"qq1";"qq4";"qq5";"qq6";"qq10"]) THEN
+  ABBREV_TAC `wal:64 word = word_xor qq1l qq6l` THEN
+  REWRITE_TAC[DEC2_WXSYM] THEN
+  FIRST_ASSUM(fun th -> if (try rhs(concl th)=`wal:64 word` && lhs(concl th)=`word_xor qq1l qq6l:64 word` with _->false) then REWRITE_TAC[th] else NO_TAC) THEN
+  ABBREV_TAC (mk_eq(`r1:128 word`, r1def)) THEN
+  SUBGOAL_THEN
+   `word_xor (word_xor (word_subword (word_shl (word_zx (wal:64 word):128 word) 63) (0,64):64 word) (word_subword (word_shl (word_zx wal:128 word) 62) (0,64):64 word)) (word_subword (word_shl (word_zx wal:128 word) 57) (0,64):64 word) = word_subword (r1:128 word) (0,64):64 word`
+   (fun th -> REWRITE_TAC[th]) THENL [EXPAND_TAC "r1" THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
+  SUBGOAL_THEN
+   `word_xor (word_xor (word_subword (word_shl (word_zx (wal:64 word):128 word) 63) (64,64):64 word) (word_subword (word_shl (word_zx wal:128 word) 62) (64,64):64 word)) (word_subword (word_shl (word_zx wal:128 word) 57) (64,64):64 word) = word_subword (r1:128 word) (64,64):64 word`
+   (fun th -> REWRITE_TAC[th]) THENL [EXPAND_TAC "r1" THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
+  SUBGOAL_THEN
+   `word_xor (word_subword (word_shl (word_zx (wal:64 word):128 word) 57) (0,64):64 word) (word_xor (word_subword (word_shl (word_zx wal:128 word) 62) (0,64):64 word) (word_subword (word_shl (word_zx wal:128 word) 63) (0,64):64 word)) = word_subword (r1:128 word) (0,64):64 word`
+   (fun th -> REWRITE_TAC[th]) THENL [EXPAND_TAC "r1" THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
+  SUBGOAL_THEN
+   `word_xor (word_subword (word_shl (word_zx (wal:64 word):128 word) 57) (64,64):64 word) (word_xor (word_subword (word_shl (word_zx wal:128 word) 62) (64,64):64 word) (word_subword (word_shl (word_zx wal:128 word) 63) (64,64):64 word)) = word_subword (r1:128 word) (64,64):64 word`
+   (fun th -> REWRITE_TAC[th]) THENL [EXPAND_TAC "r1" THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
+  ABBREV_TAC (mk_eq(`u:64 word`, udef)) THEN
+  SUBGOAL_THEN
+   `word_xor (word_xor (word_xor qq10l qq4l) (word_xor wal (word_xor qq0l qq5l))) (word_xor (word_xor qq1h qq6h) (word_subword (r1:128 word) (0,64):64 word)) = u`
+   (fun th -> REWRITE_TAC[th]) THENL [MAP_EVERY EXPAND_TAC ["u";"wal"] THEN CONV_TAC WORD_RULE; ALL_TAC] THEN
+  SUBGOAL_THEN
+   `word_xor (word_subword (r1:128 word) (0,64):64 word) (word_xor (word_xor qq1h qq6h) (word_xor (word_xor qq0l (word_xor qq1l qq4l)) (word_xor qq5l (word_xor qq10l qq6l)))) = u`
+   (fun th -> REWRITE_TAC[th]) THENL [EXPAND_TAC "u" THEN CONV_TAC WORD_RULE; ALL_TAC] THEN
+  ABBREV_TAC `us57:128 word = word_shl (word_zx (u:64 word):128 word) 57` THEN
+  ABBREV_TAC `us62:128 word = word_shl (word_zx (u:64 word):128 word) 62` THEN
+  ABBREV_TAC `us63:128 word = word_shl (word_zx (u:64 word):128 word) 63` THEN
+  GEN_REWRITE_TAC ONCE_DEPTH_CONV [QQ0SPLIT] THEN
+  REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
+  REWRITE_TAC[JOIN_EQ_SPLIT] THEN CONJ_TAC THEN LANE_CLOSE_TAC;;
+
 (* -------------------------------------------------------------------------
    PROGRESS (dec 2-block, mirror of enc 2-block + dec tail dataflow)
    -------------------------------------------------------------------------
@@ -269,7 +414,8 @@ let FINISH_2BLK_TAC : tactic =
        into 6 eors, so the final eor lands one step later.  Find the analog of
        enc s367 (clean polyval) empirically; assert read Q19 =
          ghash_polyval_acc (byteswap128 h)(brev xi)[brev cph0; brev cph1]
-       via GHASH_POLYVAL_ACC_2 + PMUL_KARATSUBA + MERGE_2BLK_TAC + FINISH_2BLK_TAC.
+       via DEC_2BLK_GMULT2_BRIDGE_TAC (GMULT2 fast route, ~30s; the old
+         GHASH_POLYVAL_ACC_2 + MERGE_2BLK + FINISH_2BLK reduce-blast was ~73s).
      - ext+rev64 -> word_bytereverse gval; store xi_p; exit pc+0x11e4.
 
    UPDATE: bridge state is s370 (pc+4568), the analog of dec 1-block s351 (after
@@ -463,26 +609,10 @@ let AESV8_GCM_8X_DEC_256_2BLOCK = prove(
   [FIRST_ASSUM(fun th ->
      if is_eq(concl th) && (try lhs(concl th) = `read Q19 s370` with _ -> false)
      then GEN_REWRITE_TAC LAND_CONV [th] else NO_TAC) THEN
-   REWRITE_TAC[GHASH_POLYVAL_ACC_2] THEN
-   FIRST_ASSUM(fun th ->
-     if (try lhs(concl th) = `byteswap128 h2` with _ -> false)
-     then GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [GSYM th] else NO_TAC) THEN
-   GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [polyval_reduce_prop3] THEN
-   REWRITE_TAC[LET_DEF; LET_END_DEF] THEN
-   GEN_REWRITE_TAC (RAND_CONV o TOP_DEPTH_CONV)
-     [REWRITE_RULE[LET_DEF; LET_END_DEF] PMUL_KARATSUBA] THEN
-   REWRITE_TAC[byteswap128] THEN
-   REWRITE_TAC[REWRITE_RULE[LET_DEF; LET_END_DEF] KARATSUBA_LIMBS] THEN
-   REWRITE_TAC[WORD_INSERT_SUBWORD; WORD_SUBWORD_SUBWORD] THEN
-   REWRITE_TAC[SUBWORD_XOR_JOIN_DIST] THEN
-   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES] THEN
-   REWRITE_TAC[WORD_BYTEREVERSE_REVERSEFIELDS; RF8_SUBWORD] THEN
-   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES] THEN
-   ABBREV_INNER_PMULS_TAC THEN MERGE_2BLK_TAC THEN
-   REWRITE_TAC[WORD_XOR_0; SUBWORD0_LEMMAS] THEN REWRITE_TAC[WORD_XOR_0] THEN
-   ABBREV_INNER_PMULS_TAC THEN MERGE_2BLK_TAC THEN
-   ABBREV_INNER_PMULS_TAC THEN MERGE_2BLK_TAC THEN
-   FINISH_2BLK_TAC;
+   (* GMULT2 fast route (~30s, was ~73s MERGE/FINISH): fold the spec to the
+      GMULT2-instantiated byteform, MERGE_2BLK the block products, then the
+      r1/u/r2 W-reduction hand staging.  See DEC_2BLK_GMULT2_BRIDGE_TAC above. *)
+   DEC_2BLK_GMULT2_BRIDGE_TAC;
    ALL_TAC] THEN
   (* === ext+rev64 (371-372): Q19 -> word_bytereverse gval; store xi_p (373). === *)
   ABBREV_TAC `gval:int128 = ghash_polyval_acc (byteswap128 h) (word_bytereverse xi)
