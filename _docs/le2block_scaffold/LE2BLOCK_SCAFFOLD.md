@@ -93,6 +93,31 @@ WHERE THEY GO in the front (replacing 2BLOCK's concrete-32 handling):
   `word_and (word_sub (word(16+bl1)) (word 1)) (word ...80)` to `word 0` via X5_ZERO_LEMMA2 +
   USHR_128_8BL_LEMMA, then WORD_ADD_0 -> x5=in_p, so in_p-in_p=0 -> tail (INT_SUB_REFL like 2block).
 
+## X1_MOD128_BRIDGE — PROVEN 2026-06-24 (was REFERENCED BUT NEVER DEFINED — enc le2block bug)
+`arm/proofs/aesv8_gcm_8x_enc_256_le2block.ml` (committed e2393c1e) USES X1_MOD128_BRIDGE at
+line 292 but it is **defined nowhere in the repo** -> that file does NOT loadt standalone
+(Unbound value). The memory "enc le2block loadt-clean" note was inaccurate. Proven now:
+```
+let X1_MOD128_BRIDGE = prove
+ (`!bl1. bl1 <= 16
+    ==> word_and (word (128 + 8 * bl1):int64) (word 127) =
+        word_and (word (8 * bl1):int64) (word 127)`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[GSYM VAL_EQ] THEN
+  SUBGOAL_THEN `127 = 2 EXP 7 - 1` SUBST1_TAC THENL [CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
+  REWRITE_TAC[VAL_WORD_AND_MASK_WORD] THEN
+  SUBGOAL_THEN `val (word (128 + 8 * bl1):int64) = 128 + 8 * bl1` SUBST1_TAC THENL
+   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `val (word (8 * bl1):int64) = 8 * bl1` SUBST1_TAC THENL
+   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  CONV_TAC NUM_REDUCE_CONV THEN
+  REWRITE_TAC[ARITH_RULE `128 + 8 * bl1 = 8 * bl1 + 1 * 128`] THEN
+  REWRITE_TAC[MOD_MULT_ADD]);;
+```
+Use after the front, before the Q9 mask collapse:
+`MP_TAC(SPEC bl1 X1_MOD128_BRIDGE) THEN ASM_REWRITE_TAC[] THEN
+ DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th]))`, then MASK_LEMMA applies with bl:=bl1.
+
 ## CASCADE divergence (the one real difference from 2BLOCK, still TODO in the script)
 2BLOCK has x5=32 (concrete); LE2BLOCK has x5 = word(16+bl1), symbolic. The tail cascade
 `cmp x5,#112/.../16; b.gt` must resolve: for 17<=byte_len<=31, all b.gt for thresholds 112..32
