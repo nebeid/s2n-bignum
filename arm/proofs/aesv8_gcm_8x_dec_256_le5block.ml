@@ -12,7 +12,7 @@
    common nblock GHASH layer with PMUL_KARATSUBA / GMULT_REDUCE_PROP3 / KARATSUBA_LIMBS /
    GHASH_POLYVAL_ACC_5, the bridge helpers (ABBREV_INNER_PMULS_TAC / MERGE_2BLK_TAC /
    WA_UNIFY_TAC / WV_UNIFY_TAC / ABBREV_WAWV_TAC / QQ0SPLIT / JOIN_EQ_SPLIT /
-   LANE_FINISH_TAC / FOLD_MID_TAC / bubble_fix), and the front/store/tail step infra).
+   LANE_FINISH_TAC / FOLD_MID_HPOW / bubble_fix), and the front/store/tail step infra).
 
    Two-layer structure (mirrors Mila PR #417's _CONCRETE / _ABS split):
      - GMULT5_FULL_CORRECT_BA              : the 5-block fused multiply+reduce bridge,
@@ -383,32 +383,9 @@ let full_le5_tac_tail =
 
 (* 5-TERM GHASH bridge: read Q19 s399 = ghash_polyval_acc (bsw h)(brev xi)[brev cph0..cphm].
    Like le4's BRIDGE_CLOSE_TAC_4 but folds THREE machine-side middle mids explicitly
-   (cph1.h4, cph2.h3, cph3.h2); the masked-block mid auto-folds via MERGE. *)
-let bridge_hash2 t = can(find_term(fun u->u=`h2:int128`)) t;;
-let bridge_hash3 t = can(find_term(fun u->u=`h3:int128`)) t;;
-let bridge_hash4 t = can(find_term(fun u->u=`h4:int128`)) t;;
-let bridge_hasW  t = can(find_term(fun u->u=`word 13979173243358019584:64 word`)) t;;
-(* Fold the machine-side middle pmul (selected by `pred`, e.g. references h4) to
-   the matching abbreviated qq atom.  The qq atom NUMBER is not stable across runs
-   (it depends on how many prior ABBREVs exist), so we AUTO-DISCOVER it: among the
-   qq-definitions whose lhs is a 128-bit word_pmul against the same hpower, pick the
-   one that closes the PMUL_CONG_128 obligation by WORD_BLAST. *)
-let FOLD_MID_TAC5 pred : tactic = fun (asl,w) ->
-  let l=lhs w in
-  let is_pmul128 t = try fst(dest_const(repeat rator t))="word_pmul" && type_of t = `:128 word` with _->false in
-  let mid = hd(List.filter pred (setify(find_terms is_pmul128 l))) in
-  (* candidate qq defs: rhs is a qqN var, lhs a 128-bit word_pmul matching `pred`. *)
-  let cands = List.filter (fun (_,th) ->
-      try let r = rhs(concl th) and lft = lhs(concl th) in
-          is_var r && (let n=fst(dest_var r) in String.length n>=2 && String.sub n 0 2="qq") &&
-          is_pmul128 lft && pred lft
-      with _ -> false) asl in
-  let try_qq (_,th) =
-    let qq = rhs(concl th) in
-    (SUBGOAL_THEN (mk_eq(mid, qq)) (fun e->REWRITE_TAC[e]) THENL
-      [GEN_REWRITE_TAC RAND_CONV [GSYM th] THEN
-       MATCH_MP_TAC PMUL_CONG_128 THEN CONJ_TAC THEN CONV_TAC WORD_BLAST; ALL_TAC]) in
-  (FIRST (map try_qq cands)) (asl,w);;
+   (cph1.h4, cph2.h3, cph3.h2); the masked-block mid auto-folds via MERGE.  The folds
+   use the SHARED multiplier-keyed FOLD_MID_HPOW from le3block.ml (STEP A of
+   _docs/dec-band-homogenization-convergence-plan.md). *)
 
 let BRIDGE_CLOSE_TAC_5 : tactic = fun (asl,w) ->
   let q19asm = snd(List.find(fun(_,th)->try lhs(concl th)=`read Q19 s400` with _->false) asl) in
@@ -432,9 +409,7 @@ let BRIDGE_CLOSE_TAC_5 : tactic = fun (asl,w) ->
    REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; RF8_SUBWORD] THEN
    REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES] THEN
    ABBREV_INNER_PMULS_TAC THEN MERGE_2BLK_TAC THEN
-   FOLD_MID_TAC5 (fun t->bridge_hash4 t && not(bridge_hash3 t) && not(bridge_hash2 t) && not(bridge_hasW t)) THEN
-   FOLD_MID_TAC5 (fun t->bridge_hash3 t && not(bridge_hash4 t) && not(bridge_hash2 t) && not(bridge_hasW t)) THEN
-   FOLD_MID_TAC5 (fun t->bridge_hash2 t && not(bridge_hash4 t) && not(bridge_hash3 t) && not(bridge_hasW t)) THEN
+   FOLD_MID_HPOW "H4" THEN FOLD_MID_HPOW "H3" THEN FOLD_MID_HPOW "H2" THEN
    WA_UNIFY_TAC THEN WV_UNIFY_TAC THEN ABBREV_WAWV_TAC THEN
    REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
    GEN_REWRITE_TAC ONCE_DEPTH_CONV [QQ0SPLIT] THEN

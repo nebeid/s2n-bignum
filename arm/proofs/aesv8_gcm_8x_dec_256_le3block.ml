@@ -296,6 +296,66 @@ let ABBREV_WAWV_TAC : tactic = fun (asl,w) ->
      (match collect_pmuls isWpmul l with wv::_ -> ABBREV_TAC (mk_eq(`WVz:128 word`, wv)) | [] -> ALL_TAC) (asl,w)))
   (asl,w);;
 
+(* ---- multiplier-keyed mid folding (SHARED by the le4..le8 bridge closers) ----
+   FOLD_MID_HPOW keys on the pmul's MULTIPLIER (2nd arg = h-power key), NOT find_term
+   over the whole pmul: in the whole-8 band the karatsuba INPUT (1st arg) carries
+   lower h-powers, so whole-term keying is fragile (this was the le8 rewrite's root
+   cause).  Promoted from le8block per STEP A of
+   _docs/dec-band-homogenization-convergence-plan.md.  Each band's bridge closer
+   folds its machine-side middle mids with FOLD_MID_HPOW "H<n-1>" .. "H2" uniformly. *)
+
+(* Which h-power key (or W) is the MULTIPLIER (2nd arg) of a 128-bit word_pmul mid. *)
+let pmul_mult_hpow t =
+  let m = rand t in
+  if can(find_term(fun u->u=`h2:int128`)) m then "H2" else
+  if can(find_term(fun u->u=`h3:int128`)) m then "H3" else
+  if can(find_term(fun u->u=`h4:int128`)) m then "H4" else
+  if can(find_term(fun u->u=`h5:int128`)) m then "H5" else
+  if can(find_term(fun u->u=`h6:int128`)) m then "H6" else
+  if can(find_term(fun u->u=`h7:int128`)) m then "H7" else
+  if can(find_term(fun u->u=`h8:int128`)) m then "H8" else
+  if can(find_term(fun u->u=`h:int128`)) m then "H1" else
+  if can(find_term(fun u->u=`word 13979173243358019584:64 word`)) m then "W" else "?";;
+let is_pmul128_tm t = try fst(dest_const(repeat rator t))="word_pmul" && type_of t = `:128 word` with _->false;;
+(* k13-carry kill set: collapses a stale `ins v18.d[0]` high half + rf8-dup joins so a machine
+   block mid matches the clean spec qq by PMUL_CONG.  Only le8's block-1 mid actually carries
+   the ins-k13 half (from the whole-8 main loop); for le4..le7 the plain WORD_BLAST branch
+   fires first and this set is never consulted. *)
+let LE8_K13_FIX = [WORD_SUBWORD_INSERT_INNER; WORD_SUBWORD_INSERT_OUTER; INSERT_SUBWORD_KILL;
+                   WORD_INSERT_SUBWORD; JOINMID; JOIN_SUBWORD_RULES; RF8_SUBWORD;
+                   WORD_SUBWORD_SUBWORD; WORD_SUBWORD_XOR];;
+let FOLD_MID_HPOW hp : tactic = fun (asl,w) ->
+  let l = lhs w in
+  let mid = hd(List.filter (fun t -> pmul_mult_hpow t = hp) (setify(find_terms is_pmul128_tm l))) in
+  let cands = List.filter (fun (_,th) ->
+      try let r=rhs(concl th) and lft=lhs(concl th) in
+          is_var r && (let n=fst(dest_var r) in String.length n>=2 && String.sub n 0 2="qq") &&
+          is_pmul128_tm lft && pmul_mult_hpow lft = hp
+      with _->false) asl in
+  let try_qq (_,th) =
+    let qq = rhs(concl th) in
+    (SUBGOAL_THEN (mk_eq(mid,qq)) (fun e->REWRITE_TAC[e]) THENL
+      [GEN_REWRITE_TAC RAND_CONV [GSYM th] THEN
+       MATCH_MP_TAC PMUL_CONG_128 THEN CONJ_TAC THEN
+       (CONV_TAC WORD_BLAST ORELSE (REWRITE_TAC LE8_K13_FIX THEN CONV_TAC WORD_BLAST)); ALL_TAC]) in
+  (FIRST (map try_qq cands)) (asl,w);;
+
+(* Establish qq39 = qq28 (le8 block-1 mid, machine-vs-spec) and rewrite it into the goal, so
+   WV_UNIFY's two W-pmul inputs become bit-equal.  qq39 carries the stale ins-k13 high half;
+   the k13-kill set collapses it to qq28's clean form.  ONLY the whole-8 band (le8) runs the
+   main 8-block loop that produces the ins-carry, so only its bridge calls this. *)
+let QQ39_FIX_TAC : tactic = fun (asl,w) ->
+  let g v = snd(List.find (fun (_,th)-> try rhs(concl th)=mk_var(v,`:int128`) with _->false) asl) in
+  let g39 = g "qq39" and g28 = g "qq28" in
+  (SUBGOAL_THEN `qq39:int128 = qq28` ASSUME_TAC THENL
+   [GEN_REWRITE_TAC LAND_CONV [GSYM g39] THEN GEN_REWRITE_TAC RAND_CONV [GSYM g28] THEN
+    REWRITE_TAC LE8_K13_FIX THEN
+    ((MATCH_MP_TAC PMUL_CONG_128 THEN CONJ_TAC THEN CONV_TAC WORD_BLAST) ORELSE CONV_TAC WORD_BLAST);
+    ALL_TAC] THEN
+   FIRST_X_ASSUM(fun th -> if (try lhs(concl th)=`qq39:int128` with _->false)
+      then GEN_REWRITE_TAC ONCE_DEPTH_CONV [th] else NO_TAC))
+  (asl,w);;
+
 (* Bridge subgoal: read Q19 s381 = ghash_polyval_acc (bsw h)(brev xi)[brev cph0;brev cph1;brev cphm].
    Builds spec_eq_byteform from goal h2/h3 byteswap hyps; folds; MERGE; unify; split; lane-close. *)
 let BRIDGE_CLOSE_TAC : tactic = fun (asl,w) ->
