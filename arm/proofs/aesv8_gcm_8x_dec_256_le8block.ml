@@ -437,36 +437,8 @@ let full_le8_tac_tail =
    pmul_mult_hpow / is_pmul128_tm / LE8_K13_FIX / FOLD_MID_HPOW / QQ39_FIX_TAC are SHARED machinery,
    defined in le3block.ml (STEP A of _docs/dec-band-homogenization-convergence-plan.md). *)
 
-let BRIDGE_CLOSE_TAC_8 : tactic = fun (asl,w) ->
-  let ha n = snd(List.find(fun(_,th)->try lhs(concl th)=parse_term(Printf.sprintf "byteswap128 %s" n) with _->false) asl) in
-  let q19asm = snd(List.find(fun(_,th)->try lhs(concl th)=`read Q19 s414` with _->false) asl) in
-  let gmult8_dec = REWRITE_RULE[LET_DEF;LET_END_DEF]
-    (SPECL [`word_xor (word_bytereverse xi) (word_bytereverse cph0):int128`; `byteswap128 h8:int128`;
-            `word_bytereverse cph1:int128`; `byteswap128 h7:int128`;
-            `word_bytereverse cph2:int128`; `byteswap128 h6:int128`;
-            `word_bytereverse cph3:int128`; `byteswap128 h5:int128`;
-            `word_bytereverse cph4:int128`; `byteswap128 h4:int128`;
-            `word_bytereverse cph5:int128`; `byteswap128 h3:int128`;
-            `word_bytereverse cph6:int128`; `byteswap128 h2:int128`;
-            `word_bytereverse cphm:int128`; `byteswap128 h:int128`] GMULT8_FULL_CORRECT_BA) in
-  let spec_eq = TRANS (MP spec_to_byteform_8 (end_itlist CONJ [ha "h2";ha "h3";ha "h4";ha "h5";ha "h6";ha "h7";ha "h8"])) (GSYM gmult8_dec) in
-  (GEN_REWRITE_TAC LAND_CONV [q19asm] THEN
-   GEN_REWRITE_TAC RAND_CONV [spec_eq] THEN
-   REWRITE_TAC[WORD_XOR_0; WORD_XOR_0_LEFT] THEN
-   REWRITE_TAC[byteswap128] THEN REWRITE_TAC[WORD_BYTEREVERSE_REVERSEFIELDS] THEN
-   REWRITE_TAC[WORD_INSERT_SUBWORD; WORD_SUBWORD_SUBWORD] THEN
-   REWRITE_TAC[SUBWORD_XOR_JOIN_DIST] THEN
-   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; RF8_SUBWORD] THEN
-   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES] THEN
-   ABBREV_INNER_PMULS_TAC THEN MERGE_2BLK_TAC THEN
-   FOLD_MID_HPOW "H6" THEN FOLD_MID_HPOW "H5" THEN FOLD_MID_HPOW "H4" THEN
-   FOLD_MID_HPOW "H3" THEN FOLD_MID_HPOW "H2" THEN
-   WA_UNIFY_TAC THEN QQ39_FIX_TAC THEN WV_UNIFY_TAC THEN ABBREV_WAWV_TAC THEN
-   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
-   GEN_REWRITE_TAC ONCE_DEPTH_CONV [QQ0SPLIT] THEN
-   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
-   REWRITE_TAC[JOIN_EQ_SPLIT] THEN CONJ_TAC THEN LANE_FINISH_TAC)
-  (asl,w);;
+let BRIDGE_CLOSE_TAC_8 : tactic =
+  DEC_BRIDGE_CLOSE_TAC 8 414 GMULT8_FULL_CORRECT_BA spec_to_byteform_8 QQ39_FIX_TAC;;
 
 (* POST-BRIDGE: assert + close the bridge (read Q19 s414 = ghash), then ext + rev64 (s415,s416) =
    word_bytereverse via BREV_JOIN_REV8, then st1 xi_p (s417).  ENSURES_FINAL_STATE, MONOTONE_MAYCHANGE.

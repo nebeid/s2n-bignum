@@ -387,35 +387,8 @@ let full_le5_tac_tail =
    use the SHARED multiplier-keyed FOLD_MID_HPOW from le3block.ml (STEP A of
    _docs/dec-band-homogenization-convergence-plan.md). *)
 
-let BRIDGE_CLOSE_TAC_5 : tactic = fun (asl,w) ->
-  let q19asm = snd(List.find(fun(_,th)->try lhs(concl th)=`read Q19 s400` with _->false) asl) in
-  let h2asm = snd(List.find(fun(_,th)->try lhs(concl th)=`byteswap128 h2` with _->false) asl) in
-  let h3asm = snd(List.find(fun(_,th)->try lhs(concl th)=`byteswap128 h3` with _->false) asl) in
-  let h4asm = snd(List.find(fun(_,th)->try lhs(concl th)=`byteswap128 h4` with _->false) asl) in
-  let h5asm = snd(List.find(fun(_,th)->try lhs(concl th)=`byteswap128 h5` with _->false) asl) in
-  let gmult5_dec = REWRITE_RULE[LET_DEF;LET_END_DEF]
-    (SPECL [`word_xor (word_bytereverse xi) (word_bytereverse cph0):int128`; `byteswap128 h5:int128`;
-            `word_bytereverse cph1:int128`; `byteswap128 h4:int128`;
-            `word_bytereverse cph2:int128`; `byteswap128 h3:int128`;
-            `word_bytereverse cph3:int128`; `byteswap128 h2:int128`;
-            `word_bytereverse cphm:int128`; `byteswap128 h:int128`] GMULT5_FULL_CORRECT_BA) in
-  let spec_eq = TRANS (MP spec_to_byteform_5 (end_itlist CONJ [h2asm;h3asm;h4asm;h5asm])) (GSYM gmult5_dec) in
-  (GEN_REWRITE_TAC LAND_CONV [q19asm] THEN
-   GEN_REWRITE_TAC RAND_CONV [spec_eq] THEN
-   REWRITE_TAC[WORD_XOR_0; WORD_XOR_0_LEFT] THEN
-   REWRITE_TAC[byteswap128] THEN REWRITE_TAC[WORD_BYTEREVERSE_REVERSEFIELDS] THEN
-   REWRITE_TAC[WORD_INSERT_SUBWORD; WORD_SUBWORD_SUBWORD] THEN
-   REWRITE_TAC[SUBWORD_XOR_JOIN_DIST] THEN
-   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; RF8_SUBWORD] THEN
-   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES] THEN
-   ABBREV_INNER_PMULS_TAC THEN MERGE_2BLK_TAC THEN
-   FOLD_MID_HPOW "H4" THEN FOLD_MID_HPOW "H3" THEN FOLD_MID_HPOW "H2" THEN
-   WA_UNIFY_TAC THEN WV_UNIFY_TAC THEN ABBREV_WAWV_TAC THEN
-   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
-   GEN_REWRITE_TAC ONCE_DEPTH_CONV [QQ0SPLIT] THEN
-   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
-   REWRITE_TAC[JOIN_EQ_SPLIT] THEN CONJ_TAC THEN LANE_FINISH_TAC)
-  (asl,w);;
+let BRIDGE_CLOSE_TAC_5 : tactic =
+  DEC_BRIDGE_CLOSE_TAC 5 400 GMULT5_FULL_CORRECT_BA spec_to_byteform_5 ALL_TAC;;
 
 (* POST-BRIDGE: assert + close the bridge, then rev64 + st1 xi_p (s400-402),
    ENSURES_FINAL_STATE, MONOTONE_MAYCHANGE.  Exit pc+4580. *)

@@ -356,6 +356,59 @@ let QQ39_FIX_TAC : tactic = fun (asl,w) ->
       then GEN_REWRITE_TAC ONCE_DEPTH_CONV [th] else NO_TAC))
   (asl,w);;
 
+(* ---- STEP B: ONE parameterized bridge closer for the le4..le8 bands ----
+   (mirrors Mila's GCM_NBLOCK_CT_STEP_TAC generator style: the per-N closer is a
+   one-line instantiation, not a hand-inlined tactic).  See STEP B of
+   _docs/dec-band-homogenization-convergence-plan.md.
+
+   dec_bridge_specl nblk builds the 2*nblk-arg SPECL list for GMULT{nblk}_FULL_CORRECT_BA:
+   block 0 = (brev xi xor brev cph0).h{nblk}, blocks 1..nblk-2 = brev cph_i.h{nblk-i},
+   block nblk-1 = brev cphm.h (the masked tail block). *)
+let dec_bridge_specl nblk =
+  let pair i =
+    if i = 0 then
+      [`word_xor (word_bytereverse xi) (word_bytereverse cph0):int128`;
+       parse_term(Printf.sprintf "byteswap128 h%d:int128" nblk)]
+    else if i = nblk-1 then
+      [`word_bytereverse cphm:int128`; `byteswap128 h:int128`]
+    else
+      [parse_term(Printf.sprintf "word_bytereverse cph%d:int128" i);
+       parse_term(Printf.sprintf "byteswap128 h%d:int128" (nblk-i))] in
+  List.concat (map pair (0--(nblk-1)));;
+
+(* DEC_BRIDGE_CLOSE_TAC nblk sN gmult_ba spec_bf extra_fix:
+     nblk      = number of GHASH terms (nfull+1),
+     sN        = bridge state number (read Q19 s<sN>),
+     gmult_ba  = GMULT{nblk}_FULL_CORRECT_BA (from build_GMULTn_fast),
+     spec_bf   = spec_to_byteform_{nblk} (h2..h{nblk} hpower conjuncts -> prop3 form),
+     extra_fix = post-WA_UNIFY fix (QQ39_FIX_TAC for the whole-8 band, else ALL_TAC).
+   Folds the machine-side middle mids with the shared multiplier-keyed FOLD_MID_HPOW
+   over the present h-powers H{nblk-1}..H2 — EXCEPT the whole-8 band, whose top mid
+   (block-1.h7) carries the stale ins-k13 half and is handled by QQ39_FIX_TAC after
+   WA_UNIFY instead (hence top_fold = nblk-2 there). *)
+let DEC_BRIDGE_CLOSE_TAC nblk sN gmult_ba spec_bf extra_fix : tactic = fun (asl,w) ->
+  let ha n = snd(List.find(fun(_,th)->try lhs(concl th)=parse_term(Printf.sprintf "byteswap128 h%d" n) with _->false) asl) in
+  let q19asm = snd(List.find(fun(_,th)->try lhs(concl th)=parse_term(Printf.sprintf "read Q19 s%d" sN) with _->false) asl) in
+  let gmult_dec = REWRITE_RULE[LET_DEF;LET_END_DEF] (SPECL (dec_bridge_specl nblk) gmult_ba) in
+  let spec_eq = TRANS (MP spec_bf (end_itlist CONJ (map ha (2--nblk)))) (GSYM gmult_dec) in
+  let top_fold = if nblk >= 8 then nblk-2 else nblk-1 in
+  (GEN_REWRITE_TAC LAND_CONV [q19asm] THEN
+   GEN_REWRITE_TAC RAND_CONV [spec_eq] THEN
+   REWRITE_TAC[WORD_XOR_0; WORD_XOR_0_LEFT] THEN
+   REWRITE_TAC[byteswap128] THEN REWRITE_TAC[WORD_BYTEREVERSE_REVERSEFIELDS] THEN
+   REWRITE_TAC[WORD_INSERT_SUBWORD; WORD_SUBWORD_SUBWORD] THEN
+   REWRITE_TAC[SUBWORD_XOR_JOIN_DIST] THEN
+   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; RF8_SUBWORD] THEN
+   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES] THEN
+   ABBREV_INNER_PMULS_TAC THEN MERGE_2BLK_TAC THEN
+   MAP_EVERY (fun k -> FOLD_MID_HPOW ("H"^string_of_int k)) (rev(2--top_fold)) THEN
+   WA_UNIFY_TAC THEN extra_fix THEN WV_UNIFY_TAC THEN ABBREV_WAWV_TAC THEN
+   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
+   GEN_REWRITE_TAC ONCE_DEPTH_CONV [QQ0SPLIT] THEN
+   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
+   REWRITE_TAC[JOIN_EQ_SPLIT] THEN CONJ_TAC THEN LANE_FINISH_TAC)
+  (asl,w);;
+
 (* Bridge subgoal: read Q19 s381 = ghash_polyval_acc (bsw h)(brev xi)[brev cph0;brev cph1;brev cphm].
    Builds spec_eq_byteform from goal h2/h3 byteswap hyps; folds; MERGE; unify; split; lane-close. *)
 let BRIDGE_CLOSE_TAC : tactic = fun (asl,w) ->
