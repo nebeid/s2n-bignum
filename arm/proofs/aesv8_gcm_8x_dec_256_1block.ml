@@ -1567,6 +1567,22 @@ let ARM_STEPS_FOLD_DISCARD_TAC exec snums =
               DISCARD_OLDSTATE_TAC s THEN CLARIFY_TAC)
     (statenames "s" snums);;
 
+(* Branch-resolving variant of ARM_STEPS_FOLD_DISCARD_TAC: resolve the conditional
+   branch in the PC hypothesis, step, fold the REV64 byte-tree, THEN discard the old
+   state so the hypothesis pile stays flat.  This is the per-step-discard form of
+   ARM_VSTEPS_RESOLVE_SIMD_TAC: use it for the multi-block masked-GHASH tail windows,
+   which have branches (b.gt cascade) but need NO intermediate-state readback — the
+   only readbacks (Q9 mask collapse, Q12 plaintext capture, store, GHASH accumulator)
+   land at the window ENDS, whose current state is preserved.  Keeping ARM_VSTEPS's
+   keep-everything form over a 16-19 step window makes each GCM_SIMD_SIMPLIFY pass scan
+   a linearly-growing pile (goal ballooned to ~677k chars, O(n^2) total); discarding
+   per step holds it flat (~10s vs ~140s per window, measured on the dec le4 tail). *)
+let ARM_STEPS_RESOLVE_SIMD_DISCARD_TAC exec snums =
+  MAP_EVERY
+    (fun s -> RESOLVE_BRANCH_TAC THEN ARM_VERBOSE_STEP_TAC exec s THEN
+              GCM_SIMD_SIMPLIFY_TAC THEN DISCARD_OLDSTATE_TAC s THEN CLARIFY_TAC)
+    (statenames "s" snums);;
+
 (* Tactic to abbreviate all word_pmul subterms in the goal *)
 let ABBREV_ALL_PMUL_TAC =
   let is_pmul t =
@@ -1840,367 +1856,14 @@ let FINISH_WV_REDUCE_TAC : tactic =
 (* Methodology / lessons: _docs/aesv8-gcm-8x-dec-256-1block-methodology-       *)
 (* 20260611.md.                                                               *)
 (* ------------------------------------------------------------------------- *)
-let AESV8_GCM_8X_DEC_256_1BLOCK = prove(
- `!pc stackpointer out_p xi_p ivec_p in_p key_p htbl_p
-    cph xi ctr0 k0 k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13 k14 h hk.
-    aligned 16 stackpointer /\
-    nonoverlapping (word pc, 4612) (stackpointer:int64, 80) /\
-    nonoverlapping (word pc, 4612) (out_p:int64, 16) /\
-    nonoverlapping (word pc, 4612) (xi_p:int64, 16) /\
-    nonoverlapping (word pc, 4612) (ivec_p:int64, 16) /\
-    nonoverlapping (out_p, 16) (xi_p, 16) /\
-    nonoverlapping (out_p, 16) (ivec_p, 16) /\
-    nonoverlapping (xi_p, 16) (ivec_p, 16) /\
-    nonoverlapping (ivec_p, 16) (in_p:int64, 16) /\
-    nonoverlapping (ivec_p, 16) (key_p:int64, 240) /\
-    nonoverlapping (ivec_p, 16) (htbl_p:int64, 192) /\
-    nonoverlapping (in_p, 16) (stackpointer, 80) /\
-    nonoverlapping (key_p, 240) (stackpointer, 80) /\
-    nonoverlapping (htbl_p, 192) (stackpointer, 80) /\
-    nonoverlapping (ivec_p, 16) (stackpointer, 80) /\
-    nonoverlapping (xi_p, 16) (in_p, 16) /\
-    nonoverlapping (xi_p, 16) (key_p, 240) /\
-    nonoverlapping (xi_p, 16) (htbl_p, 192) /\
-    nonoverlapping (xi_p, 16) (stackpointer, 80) /\
-    nonoverlapping (out_p, 16) (in_p, 16) /\
-    nonoverlapping (out_p, 16) (key_p, 240) /\
-    nonoverlapping (out_p, 16) (htbl_p, 192) /\
-    nonoverlapping (out_p, 16) (stackpointer, 80) /\
-    word_subword hk (0,64) :64 word =
-      word_xor (word_subword h (0,64):64 word) (word_subword h (64,64):64 word)
-    ==> ensures arm
-     (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_mc /\
-          read PC s = word (pc + 0x18) /\ read SP s = stackpointer /\
-          C_ARGUMENTS [in_p; word 128; out_p; xi_p; ivec_p; key_p; htbl_p] s /\
-          read Q30 s = ctr0 /\
-          read (memory :> bytes128 in_p) s = cph /\
-          read (memory :> bytes128 xi_p) s = xi /\
-          read (memory :> bytes128 ivec_p) s = ctr0 /\
-          read (memory :> bytes128 key_p) s = k0 /\
-          read (memory :> bytes128 (word_add key_p (word 16))) s = k1 /\
-          read (memory :> bytes128 (word_add key_p (word 32))) s = k2 /\
-          read (memory :> bytes128 (word_add key_p (word 48))) s = k3 /\
-          read (memory :> bytes128 (word_add key_p (word 64))) s = k4 /\
-          read (memory :> bytes128 (word_add key_p (word 80))) s = k5 /\
-          read (memory :> bytes128 (word_add key_p (word 96))) s = k6 /\
-          read (memory :> bytes128 (word_add key_p (word 112))) s = k7 /\
-          read (memory :> bytes128 (word_add key_p (word 128))) s = k8 /\
-          read (memory :> bytes128 (word_add key_p (word 144))) s = k9 /\
-          read (memory :> bytes128 (word_add key_p (word 160))) s = k10 /\
-          read (memory :> bytes128 (word_add key_p (word 176))) s = k11 /\
-          read (memory :> bytes128 (word_add key_p (word 192))) s = k12 /\
-          read (memory :> bytes128 (word_add key_p (word 208))) s = k13 /\
-          read (memory :> bytes128 (word_add key_p (word 224))) s = k14 /\
-          read (memory :> bytes128 htbl_p) s = h /\
-          read (memory :> bytes128 (word_add htbl_p (word 16))) s = hk)
-     (\s. read PC s = word (pc + 0x11e4) /\
-          read (memory :> bytes128 out_p) s =
-          word_xor cph (aes256_encrypt ctr0
-            [(k0:int128);k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]) /\
-          read (memory :> bytes128 xi_p) s =
-          word_bytereverse
-            (ghash_polyval_acc (byteswap128 h) (word_bytereverse xi)
-              [word_bytereverse cph]))
-     (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-      MAYCHANGE [memory :> bytes(out_p, 16); memory :> bytes(xi_p, 16);
-                 memory :> bytes(ivec_p, 16);
-                 memory :> bytes(stackpointer:int64, 80)] ,,
-      MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
-                 Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;Q29;Q30;Q31])`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  (* Relax the (C_setup ,, C_body) frame to the stated frame, then compose the 5-instruction
-     setup (pc+0x18 -> pc+0x2c) with the body back-segment (pc+0x2c -> exit) via ENSURES_TRANS. *)
-  MATCH_MP_TAC ENSURES_FRAME_SUBSUMED THEN
-  EXISTS_TAC
-   `(MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-     MAYCHANGE [memory :> bytes(out_p:int64, 16); memory :> bytes(xi_p:int64, 16);
-                memory :> bytes(ivec_p:int64, 16); memory :> bytes(stackpointer:int64, 80)] ,,
-     MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
-                Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;Q29;Q30;Q31]) ,,
-    (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-     MAYCHANGE [memory :> bytes(out_p:int64, 16); memory :> bytes(xi_p:int64, 16);
-                memory :> bytes(ivec_p:int64, 16);
-                memory :> bytes(word_add stackpointer (word 64):int64, 8)] ,,
-     MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
-                Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;Q29;Q30;Q31])` THEN
-  CONJ_TAC THENL
-  [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN SUBSUMED_MAYCHANGE_TAC;
-   ALL_TAC] THEN
-  MATCH_MP_TAC ENSURES_TRANS THEN
-  EXISTS_TAC
-   `\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_mc /\
-        read PC s = word (pc + 0x2c) /\ read SP s = stackpointer /\
-        read X0 s = in_p /\ read X1 s = word 128 /\
-        read X9 s = word 16 /\ read X2 s = out_p /\
-        read X3 s = xi_p /\ read X16 s = ivec_p /\
-        read X11 s = key_p /\ read X6 s = htbl_p /\
-        read Q30 s = ctr0 /\
-        read (memory :> bytes128 in_p) s = cph /\
-        read (memory :> bytes128 xi_p) s = xi /\
-        read (memory :> bytes128 ivec_p) s = ctr0 /\
-        read (memory :> bytes128 key_p) s = k0 /\
-        read (memory :> bytes128 (word_add key_p (word 16))) s = k1 /\
-        read (memory :> bytes128 (word_add key_p (word 32))) s = k2 /\
-        read (memory :> bytes128 (word_add key_p (word 48))) s = k3 /\
-        read (memory :> bytes128 (word_add key_p (word 64))) s = k4 /\
-        read (memory :> bytes128 (word_add key_p (word 80))) s = k5 /\
-        read (memory :> bytes128 (word_add key_p (word 96))) s = k6 /\
-        read (memory :> bytes128 (word_add key_p (word 112))) s = k7 /\
-        read (memory :> bytes128 (word_add key_p (word 128))) s = k8 /\
-        read (memory :> bytes128 (word_add key_p (word 144))) s = k9 /\
-        read (memory :> bytes128 (word_add key_p (word 160))) s = k10 /\
-        read (memory :> bytes128 (word_add key_p (word 176))) s = k11 /\
-        read (memory :> bytes128 (word_add key_p (word 192))) s = k12 /\
-        read (memory :> bytes128 (word_add key_p (word 208))) s = k13 /\
-        read (memory :> bytes128 (word_add key_p (word 224))) s = k14 /\
-        read (memory :> bytes128 htbl_p) s = h /\
-        read (memory :> bytes128 (word_add htbl_p (word 16))) s = hk /\
-        read (memory :> bytes64 (word_add stackpointer (word 64))) s =
-          word 13979173243358019584` THEN
-  CONJ_TAC THENL
-  [(* Front: 5 setup instructions 0x18..0x28, reach pc+0x2c with the back-segment pre-state.
-       NOTE: keep `nonoverlapping` hyps in NATIVE form (no NONOVERLAPPING_CLAUSES rewrite) so
-       the read-over-write solver carries the bytes128 reads across the [sp,64] store. *)
-   REWRITE_TAC[C_ARGUMENTS; SOME_FLAGS] THEN
-   ENSURES_INIT_TAC "s0" THEN
-   RULE_ASSUM_TAC(REWRITE_RULE[C_ARGUMENTS]) THEN
-   ARM_VSTEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (1--5) THEN
-   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-   REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MONOTONE_MAYCHANGE_TAC;
-   (* Back (pc+0x2c -> exit): the (sp+64,8) sub-region disjointness the body stepping
-      uses follows from the (sp,80) facts; then the full 1-block body inline. *)
-   SUBGOAL_THEN
-    `nonoverlapping (ivec_p:int64,16) (word_add stackpointer (word 64):int64,8) /\
-     nonoverlapping (xi_p:int64,16) (word_add stackpointer (word 64):int64,8) /\
-     nonoverlapping (out_p:int64,16) (word_add stackpointer (word 64):int64,8)`
-    STRIP_ASSUME_TAC THENL
-    [REPEAT CONJ_TAC THEN NONOVERLAPPING_TAC; ALL_TAC] THEN
-  REPEAT STRIP_TAC THEN ENSURES_INIT_TAC "s0" THEN
-  (* === AES-256 encryption: steps 1-265 === *)
-  (* Split (1--11) at s8 with a discard in between: the running counter Q30 has become a
-     ~25k-char rev32 byte-tree by s9, and the `add v30.4s` at s10 then chews on that whole
-     tree for ~34s.  Q30 (and blocks 1--7) are DEAD on the 1-block path, so discarding the
-     counter regs at s8 collapses Q30 to an opaque atom before the s9/s10 adds — cutting
-     steps 1--11 from ~44s to ~1.2s.  (Earlier handoffs blamed a coarse (12--84) grouping;
-     the real spike was s10 inside this very (1--11) bulk group, never discarded mid-way.) *)
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (1--8) THEN DISCARD_COUNTER_REGS_TAC THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (9--11) THEN DISCARD_COUNTER_REGS_TAC THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (12--13) THEN DISCARD_COUNTER_REGS_TAC THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (14--15) THEN DISCARD_COUNTER_REGS_TAC THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (16--17) THEN DISCARD_COUNTER_REGS_TAC THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (18--19) THEN DISCARD_COUNTER_REGS_TAC THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (20--21) THEN DISCARD_COUNTER_REGS_TAC THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (22--23) THEN DISCARD_COUNTER_REGS_TAC THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (24--25) THEN DISCARD_COUNTER_REGS_TAC THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (26--84) THEN DISCARD_COUNTER_REGS_TAC THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (85--173) THEN DISCARD_COUNTER_REGS_TAC THEN
-  (* Steps 175-177 load the GHASH tag: LDR Q19,[xi_p] (175); EXT Q19 (176); REV64 Q19 (177).
-     NOTE: read PC s176 = pc+748 = 0x2ec = the REV64, so the ld1/ext/rev64 are steps 175/176/177
-     (the old (174--176) range stepped ONE TOO FEW — it stopped at the pre-rev64 EXT half-swap
-     `word_subword (word_join xi xi) (64,128)`, which is UNSTABLE: the stepper re-explodes it to a
-     ~256k-char byte-tree by ~s200 and DISCARD_COUNTER_REGS_TAC then drops it).  Step THROUGH the
-     rev64 (174--177) then ONE GCM_SIMD_SIMPLIFY_TAC yields the stable enc-style reversefields form
-       read Q19 s177 = word_join (word_reversefields 8 (word_subword xi (0,64)))
-                                 (word_reversefields 8 (word_subword xi (64,64)))
-     (= word_bytereverse xi).  This ~120-char form is STABLE through the AES rounds (which never
-     touch Q19) and the whole tail WITHOUT any ABBREV_TAC — exactly like the enc proof.  Do NOT
-     abbreviate it: an ABBREV equation gets rewritten to `true`/consumed during stepping, losing
-     the xi connection needed at the bridge. *)
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (174--177) THEN
-  GCM_SIMD_SIMPLIFY_TAC THEN DISCARD_COUNTER_REGS_TAC THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (178--184) THEN DISCARD_COUNTER_REGS_TAC THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (185--254) THEN DISCARD_COUNTER_REGS_TAC THEN
-  ARM_VSTEPS_TAC AESV8_GCM_8X_DEC_256_EXEC [255] THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[INT_SUB_REFL; INT_OF_NUM_EQ]) THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (256--265) THEN DISCARD_COUNTER_REGS_TAC THEN
-  (* === Steps 266-311: branch cascade to the 1-block path.
-     For bit_len=128 the b.ge .L256_dec_tail / b.gt cascade all fall through and the
-     unconditional `b .L256_dec_blocks_less_than_1` lands at 0x1138; after step 311
-     read PC = pc+4408 = 0x1138.  ARM_STEPS_RESOLVE_TAC discards old states (keeps the
-     pile small) and resolves the conditional branches. === *)
-  ARM_STEPS_RESOLVE_TAC AESV8_GCM_8X_DEC_256_EXEC (266--311) THEN
-  (* === less_than_1 block 0x1138.. (steps 312..).  DEC data flow:
-       v9 = loaded input ciphertext cph (masked by all-ones v0 for a full block);
-       v12 = cph XOR keystream = the plaintext output (stored to out_p at 0x11b8);
-       GHASH is over the input ciphertext: v8 = rev64 v9, fed with the partial tag.
-     Steps 312..328 set up the mask, store the counter (str q30,[x16] @0x114c) and the
-     plaintext (st1 {v12},[x2] @0x11b8 is later at ~s343), and load h.  Use the
-     store-context-preserving stepper.  Then the GHASH multiply/reduce (0x1180.. = s329)
-     updates Q17/Q18/Q19 each step: ARM_STEPS_FOLD_DISCARD_TAC keeps the pile flat and
-     keeps the Q19 accumulator self-contained, exactly as in the enc proof. === *)
-  ARM_VSTEPS_RESOLVE_SIMD_TAC AESV8_GCM_8X_DEC_256_EXEC (312--328) THEN
-  DISCARD_OLDSTATE_TAC "s328" THEN
-  (* Re-assert Q9 = ciphertext: the all-ones partial-block mask makes the AND_VEC the
-     identity, so word_and(allones, cph) = cph (WORD_BLAST). Keeps the GHASH block clean. *)
-  FIRST_X_ASSUM(MP_TAC o SPEC `cph:int128`
-    o MATCH_MP (MESON[] `read Q9 s = a ==> !a'. a = a' ==> read Q9 s = a'`)) THEN
-  ANTS_TAC THENL [CONV_TAC WORD_BLAST; DISCH_TAC] THEN
-  (* GHASH multiply/reduce 329-350 via ARM_VSTEPS_FOLD_TAC (NO per-step discard): this
-     KEEPS Q16 (the partial tag, = byteswap128(word_bytereverse xi)) and Q8 (the rev64'd
-     block) alive through the multiply so the resulting Q19 s350 is fully expressed in
-     xi/cph/h with NO orphaned `read Q16 s330` (the old ARM_STEPS_FOLD_DISCARD_TAC dropped
-     Q16, leaving the orphan that made every bridge test vacuously false). *)
-  (* GHASH multiply/reduce.  The plaintext-blend `bif v12,v26,v0` (@0x11ac = step 340) finalizes
-     the plaintext in Q12; the store `st1 {v12},[x2]` (@0x11b8 = step 343) copies it to out_p.
-     Strategy (the s340 discard, the big remaining lever): fold only 329--340 (Q19 accumulator
-     bounded), then materialize `read Q12 s340 = plaintext` ONCE (the all-ones partial-block mask
-     v0 makes bif v12,v26,v0 = v12; the residual `word_and (read Q26 s328) (word_not allones)`
-     term vanishes, so the aes256_encrypt/aese expansion + WORD_BLAST proves the blend), and
-     DISCARD the ~755-hyp pile at s340 carrying that single self-contained Q12 fact.  Folding the
-     remaining 341--344 on the pruned ~80-hyp pile is then cheap (~6s vs the O(pile) tail), AND the
-     store at s343 copies the already-clean Q12 atom so the out_p read-back materializes in clean
-     plaintext form FOR FREE (no separate post-store aese-tower WORD_BLAST needed). *)
-  ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_EXEC (329--340) THEN
-  SUBGOAL_THEN
-    `read Q12 (s340:armstate) =
-     word_xor cph (aes256_encrypt (ctr0:int128)
-       [k0:int128;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14])`
-    ASSUME_TAC THENL
-  [ASM_REWRITE_TAC[] THEN
-   REWRITE_TAC[aes256_encrypt] THEN REWRITE_TAC EL_15_128_CLAUSES THEN
-   REWRITE_TAC[aes256_encrypt_round; aese; aesmc] THEN
-   CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
-  FIRST_X_ASSUM(fun th ->
-    if (try lhs(concl th) = `read Q12 s340` with _ -> false)
-    then MP_TAC th else NO_TAC) THEN
-  DISCARD_OLDSTATE_TAC "s340" THEN
-  DISCH_TAC THEN
-  ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_EXEC (341--344) THEN
-  (* The store at s343 copied the clean Q12 atom, so `read (memory :> bytes128 out_p) s344` is
-     already the plaintext; carry it across the next discards to the postcondition. *)
-  FIRST_X_ASSUM(fun th ->
-    if (try lhs(concl th) = `read (memory :> bytes128 out_p) s344` with _ -> false)
-    then MP_TAC th else NO_TAC) THEN
-  DISCARD_OLDSTATE_TAC "s344" THEN
-  DISCH_TAC THEN
-  ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_EXEC (345--350) THEN
-  (* Bridge the reduced GHASH result.  *** The reduction completes at s351, NOT s350: the dec
-     tail's final `eor v19,v19,v18` is at 0x11d4 (executed s350->s351); read Q19 s350 is one EOR
-     short of the polyval and matches no polyval_dot.  Step that eor first, then read Q19 s351 is
-     the clean polyval_dot (word_xor(brev xi)(brev cph)) (byteswap128 h) — the SAME convention as
-     enc (key = byteswap128 h, the htable-twisted H). *)
-  ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_EXEC [351] THEN
-  (* Prune again to ~80 hyps right before the bridge: steps 345--351 re-grew the pile to ~485,
-     and the bridge SUBGOAL's RULE_ASSUM_TAC scans every hyp.  Carry out_p across this discard
-     too (it remains the only fact the close still needs). *)
-  FIRST_X_ASSUM(fun th ->
-    if (try lhs(concl th) = `read (memory :> bytes128 out_p) s344` with _ -> false)
-    then MP_TAC th else NO_TAC) THEN
-  DISCARD_OLDSTATE_TAC "s351" THEN
-  DISCH_TAC THEN
-  SUBGOAL_THEN
-    `read Q19 (s351:armstate) =
-     polyval_dot (word_xor (word_bytereverse xi) (word_bytereverse cph))
-       (byteswap128 h)`
-    (fun th -> RULE_ASSUM_TAC(fun asm ->
-       if can (find_term (fun t -> t = `read Q19 s351`)) (concl asm)
-       then th else asm) THEN ASSUME_TAC th) THENL
-  [(* Rewrite LHS read Q19 s351 to its simulator byte-form, RHS polyval_dot to GMULT's
-       `result` form, normalize both to the 3 Karatsuba product atoms qq0/qq1/qq2 (lo/hi/mid),
-       then do the W-reduction lane-fold manually.  FINISH_WV_REDUCE_TAC stack-overflows on the
-       dec goal shape, so the r1/u/r2 shift-triple folds (its internals) are inlined below: the
-       monolithic WORD_BLAST over shl(zx _) diverges; folding each shift-triple to an abbreviation
-       first reduces the final blast to a pure XOR-ACI identity over word_join halves (~24s). *)
-   FIRST_ASSUM(fun th ->
-     if is_eq(concl th) && (try lhs(concl th) = `read Q19 s351` with _ -> false)
-     then GEN_REWRITE_TAC LAND_CONV [th] else NO_TAC) THEN
-   GEN_REWRITE_TAC RAND_CONV
-     [GSYM(REWRITE_RULE[LET_DEF; LET_END_DEF]
-        (ISPECL [`word_xor (word_bytereverse xi) (word_bytereverse cph) : int128`;
-          `byteswap128 h:int128`] GMULT_FULL_CORRECT_BA))] THEN
-   REWRITE_TAC[byteswap128] THEN
-   REWRITE_TAC[WORD_INSERT_SUBWORD; WORD_SUBWORD_SUBWORD] THEN
-   REWRITE_TAC[SUBWORD_XOR_JOIN_DIST] THEN
-   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES] THEN
-   ABBREV_INNER_PMULS_TAC THEN MERGE_PMUL_ATOMS_TAC THEN
-   REWRITE_TAC[WORD_XOR_0; SUBWORD0_LEMMAS] THEN REWRITE_TAC[WORD_XOR_0] THEN
-   REWRITE_TAC[PMUL_W_64_128] THEN
-   REWRITE_TAC[JOINMID] THEN
-   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
-   (* Split the bare 128-bit qq0 in the outer `word_xor wv qq0` (the p_lo term) into its 64-bit
-      halves; without this the final WORD_BLAST sees a bare 128-bit qq0 and fails to match. *)
-   GEN_REWRITE_TAC ONCE_DEPTH_CONV [QQ0SPLIT] THEN
-   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
-   ABBREV_TAC `xll:64 word = word_subword (qq0:int128) (0,64)` THEN
-   ABBREV_TAC `xlh:64 word = word_subword (qq0:int128) (64,64)` THEN
-   ABBREV_TAC `xhl:64 word = word_subword (qq1:int128) (0,64)` THEN
-   ABBREV_TAC `xhh:64 word = word_subword (qq1:int128) (64,64)` THEN
-   ABBREV_TAC `xml:64 word = word_subword (qq2:int128) (0,64)` THEN
-   ABBREV_TAC `xmh:64 word = word_subword (qq2:int128) (64,64)` THEN
-   (* First W-reduction round: fold the shift-triple of xhl into r1 *)
-   ABBREV_TAC
-    `r1:(128)word = word_xor (word_xor (word_shl (word_zx (xhl:(64)word):(128)word) 63)
-                                       (word_shl (word_zx xhl:(128)word) 62))
-                             (word_shl (word_zx xhl:(128)word) 57)` THEN
-   SUBGOAL_THEN
-    `word_xor (word_xor (word_subword (word_shl (word_zx (xhl:(64)word):(128)word) 63) (0,64):(64)word)
-                        (word_subword (word_shl (word_zx xhl:(128)word) 62) (0,64):(64)word))
-              (word_subword (word_shl (word_zx xhl:(128)word) 57) (0,64):(64)word) =
-     word_subword (r1:(128)word) (0,64):(64)word`
-    (fun th -> REWRITE_TAC[th]) THENL [EXPAND_TAC "r1" THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
-   SUBGOAL_THEN
-    `word_xor (word_xor (word_subword (word_shl (word_zx (xhl:(64)word):(128)word) 63) (64,64):(64)word)
-                        (word_subword (word_shl (word_zx xhl:(128)word) 62) (64,64):(64)word))
-              (word_subword (word_shl (word_zx xhl:(128)word) 57) (64,64):(64)word) =
-     word_subword (r1:(128)word) (64,64):(64)word`
-    (fun th -> REWRITE_TAC[th]) THENL [EXPAND_TAC "r1" THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
-   (* Second-round reduction input u, then its shift-triple r2 *)
-   ABBREV_TAC `u:(64)word = word_xor (word_xor (word_subword (r1:128 word) (0,64)) (xhh:64 word)) (word_xor (word_xor (xll:64 word) (xhl:64 word)) (xml:64 word))` THEN
-   SUBGOAL_THEN
-    `word_xor (word_xor (xhh:64 word) (word_xor (word_xor (xml:64 word) (xhl:64 word)) (xll:64 word))) (word_subword (r1:128 word) (0,64)) = u`
-    (fun th -> REWRITE_TAC[th]) THENL [EXPAND_TAC "u" THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
-   ABBREV_TAC
-    `r2:(128)word = word_xor (word_xor (word_shl (word_zx (u:(64)word):(128)word) 63)
-                                       (word_shl (word_zx u:(128)word) 62))
-                             (word_shl (word_zx u:(128)word) 57)` THEN
-   SUBGOAL_THEN
-    `word_xor (word_xor (word_subword (word_shl (word_zx (u:(64)word):(128)word) 63) (0,64):(64)word)
-                        (word_subword (word_shl (word_zx u:(128)word) 62) (0,64):(64)word))
-              (word_subword (word_shl (word_zx u:(128)word) 57) (0,64):(64)word) =
-     word_subword (r2:(128)word) (0,64):(64)word`
-    (fun th -> REWRITE_TAC[th]) THENL [EXPAND_TAC "r2" THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
-   SUBGOAL_THEN
-    `word_xor (word_xor (word_subword (word_shl (word_zx (u:(64)word):(128)word) 63) (64,64):(64)word)
-                        (word_subword (word_shl (word_zx u:(128)word) 62) (64,64):(64)word))
-              (word_subword (word_shl (word_zx u:(128)word) 57) (64,64):(64)word) =
-     word_subword (r2:(128)word) (64,64):(64)word`
-    (fun th -> REWRITE_TAC[th]) THENL [EXPAND_TAC "r2" THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
-   CONV_TAC WORD_BLAST;
-   ALL_TAC] THEN
-  (* Steps 352-354: EXT (halfswap @0x11d8) + REV64 (@0x11dc) reorder Q19 to word_bytereverse of the
-     reduced result, then STR Q19,[x3] to xi_p (@0x11e0).  Abbreviate the polyval to an atom gval
-     so the ext+rev64 byte-tree stays bounded; the rev64 tree collapses to word_bytereverse gval. *)
-  ABBREV_TAC `gval:int128 = polyval_dot (word_xor (word_bytereverse xi) (word_bytereverse cph)) (byteswap128 h)` THEN
-  ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_EXEC (352--353) THEN
-  SUBGOAL_THEN `read Q19 (s353:armstate) = word_bytereverse (gval:int128)`
-    (fun th -> RULE_ASSUM_TAC(fun asm ->
-       if can (find_term (fun t -> t = `read Q19 s353`)) (concl asm)
-       then th else asm) THEN ASSUME_TAC th) THENL
-  [FIRST_ASSUM(fun th ->
-     if is_eq(concl th) && (try lhs(concl th) = `read Q19 s353` with _ -> false)
-     then GEN_REWRITE_TAC LAND_CONV [th] else NO_TAC) THEN CONV_TAC WORD_BLAST;
-   ALL_TAC] THEN
-  (* Step 354 = st1 {v19},[x3] (xi_p store @0x11e0); PC then = pc+0x11e4, the spec exit.
-     We deliberately STOP here (mirroring the enc proof, which exits right after its store at
-     pc+0x11d8) and do NOT step the callee-saved register-restore epilogue 355-359
-     (mov x0,x9; ldp d10..d15; ldp d8,d9,[sp],#80).  Stopping here lets the spec drop the
-     `aligned 16 stackpointer` precondition, the eight d8v..d15v saved-slot preconditions, and
-     the MAYCHANGE [SP] that stepping the SP-modifying `ldp` would otherwise require. *)
-  ARM_VSTEPS_TAC AESV8_GCM_8X_DEC_256_EXEC [354] THEN
-  DISCARD_COUNTER_ONLY_TAC THEN
-  (* === Close proof ===
-     out_p:  the carried `read (memory :> bytes128 out_p) s344 = plaintext` hyp resolves the
-       postcondition directly via ASM_REWRITE (out_p is not written after s344).
-     xi_p:  word_bytereverse gval; gval = polyval_dot (xor(brev xi)(brev cph)) (byteswap128 h),
-       which GHASH_1BLOCK_CORRECT rewrites to ghash_polyval_acc (byteswap128 h)(brev xi)[brev cph]
-       (AP_TERM lifts the word_bytereverse);
-     MAYCHANGE: ABI set + memory regions + Q0..Q31. *)
-  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-  REPEAT CONJ_TAC THEN
-  TRY(EXPAND_TAC "gval" THEN AP_TERM_TAC THEN REWRITE_TAC[GHASH_1BLOCK_CORRECT]) THEN
-  TRY(CONV_TAC WORD_BLAST) THEN
-  TRY(REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
-      REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC THEN ASM_REWRITE_TAC[])]);;
+(* ===========================================================================
+   The whole-1-block theorem AESV8_GCM_8X_DEC_256_1BLOCK (bit_len = 128) has been
+   REMOVED: the whole-1-block (16-byte) case is the bl=16 endpoint of
+   AESV8_GCM_8X_DEC_256_LE1BLOCK below (band 1..16, all-ones mask = full block),
+   which is proved independently (its own symbolic-bl simulation, NOT via the
+   whole-block theorem).  The dedicated whole-block theorem was referenced nowhere.
+   The length/flag helper lemmas and LE1BLOCK that follow are retained.
+   =========================================================================== *)
 
 (* ========================================================================= *)
 (* Byte-aligned <=1-block decryption: bit_len = 8*bl, 1 <= bl <= 16.          *)
@@ -2561,7 +2224,7 @@ let AESV8_GCM_8X_DEC_256_LE1BLOCK = prove(
   ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (305--308) THEN bl_resolve_pc16 308 3980 THEN
   ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (309--311) THEN
   (* === less_than_1 block: mask region 312-328 === *)
-  ARM_VSTEPS_RESOLVE_SIMD_TAC AESV8_GCM_8X_DEC_256_EXEC (312--328) THEN
+  ARM_STEPS_RESOLVE_SIMD_DISCARD_TAC AESV8_GCM_8X_DEC_256_EXEC (312--328) THEN
   DISCARD_OLDSTATE_TAC "s328" THEN
   (* collapse the symbolic mask to word(2^(8*bl)-1) on Q9 (INSERT2_JOIN + MASK_LEMMA). *)
   FIRST_X_ASSUM(MP_TAC o SPEC `word_and cph (word (2 EXP (8 * bl) - 1)):int128`
@@ -2571,7 +2234,7 @@ let AESV8_GCM_8X_DEC_256_LE1BLOCK = prove(
    [ASM_SIMP_TAC[MASK_LEMMA] THEN CONV_TAC WORD_RULE;
     DISCH_TAC] THEN
   (* === GHASH multiply over the masked block; Q12 = masked output blend === *)
-  ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_EXEC (329--340) THEN
+  ARM_STEPS_FOLD_DISCARD_TAC AESV8_GCM_8X_DEC_256_EXEC (329--340) THEN
   SUBGOAL_THEN
     `read Q12 (s340:armstate) =
      word_xor (word_and (word_xor cph (aes256_encrypt (ctr0:int128)
