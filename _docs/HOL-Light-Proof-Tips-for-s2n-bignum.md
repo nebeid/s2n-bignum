@@ -2,6 +2,34 @@
 
 Tips combined by kiro-cli (Claude Opus 4.6) in the same session after the proof of ciphertext-stealing safety in encrypt (producing it and correcting it together) from [Appendix B. HOL Light Tips: Verifying AES-XTS encrypt and decrypt with HOL Light](https://quip-amazon.com/ec1HA42xAjWe#temp:C:cUT48ecd0975be6480295c895f63) and [My HOL Light questions](https://quip-amazon.com/RlC4AMTMDMZx). Tips from June’s materials docs (md files) that are in https://github.com/aqjune/hol-light-materials are appended.
 
+ARM-simulation tips (stepping tactics, `DISCARD_OLDSTATE_TAC` / store read-back propagation, branch resolution, term-explosion control, calling-convention and `ensures` preconditions) and the refiner/reviewer entry point were distilled from this project's AES-GCM 1-block proof docs — `aesv8-gcm-8x-enc-256-1block-ciphertext-proved.md` and `ghash-drop-vsteps-step-and-simplify-plan.md`.
+
+## For a Refiner/Reviewer Agent (after a proof already works)
+
+Use this as the entry point when the task is to speed up, clean up, or vet a finished
+proof — not to build one. The detailed how-to lives in the sections below; this is the
+order to apply them.
+
+**Soundness first (always):**
+- Grep the proof for `CHEAT_TAC` and `new_axiom` — either silently fakes success.
+- `loadt` the file end-to-end; confirm it loads with no errors.
+
+**Performance refinement (measure, then act):**
+1. Get a timing breakdown per phase (which step ranges / closures dominate).
+2. Discard bloating registers *between* phases — see *Controlling Term Explosion in ARM Simulation*.
+3. Shrink VSTEPS windows to just-before-store..store — see *ARM_VSTEPS_TAC: Simplifying at Intermediate Points*.
+4. Fold SIMD byte-trees per-step instead of blanket-VSTEPS — see *Controlling Term Explosion in ARM Simulation*.
+5. Re-assert registers clean before stores so read-backs propagate — see
+   *`DISCARD_OLDSTATE_TAC` and Store Read-back Propagation*.
+
+**Maintainability:**
+- Break long proofs into named lemmas; prefer algebraic rewrites over per-bit case splits.
+- Treat exact step numbers / PC offsets as fragile — re-verify them interactively;
+  don't trust magic numbers copied from a log.
+
+**Don't regress:** keep every compiling theorem/lemma; never revert past working work,
+and salvage anything useful before replacing it.
+
 ## Assumptions and Automatic Tactics
 
 1. `ARITH_TAC` looks at the goal only, so bring assumptions as antecedents using `UNDISCH_TAC` (or `SUBGOAL_THEN <...> MP_TAC` to prove something first)
@@ -126,6 +154,13 @@ install_user_printer("pp_print_num", pp_print_num_hex);;
 ```
 
 * Back to decimal: `delete_user_printer "pp_print_num";;`
+* Save/restore the whole goal state without `b()` (which only undoes one step, and a whole `THEN` chain counts as a single step):
+
+```
+let gs = !current_goalstack;;   (* save *)
+(* ... try things ... *)
+current_goalstack := gs;;       (* restore *)
+```
 
 ## Safety Proof Specific
 
@@ -245,6 +280,113 @@ ARM_STEPS_RESOLVE_TAC EXEC (333--352) THEN ...
 - The technique is used in `bignum_montmul.ml`, `bignum_modinv.ml`, and the AES-GCM proof.
 - Only ~8 proofs in s2n-bignum use VSTEPS — it's a specialized technique for when expressions blow up.
 - The number of VSTEPS could be smaller (even 2–4 steps) — you only need the window from just before the store through the store itself. 8 steps was used because it's fast (<1s) and gives margin.
+
+## ARM Stepping Tactics: What Each One Does
+
+All three share the same underlying single step (`ARM_VERBOSE_STEP_TAC`); they differ only in the cleanup applied afterward:
+
+* `ARM_STEPS_TAC` = `ARM_VERBOSE_STEP_TAC` + `DISCARD_OLDSTATE_TAC` + `CLARIFY_TAC`. Fast (discards old state). Use for the bulk of stepping.
+* `ARM_VSTEPS_TAC` = `ARM_VERBOSE_STEP_TAC` only — no discard, no clarify. Keeps every register value from every state. Use only for debugging or to preserve hypotheses `DISCARD_OLDSTATE_TAC` would remove. **Never use for >20 steps** — it gets slow as hypotheses accumulate.
+* `ARM_ACCSTEPS_TAC` = `ARM_STEPS_TAC` + optional `ACCUMULATE_ARITH_TAC`.
+* `ARM_VERBOSE_STEP_TAC` — single-step VSTEPS, to inspect exactly one step.
+
+### Fold-and-discard steppers (for SIMD/GHASH windows that also need a read-back)
+
+The GCM store/masked-GHASH windows have a bind: they contain SIMD `rev64` byte-trees
+(so they need per-step folding, see *Controlling Term Explosion*), AND they end with a
+register/store read-back you must capture. Plain `ARM_STEPS_TAC` discards the state the
+read-back references; plain `ARM_VSTEPS_TAC` keeps *every* state, so each per-step
+`GCM_SIMD_SIMPLIFY_TAC` re-scans a linearly-growing pile → **O(n²)** (a 16–19 step
+window ballooned the goal to ~677k chars and cost ~140s). The fix is to fold *and*
+discard the old state every step, keeping the pile flat:
+
+* `ARM_STEPS_FOLD_DISCARD_TAC exec snums` — per step: `ARM_VERBOSE_STEP_TAC` +
+  `GCM_SIMD_SIMPLIFY_TAC` + `DISCARD_OLDSTATE_TAC` + `CLARIFY_TAC`. Straight-line windows.
+* `ARM_STEPS_RESOLVE_SIMD_DISCARD_TAC exec snums` — same, with `RESOLVE_BRANCH_TAC`
+  first. Branch-carrying windows (the `b.gt` cascade in the masked tail).
+
+Both are defined in `arm/proofs/aesv8_gcm_8x_dec_256_1block.ml` (the shared base all dec
+bands load). Measured on the dec le4 tail, these cut per-window cost ~10–15× (91s→9.3s,
+141s→9.2s) and the whole LE4 body from ~902s→~295s; propagated across LE2..LE5.
+
+**Safety rule — when a window is safe to fold-*and-discard* vs must stay keep-everything
+`VSTEPS`:** convert a multi-step window to a `*_DISCARD` stepper **iff every read-back it
+feeds lands at the window's END state** (Q9 mask collapse, Q12 plaintext capture, the
+store read-back, the GHASH accumulator) — the *current* state is always preserved, so
+end-of-window reads survive. **Leave it as keep-everything `VSTEPS` iff** (a) an
+*intermediate*-state fact is consumed mid-window — e.g. a keystream register materialized
+upstream and read by an `eor3` partway through (dec le5's 358–376 feeds the pt4 capture at
+s377); or (b) a *later* window re-`MP_TAC`s an *earlier* window's old-state read-back
+(dec le2's 364–370 re-uses the s363 store read-back). In those two cases the discard would
+delete the fact the proof still needs.
+
+## `DISCARD_OLDSTATE_TAC` and Store Read-back Propagation
+
+* `DISCARD_OLDSTATE_TAC "sN"` erases **every** assumption that mentions an old state name (`s0`..`s(N-1)`), including ones that mix old and new states, e.g. `read X5 s257 = word_sub (read X4 s256) in_p` is removed at step 258 because it mentions `s256`.
+* A store `st1 {vR},[xM]` makes `ARM_STEPS_TAC` create a read-back `read (memory :> bytes128 addr) sN = read QR s(N-1)`. This propagates forward via `CLARIFY_TAC` **only if** its RHS has no old-state references; otherwise the next step's `DISCARD_OLDSTATE_TAC` deletes it.
+* **Fix (the XTS pattern):** assert `read QR sK = <clean spec>` *before* the store, so the read-back is a clean term that survives and propagates. To re-assert a register clean mid-simulation, do NOT use a bare `SUBGOAL_THEN` (it loses simulation state when the side goal closes). Use:
+
+```
+FIRST_X_ASSUM(MP_TAC o SPEC `<spec>:int128`
+  o MATCH_MP (MESON[] `read QR s = a ==> !a'. a = a' ==> read QR s = a'`)) THEN
+ANTS_TAC THENL [CONV_TAC WORD_BLAST (* or AESENC_TAC etc. *); DISCH_TAC]
+```
+
+## Branch Resolution During Stepping
+
+* When `ARM_STEPS_TAC` hits a conditional branch it produces `read PC sN = (if cond then word(pc+t) else word(pc+f))`. If `cond` can't be simplified, the next step fails with `ARM_CONV: can't find read PC`.
+* `WORD_BRANCH_SIMP_TAC` resolves these. Apply it liberally between step ranges (every ~20 steps in branch-heavy regions) — it is ~0.01s when it's a no-op:
+
+```
+let WORD_BRANCH_SIMP_TAC =
+  RULE_ASSUM_TAC(REWRITE_RULE[
+    WORD_RULE `word_sub (word_add x (word a)) x:int64 = word a`;
+    WORD_RULE `word_sub x x:int64 = word 0`;
+    WORD_SUB_REFL; INT_SUB_REFL; VAL_WORD_0; IVAL_WORD_0;
+    INT_LT_REFL; INT_OF_NUM_EQ]) THEN
+  RULE_ASSUM_TAC(CONV_RULE(TRY_CONV(RAND_CONV(
+    TRY_CONV(ONCE_DEPTH_CONV WORD_REDUCE_CONV) THENC
+    TRY_CONV(ONCE_DEPTH_CONV WORD_VAL_CONV) THENC
+    TRY_CONV(ONCE_DEPTH_CONV WORD_IVAL_CONV) THENC
+    TRY_CONV(ONCE_DEPTH_CONV INT_RED_CONV) THENC
+    TRY_CONV(ONCE_DEPTH_CONV NUM_RED_CONV) THENC
+    TRY_CONV(REWRITE_CONV[COND_CLAUSES; ARITH_RULE `~(x = 0) <=> 0 < x`]))))) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[COND_CLAUSES]);;
+```
+
+* Do NOT apply `WORD_BRANCH_SIMP_TAC` after a branch that `ARM_STEPS_TAC` already resolved internally — it can fail with `mk_comb: types do not agree` operating on an already-resolved state.
+* Find branch step numbers from the disassembly:
+
+```bash
+aarch64-linux-gnu-objdump -d program.o | \
+  awk '/^ *[0-9a-f]+:.*\tb\./{split($1,a,":"); addr=strtonum("0x"a[1]);
+    if(addr >= START && addr < END) {step=(addr-START)/4+1; print step, $0}}'
+```
+
+## Controlling Term Explosion in ARM Simulation
+
+* Symbolic SIMD byte-manipulation (`rev32`, `rev64`, `add v.4s`, ...) on 128-bit values expands into deeply nested `word_join`/`word_subword` trees. Each subsequent read of the result roughly doubles the term, so the proof slows exponentially.
+* For PC-only proofs, keep such registers out of the precondition — the stepper produces opaque `read QR s_old` terms that get discarded.
+* For functional proofs that need the value, collapse it as soon as it is produced with `ABBREV_TAC` or `ARM_MACRO_SIM_ABBREV_TAC` (see `curve25519_ladderstep_alt.ml`). Do not `ABBREV_TAC` a value you still need to connect to the spec — fold it to the spec form instead.
+* **Do not blanket-`VSTEPS` a window that contains a SIMD byte-shuffle.** VSTEPS does no per-step simplification, so a `rev64` byte-tree (observed as ~582k-char hypotheses) forms and is dragged into later phases, slowing every subsequent tactic. Step per-instruction with immediate folding instead.
+* Discard large bloating registers between phases with a size + name filter. The filter must name the register that actually bloats (e.g. Q8 was missing from a Q1–Q7/Q16–Q19/Q30 filter and slipped through):
+
+```ocaml
+let DISCARD_COUNTER_REGS_TAC =
+  DISCARD_ASSUMPTIONS_TAC(fun th ->
+    let s = string_of_term (concl th) in
+    String.length s > 500 &&
+    (has "read Q1 " || has "read Q2 " || ... || has "read Q30 "));;
+```
+
+## Preconditions Must Be Inside `ensures`
+
+* Put ALL register/memory preconditions inside the `ensures` precondition lambda. If they sit in an outer hypothesis (`read X0 s = in_p ==> ensures arm ...`), `ENSURES_INIT_TAC "s0"` creates state `s0` but the values stay on `s`, so the stepper can't resolve `read X0 s2` (it only knows `read X0 s`, the wrong state).
+
+## Check the C Calling Convention Before Picking Preconditions
+
+* Enumerate every ABI argument register for the function (AArch64: X0–X7 args, X8 indirect result, X9–X15 temporaries). For each, decide whether it is still live at your start PC or has already been moved by the prologue; every still-live input must be in the precondition.
+* Do NOT copy register sets from another proof that starts at a different PC — the prologue may have relocated values.
 
 ## GHASH/Polynomial Multiplication Closure Pattern
 
