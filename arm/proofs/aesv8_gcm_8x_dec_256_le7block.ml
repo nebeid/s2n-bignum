@@ -400,28 +400,9 @@ let full_le7_tac_tail =
 (* 7-TERM GHASH bridge: read Q19 s414 = ghash_polyval_acc (bsw h)(brev xi)[brev cph0..cphm].
    GMULT7_FULL_CORRECT_BA (14-arg SPECL incl h7/cphm) + spec_to_byteform_7 (6 hpower
    conjuncts h2..h7) + FIVE machine-side middle mids (cph1.h6, cph2.h5, cph3.h4, cph4.h3,
-   cph5.h2); the masked-block mid auto-folds via MERGE. *)
-let bridge_hash2 t = can(find_term(fun u->u=`h2:int128`)) t;;
-let bridge_hash3 t = can(find_term(fun u->u=`h3:int128`)) t;;
-let bridge_hash4 t = can(find_term(fun u->u=`h4:int128`)) t;;
-let bridge_hash5 t = can(find_term(fun u->u=`h5:int128`)) t;;
-let bridge_hash6 t = can(find_term(fun u->u=`h6:int128`)) t;;
-let bridge_hasW  t = can(find_term(fun u->u=`word 13979173243358019584:64 word`)) t;;
-let FOLD_MID_TAC7 pred : tactic = fun (asl,w) ->
-  let l=lhs w in
-  let is_pmul128 t = try fst(dest_const(repeat rator t))="word_pmul" && type_of t = `:128 word` with _->false in
-  let mid = hd(List.filter pred (setify(find_terms is_pmul128 l))) in
-  let cands = List.filter (fun (_,th) ->
-      try let r = rhs(concl th) and lft = lhs(concl th) in
-          is_var r && (let n=fst(dest_var r) in String.length n>=2 && String.sub n 0 2="qq") &&
-          is_pmul128 lft && pred lft
-      with _ -> false) asl in
-  let try_qq (_,th) =
-    let qq = rhs(concl th) in
-    (SUBGOAL_THEN (mk_eq(mid, qq)) (fun e->REWRITE_TAC[e]) THENL
-      [GEN_REWRITE_TAC RAND_CONV [GSYM th] THEN
-       MATCH_MP_TAC PMUL_CONG_128 THEN CONJ_TAC THEN CONV_TAC WORD_BLAST; ALL_TAC]) in
-  (FIRST (map try_qq cands)) (asl,w);;
+   cph5.h2); the masked-block mid auto-folds via MERGE.  The folds use the SHARED
+   multiplier-keyed FOLD_MID_HPOW from le3block.ml (STEP A of
+   _docs/dec-band-homogenization-convergence-plan.md). *)
 
 let BRIDGE_CLOSE_TAC_7 : tactic = fun (asl,w) ->
   let ha n = snd(List.find(fun(_,th)->try lhs(concl th)=parse_term(Printf.sprintf "byteswap128 %s" n) with _->false) asl) in
@@ -444,11 +425,8 @@ let BRIDGE_CLOSE_TAC_7 : tactic = fun (asl,w) ->
    REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; RF8_SUBWORD] THEN
    REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES] THEN
    ABBREV_INNER_PMULS_TAC THEN MERGE_2BLK_TAC THEN
-   FOLD_MID_TAC7 (fun t->bridge_hash6 t && not(bridge_hash5 t) && not(bridge_hash4 t) && not(bridge_hash3 t) && not(bridge_hash2 t) && not(bridge_hasW t)) THEN
-   FOLD_MID_TAC7 (fun t->bridge_hash5 t && not(bridge_hash6 t) && not(bridge_hash4 t) && not(bridge_hash3 t) && not(bridge_hash2 t) && not(bridge_hasW t)) THEN
-   FOLD_MID_TAC7 (fun t->bridge_hash4 t && not(bridge_hash6 t) && not(bridge_hash5 t) && not(bridge_hash3 t) && not(bridge_hash2 t) && not(bridge_hasW t)) THEN
-   FOLD_MID_TAC7 (fun t->bridge_hash3 t && not(bridge_hash6 t) && not(bridge_hash5 t) && not(bridge_hash4 t) && not(bridge_hash2 t) && not(bridge_hasW t)) THEN
-   FOLD_MID_TAC7 (fun t->bridge_hash2 t && not(bridge_hash6 t) && not(bridge_hash5 t) && not(bridge_hash4 t) && not(bridge_hash3 t) && not(bridge_hasW t)) THEN
+   FOLD_MID_HPOW "H6" THEN FOLD_MID_HPOW "H5" THEN FOLD_MID_HPOW "H4" THEN
+   FOLD_MID_HPOW "H3" THEN FOLD_MID_HPOW "H2" THEN
    WA_UNIFY_TAC THEN WV_UNIFY_TAC THEN ABBREV_WAWV_TAC THEN
    REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
    GEN_REWRITE_TAC ONCE_DEPTH_CONV [QQ0SPLIT] THEN

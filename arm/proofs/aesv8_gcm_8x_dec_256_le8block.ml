@@ -407,56 +407,9 @@ let full_le8_tac_tail =
    FOLD_MID_HPOW keys on the pmul's MULTIPLIER (2nd arg = h-power key), NOT find_term over the whole
    pmul (whose INPUT carries lower h-powers in the whole-8 karatsuba).  The block-1 machine mid (qq39)
    carries a stale `ins v18.d[0]` k13 high-half; QQ39_FIX_TAC establishes qq39=qq28 (clean spec mid)
-   via the k13-kill rewrites so WV_UNIFY's inputs become bit-equal.  See project_le8block_wip memory. *)
-
-(* Which h-power key (or W) is the MULTIPLIER (2nd arg) of a 128-bit word_pmul mid. *)
-let pmul_mult_hpow t =
-  let m = rand t in
-  if can(find_term(fun u->u=`h2:int128`)) m then "H2" else
-  if can(find_term(fun u->u=`h3:int128`)) m then "H3" else
-  if can(find_term(fun u->u=`h4:int128`)) m then "H4" else
-  if can(find_term(fun u->u=`h5:int128`)) m then "H5" else
-  if can(find_term(fun u->u=`h6:int128`)) m then "H6" else
-  if can(find_term(fun u->u=`h7:int128`)) m then "H7" else
-  if can(find_term(fun u->u=`h8:int128`)) m then "H8" else
-  if can(find_term(fun u->u=`h:int128`)) m then "H1" else
-  if can(find_term(fun u->u=`word 13979173243358019584:64 word`)) m then "W" else "?";;
-let is_pmul128_tm t = try fst(dest_const(repeat rator t))="word_pmul" && type_of t = `:128 word` with _->false;;
-(* k13-carry kill set: collapses the stale `ins v18.d[0]` high half + rf8-dup joins so the machine
-   block mid matches the clean spec qq by PMUL_CONG. *)
-let LE8_K13_FIX = [WORD_SUBWORD_INSERT_INNER; WORD_SUBWORD_INSERT_OUTER; INSERT_SUBWORD_KILL;
-                   WORD_INSERT_SUBWORD; JOINMID; JOIN_SUBWORD_RULES; RF8_SUBWORD;
-                   WORD_SUBWORD_SUBWORD; WORD_SUBWORD_XOR];;
-let FOLD_MID_HPOW hp : tactic = fun (asl,w) ->
-  let l = lhs w in
-  let mid = hd(List.filter (fun t -> pmul_mult_hpow t = hp) (setify(find_terms is_pmul128_tm l))) in
-  let cands = List.filter (fun (_,th) ->
-      try let r=rhs(concl th) and lft=lhs(concl th) in
-          is_var r && (let n=fst(dest_var r) in String.length n>=2 && String.sub n 0 2="qq") &&
-          is_pmul128_tm lft && pmul_mult_hpow lft = hp
-      with _->false) asl in
-  let try_qq (_,th) =
-    let qq = rhs(concl th) in
-    (SUBGOAL_THEN (mk_eq(mid,qq)) (fun e->REWRITE_TAC[e]) THENL
-      [GEN_REWRITE_TAC RAND_CONV [GSYM th] THEN
-       MATCH_MP_TAC PMUL_CONG_128 THEN CONJ_TAC THEN
-       (CONV_TAC WORD_BLAST ORELSE (REWRITE_TAC LE8_K13_FIX THEN CONV_TAC WORD_BLAST)); ALL_TAC]) in
-  (FIRST (map try_qq cands)) (asl,w);;
-
-(* Establish qq39 = qq28 (block-1 mid, machine-vs-spec) and rewrite it into the goal, so WV_UNIFY's
-   two W-pmul inputs become bit-equal.  qq39 carries the stale ins-k13 high half; the k13-kill set
-   collapses it to qq28's clean form. *)
-let QQ39_FIX_TAC : tactic = fun (asl,w) ->
-  let g v = snd(List.find (fun (_,th)-> try rhs(concl th)=mk_var(v,`:int128`) with _->false) asl) in
-  let g39 = g "qq39" and g28 = g "qq28" in
-  (SUBGOAL_THEN `qq39:int128 = qq28` ASSUME_TAC THENL
-   [GEN_REWRITE_TAC LAND_CONV [GSYM g39] THEN GEN_REWRITE_TAC RAND_CONV [GSYM g28] THEN
-    REWRITE_TAC LE8_K13_FIX THEN
-    ((MATCH_MP_TAC PMUL_CONG_128 THEN CONJ_TAC THEN CONV_TAC WORD_BLAST) ORELSE CONV_TAC WORD_BLAST);
-    ALL_TAC] THEN
-   FIRST_X_ASSUM(fun th -> if (try lhs(concl th)=`qq39:int128` with _->false)
-      then GEN_REWRITE_TAC ONCE_DEPTH_CONV [th] else NO_TAC))
-  (asl,w);;
+   via the k13-kill rewrites so WV_UNIFY's inputs become bit-equal.  See project_le8block_wip memory.
+   pmul_mult_hpow / is_pmul128_tm / LE8_K13_FIX / FOLD_MID_HPOW / QQ39_FIX_TAC are SHARED machinery,
+   defined in le3block.ml (STEP A of _docs/dec-band-homogenization-convergence-plan.md). *)
 
 let BRIDGE_CLOSE_TAC_8 : tactic = fun (asl,w) ->
   let ha n = snd(List.find(fun(_,th)->try lhs(concl th)=parse_term(Printf.sprintf "byteswap128 %s" n) with _->false) asl) in

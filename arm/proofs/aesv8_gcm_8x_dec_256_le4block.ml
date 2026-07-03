@@ -356,20 +356,9 @@ let full_le4_tac_tail =
 
 (* 4-TERM BRIDGE: read Q19 s392 = ghash_polyval_acc (bsw h)(brev xi)[brev cph0..cphm].
    Like le3's BRIDGE_CLOSE_TAC but folds TWO machine-side middle mids explicitly
-   (cph1.h3->qq12, cph2.h2->qq13); the masked-block mid auto-folds in MERGE once it
-   is cphm (header note 2).  qq12/qq13 are the fresh names ABBREV_INNER_PMULS assigns;
-   they are stable for this goal shape. *)
-let bridge_hash2 t = can(find_term(fun u->u=`h2:int128`)) t;;
-let bridge_hash3 t = can(find_term(fun u->u=`h3:int128`)) t;;
-let bridge_hasW  t = can(find_term(fun u->u=`word 13979173243358019584:64 word`)) t;;
-let FOLD_MID_TAC qqname pred : tactic = fun (asl,w) ->
-  let l=lhs w in
-  let is_pmul128 t = try fst(dest_const(repeat rator t))="word_pmul" && type_of t = `:128 word` with _->false in
-  let mid = hd(List.filter pred (setify(find_terms is_pmul128 l))) in
-  let qqdef = snd(List.find (fun (_,th)->try rhs(concl th)=mk_var(qqname,`:int128`) with _->false) asl) in
-  (SUBGOAL_THEN (mk_eq(mid, mk_var(qqname,`:int128`))) (fun e->REWRITE_TAC[e]) THENL
-    [GEN_REWRITE_TAC RAND_CONV [GSYM qqdef] THEN
-     MATCH_MP_TAC PMUL_CONG_128 THEN CONJ_TAC THEN CONV_TAC WORD_BLAST; ALL_TAC]) (asl,w);;
+   (cph1.h3, cph2.h2); the masked-block mid auto-folds in MERGE once it is cphm
+   (header note 2).  The folds use the SHARED multiplier-keyed FOLD_MID_HPOW
+   from le3block.ml (STEP A of _docs/dec-band-homogenization-convergence-plan.md). *)
 
 let BRIDGE_CLOSE_TAC_4 : tactic = fun (asl,w) ->
   let q19asm = snd(List.find(fun(_,th)->try lhs(concl th)=`read Q19 s392` with _->false) asl) in
@@ -391,8 +380,7 @@ let BRIDGE_CLOSE_TAC_4 : tactic = fun (asl,w) ->
    REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; RF8_SUBWORD] THEN
    REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES] THEN
    ABBREV_INNER_PMULS_TAC THEN MERGE_2BLK_TAC THEN
-   FOLD_MID_TAC "qq12" (fun t->bridge_hash3 t && not(bridge_hash2 t) && not(bridge_hasW t)) THEN
-   FOLD_MID_TAC "qq13" (fun t->bridge_hash2 t && not(bridge_hash3 t) && not(bridge_hasW t)) THEN
+   FOLD_MID_HPOW "H3" THEN FOLD_MID_HPOW "H2" THEN
    WA_UNIFY_TAC THEN WV_UNIFY_TAC THEN ABBREV_WAWV_TAC THEN
    REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
    GEN_REWRITE_TAC ONCE_DEPTH_CONV [QQ0SPLIT] THEN
