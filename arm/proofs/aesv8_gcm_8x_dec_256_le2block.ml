@@ -161,6 +161,54 @@ let dec_bl2_resolve_stale =
          (let n = length (find_terms (fun u -> try fst(dest_const(rator u))="word" with _->false) (concl th)) in n > 1)
      with _ -> false));;
 
+(* ---- STEP C (shared): ONE parameterized front generator for the le2..le8 bands ----
+   The front (states 1..269 + pt0-capture) is IDENTICAL across the multi-block bands
+   except: ushr_lemma (the band's bit_len length lemma USHR_{128*nfull}_8BL_LEMMA),
+   x5_lemma (X5_ZERO_LEMMA{nfull+1}), disc (keystream Q-regs discarded per step in
+   windows 6..254 — the band KEEPS Q0..Qk for its blocks), disc2 (the 256..265
+   window's discard list, kept verbatim per band), inoff (16*nfull, the in_p
+   tail-block offset in the word_sub rewrite), and nks (how many keystream regs to
+   abbreviate ks0..ks{nks-1} at s269; 0 = none).  The band's branch cascade
+   (steps 270.., per-band resolver rungs) is appended by the caller — the rung
+   structure (fall/boundary/taken placement) genuinely differs per byte-length.
+   The le1 band (1..16 bytes, NO full blocks) never enters the more_than_k path,
+   so its front in aesv8_gcm_8x_dec_256_1block.ml stays separate by design.
+   See STEP C of _docs/dec-band-homogenization-convergence-plan.md. *)
+let keys15 = `[k0:int128;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]`;;
+
+let DEC_FRONT_TAC ushr_lemma x5_lemma disc disc2 inoff nks =
+  REPEAT GEN_TAC THEN STRIP_TAC THEN REWRITE_TAC[C_ARGUMENTS;SOME_FLAGS] THEN
+  ENSURES_INIT_TAC "s0" THEN RULE_ASSUM_TAC(REWRITE_RULE[C_ARGUMENTS]) THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (1--5) THEN
+  MP_TAC(SPEC `bl1:num` ushr_lemma) THEN ASM_REWRITE_TAC[] THEN
+    DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th])) THEN
+  EVERY(map (fun i -> ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (i--i) THEN
+             GCM_SIMD_SIMPLIFY_TAC THEN mk_discard2 disc) (6--30)) THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (31--84) THEN mk_discard2 (disc@[30]) THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (85--173) THEN mk_discard2 (disc@[30]) THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (174--177) THEN GCM_SIMD_SIMPLIFY_TAC THEN mk_discard2 (disc@[30]) THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (178--184) THEN mk_discard2 (disc@[30]) THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (185--254) THEN mk_discard2 (disc@[30]) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  MP_TAC(SPEC `bl1:num` x5_lemma) THEN ASM_REWRITE_TAC[] THEN
+    DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th]) THEN ASSUME_TAC th) THEN
+    RULE_ASSUM_TAC(REWRITE_RULE[WORD_ADD_0]) THEN
+  ARM_VSTEPS_TAC AESV8_GCM_8X_DEC_256_EXEC [255] THEN
+    RULE_ASSUM_TAC(REWRITE_RULE[INT_SUB_REFL; INT_OF_NUM_EQ]) THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (256--265) THEN mk_discard2 disc2 THEN
+  MP_TAC(SPEC `bl1:num` ushr_lemma) THEN ASM_REWRITE_TAC[] THEN
+    DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th])) THEN
+    RULE_ASSUM_TAC(REWRITE_RULE[WORD_RULE (parse_term (Printf.sprintf
+      "word_sub (word_add in_p (word (%d + bl1):int64)) in_p = word (%d + bl1)" inoff inoff))]) THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (266--269) THEN
+  EVERY(map (fun i -> ABBREV_TAC (parse_term (Printf.sprintf
+      "ks%d:int128 = read Q%d s269" i i))) (0--(nks-1))) THEN
+  FIRST_X_ASSUM(MP_TAC o SPEC (mk_comb(mk_comb(`word_xor:int128->int128->int128`,`cph0:int128`),mk_comb(mk_comb(`aes256_encrypt`,`ctr0:int128`),keys15)))
+    o MATCH_MP (MESON[] `read Q12 s = a ==> !a'. a = a' ==> read Q12 s = a'`)) THEN
+  ANTS_TAC THENL
+   [REWRITE_TAC[aes256_encrypt] THEN REWRITE_TAC EL_15_128_CLAUSES THEN
+    REWRITE_TAC[aes256_encrypt_round; aese; aesmc] THEN CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN CONV_TAC WORD_BLAST; DISCH_TAC] THEN
+  ABBREV_TAC (mk_eq(`pt0:int128`, mk_comb(mk_comb(`word_xor:int128->int128->int128`,`cph0:int128`),mk_comb(mk_comb(`aes256_encrypt`,`ctr0:int128`),keys15))));;
+
 (* targeted lane closer for the GMULT2 W-surface (fold qqNl/qqNh lane subwords,
    then a flat 64-bit WORD_RULE). *)
 let LANE_CLOSE_TAC : tactic = fun (asl,w) ->
@@ -338,51 +386,10 @@ let AESV8_GCM_8X_DEC_256_LE2BLOCK = prove(
                  memory :> bytes(word_add stackpointer (word 64):int64, 16)] ,,
       MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
                  Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;Q29;Q30;Q31])`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  REWRITE_TAC[C_ARGUMENTS; SOME_FLAGS] THEN
-  ENSURES_INIT_TAC "s0" THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[C_ARGUMENTS]) THEN
-  (* prologue 1..5: X9 = ushr(bit_len,3) = word(16+bl1). *)
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (1--5) THEN
-  MP_TAC(SPEC `bl1:num` USHR_128_8BL_LEMMA) THEN ASM_REWRITE_TAC[] THEN
-  DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th])) THEN
-  (* CTR setup 6..30; AES bulk; tag load+fold (length-agnostic, = 2BLOCK). *)
-  EVERY (map (fun i -> ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (i--i) THEN
-              GCM_SIMD_SIMPLIFY_TAC THEN mk_discard2 [2;3;4;5;6;7]) (6--30)) THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (31--84) THEN mk_discard2 [2;3;4;5;6;7;30] THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (85--173) THEN mk_discard2 [2;3;4;5;6;7;30] THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (174--177) THEN
-  GCM_SIMD_SIMPLIFY_TAC THEN mk_discard2 [2;3;4;5;6;7;30] THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (178--184) THEN mk_discard2 [2;3;4;5;6;7;30] THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (185--254) THEN mk_discard2 [2;3;4;5;6;7;30] THEN
-  GCM_SIMD_SIMPLIFY_TAC THEN
-  (* X5 = ((16+bl1-1) & ~0x7f) + in_p = in_p; cmp x0,x5 / b.ge -> tail. *)
-  MP_TAC(SPEC `bl1:num` X5_ZERO_LEMMA2) THEN ASM_REWRITE_TAC[] THEN
-  DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th]) THEN ASSUME_TAC th) THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[WORD_ADD_0]) THEN
-  ARM_VSTEPS_TAC AESV8_GCM_8X_DEC_256_EXEC [255] THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[INT_SUB_REFL; INT_OF_NUM_EQ]) THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (256--265) THEN mk_discard2 [2;3;4;5;6;30] THEN
-  (* X5 = X4-X0 = word(16+bl1). *)
-  MP_TAC(SPEC `bl1:num` USHR_128_8BL_LEMMA) THEN ASM_REWRITE_TAC[] THEN
-  DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th])) THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[WORD_RULE
-    `word_sub (word_add in_p (word (16 + bl1):int64)) in_p = word (16 + bl1)`]) THEN
-  (* tail eor3 266..269 -> Q12 = block-0 plaintext; abbrev pt0. *)
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (266--269) THEN
-  FIRST_X_ASSUM(MP_TAC o SPEC
-    `word_xor cph0 (aes256_encrypt (ctr0:int128)
-       [k0:int128;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14])`
-    o MATCH_MP (MESON[] `read Q12 s = a ==> !a'. a = a' ==> read Q12 s = a'`)) THEN
-  ANTS_TAC THENL
-   [REWRITE_TAC[aes256_encrypt] THEN REWRITE_TAC EL_15_128_CLAUSES THEN
-    REWRITE_TAC[aes256_encrypt_round; aese; aesmc] THEN
-    CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN CONV_TAC WORD_BLAST; DISCH_TAC] THEN
-  ABBREV_TAC
-    `pt0:int128 = word_xor cph0 (aes256_encrypt (ctr0:int128)
-       [k0:int128;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14])` THEN
-  (* symbolic tail cascade (x5 = word(16+bl1)): #112..#32 fall through, #16 TAKEN
+  (* shared front generator (states 1..269 + pt0-capture), then the band's cascade:
+     symbolic tail cascade (x5 = word(16+bl1)): #112..#32 fall through, #16 TAKEN
      -> more_than_1 (pc+4340).  Same step indices as enc le2block. *)
+  DEC_FRONT_TAC USHR_128_8BL_LEMMA X5_ZERO_LEMMA2 [2;3;4;5;6;7] [2;3;4;5;6;30] 16 0 THEN
   ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (270--270) THEN dec_bl2_resolve 270 112 3808 THEN
   ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (271--282) THEN dec_bl2_resolve 282 96 3856 THEN
   ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (283--290) THEN dec_bl2_resolve 290 80 3888 THEN
