@@ -225,6 +225,30 @@ let ARM_STEPS_FOLD_KEEPGH_TAC exec snums =
   MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN GCM_SIMD_SIMPLIFY_TAC THEN
               DISCARD_OLDSTATE_KEEPGH_TAC s THEN CLARIFY_TAC) (statenames "s" snums);;
 
+(* Q18-ONLY variant for the stores window 271--374: the midacc-capture at s374 needs ONLY
+   `read Q18 s374` (the carried blocks-0-6 GHASH mid); Q16/Q17/Q19 at s392 are re-derived by
+   the tail's own reads.  Keeping all four GH regs alive across ~104 states grows the hyp pile
+   to ~546 (each GCM_SIMD_SIMPLIFY pass rescans it, O(n^2)); protecting only Q18 holds it
+   materially smaller.  Measured: BODY ~846s -> ~678s CPU (same session, same proof).
+   See section 4 of _docs/dec-band-homogenization-convergence-plan.md. *)
+let DISCARD_OLDSTATE_KEEPQ18_TAC s =
+  let v = mk_var(s,`:armstate`) in
+  let rec unbound_statevars_of_read bound tm = match tm with
+      Comb(Comb(Const("read",_),_),st) -> if mem st bound then [] else [st]
+    | Comb(a,b) -> union (unbound_statevars_of_read bound a) (unbound_statevars_of_read bound b)
+    | Abs(vv,t) -> unbound_statevars_of_read (vv::bound) t | _ -> [] in
+  let rec mentions_q18 t = match t with
+      Comb(Comb(Const("read",_),cmp),_) ->
+        (match cmp with Const(n,_) -> n="Q18" | _ -> false)
+    | Comb(a,b) -> mentions_q18 a || mentions_q18 b | Abs(_,t2) -> mentions_q18 t2 | _ -> false in
+  DISCARD_ASSUMPTIONS_TAC(fun thm ->
+    if mentions_q18 (concl thm) then false else
+    let us = unbound_statevars_of_read [] (concl thm) in
+    if us = [] || us = [v] then false else true);;
+let ARM_STEPS_FOLD_KEEPQ18_TAC exec snums =
+  MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN GCM_SIMD_SIMPLIFY_TAC THEN
+              DISCARD_OLDSTATE_KEEPQ18_TAC s THEN CLARIFY_TAC) (statenames "s" snums);;
+
 (* Predicate to DISCARD the GHASH-accumulator reads for states BEFORE s374 (once the blocks-0-6 mid
    at s374 has been captured as `midacc`).  Keeps the hyp pile bounded (~546 -> ~143) while retaining
    the midacc definition (a var-eqn, not a state-read).  See the midacc-capture note below. *)
@@ -285,13 +309,15 @@ let full_le8_tac_front =
    GCM_CTR_INCk_LANES + aes unfold + WORD_BLAST (pt0 = front's pt0 abbrev). The masked block-7
    handling (X1_MOD128, Q9->cphm, pt7 capture) is done in full_le8_tac_tail starting AT s392. *)
 let full_le8_tac_stores =
-  (* MIDACC-CAPTURE: KEEPGH to s374 (the LAST v18 mid-write, blocks-0-6 GHASH mid), abbreviate
+  (* MIDACC-CAPTURE: KEEPQ18 to s374 (the LAST v18 mid-write, blocks-0-6 GHASH mid), abbreviate
      midacc = read Q18 s374 (the expanded 15-pmul blocks-0-6 mid), then DISCARD the pre-s374 GHASH
-     reads (hyp pile 546 -> 143, midacc def survives), then KEEPGH the rest of the stores window
-     375-392.  This materializes the machine's carried GHASH mid so the reduced Q19 at the bridge is
+     reads (midacc def survives), then KEEPGH the rest of the stores window 375-392.  Only Q18 is
+     needed live to s374 (the midacc capture); Q16/Q17/Q19 at s392 are re-derived by the tail's own
+     reads — the Q18-only stepper keeps the hyp pile materially smaller (BODY ~846s -> ~678s).
+     This materializes the machine's carried GHASH mid so the reduced Q19 at the bridge is
      a CLOSED word term (no opaque `read Q18 s400`).  Without this the whole-8 tail cannot resolve the
      main-loop mid.  See the multi-session root-cause in project_le8block_wip memory. *)
-  ARM_STEPS_FOLD_KEEPGH_TAC AESV8_GCM_8X_DEC_256_EXEC (271--374) THEN
+  ARM_STEPS_FOLD_KEEPQ18_TAC AESV8_GCM_8X_DEC_256_EXEC (271--374) THEN
   ABBREV_TAC `midacc:int128 = read Q18 s374` THEN
   DISCARD_ASSUMPTIONS_TAC discard_ghreg_before_374 THEN
   ARM_STEPS_FOLD_KEEPGH_TAC AESV8_GCM_8X_DEC_256_EXEC (375--392) THEN
