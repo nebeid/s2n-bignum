@@ -393,7 +393,7 @@ let AESV8_GCM_8X_DEC_256_LE2BLOCK = prove(
   ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (310--313) THEN
   bl2_resolve_pc16_taken 313 4340 THEN dec_bl2_resolve_stale THEN
   (* more_than_1 block-0: st1 v12 stores pt0 to out_p; capture readback. *)
-  ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_EXEC (314--320) THEN
+  ARM_STEPS_FOLD_DISCARD_TAC AESV8_GCM_8X_DEC_256_EXEC (314--320) THEN
   SUBGOAL_THEN `read (memory :> bytes128 out_p) (s320:armstate) = pt0`
     ASSUME_TAC THENL
    [ASM_REWRITE_TAC[] THEN EXPAND_TAC "pt0" THEN
@@ -402,7 +402,7 @@ let AESV8_GCM_8X_DEC_256_LE2BLOCK = prove(
     CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
   DISCARD_OLDSTATE_TAC "s320" THEN
   (* block-1 eor3 321..328 -> Q12 = block-1 plaintext; abbrev pt1. *)
-  ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_EXEC (321--328) THEN
+  ARM_STEPS_FOLD_DISCARD_TAC AESV8_GCM_8X_DEC_256_EXEC (321--328) THEN
   FIRST_X_ASSUM(MP_TAC o SPEC
     `word_xor cph1 (aes256_encrypt (gcm_ctr_inc ctr0:int128)
        [k0:int128;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14])`
@@ -417,13 +417,13 @@ let AESV8_GCM_8X_DEC_256_LE2BLOCK = prove(
        [k0:int128;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14])` THEN
   DISCARD_OLDSTATE_TAC "s328" THEN
   (* into less_than_1: X1 = (128+8*bl1) AND 0x7f, bridge to (8*bl1) AND 0x7f. *)
-  ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_EXEC (329--335) THEN
+  ARM_STEPS_FOLD_DISCARD_TAC AESV8_GCM_8X_DEC_256_EXEC (329--335) THEN
   DISCARD_OLDSTATE_TAC "s335" THEN mk_discard2 [1;2;3;4;5;6;7] THEN
   MP_TAC(SPEC `bl1:num` X1_MOD128_BRIDGE) THEN ASM_REWRITE_TAC[] THEN
   DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th])) THEN
   (* less_than_1 mask region 336..350: collapse Q9 to word_and cph1 MK, and
      re-assert Q12 = the masked-blend so the block-1 store readback is captured. *)
-  ARM_VSTEPS_RESOLVE_SIMD_TAC AESV8_GCM_8X_DEC_256_EXEC (336--350) THEN
+  ARM_STEPS_RESOLVE_SIMD_DISCARD_TAC AESV8_GCM_8X_DEC_256_EXEC (336--350) THEN
   FIRST_X_ASSUM(MP_TAC o SPEC `word_and cph1 (word (2 EXP (8 * bl1) - 1)):int128`
     o MATCH_MP (MESON[] `read Q9 s = a ==> !a'. a = a' ==> read Q9 s = a'`)) THEN
   REWRITE_TAC[INSERT2_JOIN] THEN
@@ -442,7 +442,7 @@ let AESV8_GCM_8X_DEC_256_LE2BLOCK = prove(
     DISCH_TAC] THEN
   (* block-1 GHASH multiply over the masked block + store pt1-masked to out_p+16
      + single Prop3 reduction; capture the masked store readback before discards. *)
-  ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_EXEC (351--363) THEN
+  ARM_STEPS_FOLD_DISCARD_TAC AESV8_GCM_8X_DEC_256_EXEC (351--363) THEN
   SUBGOAL_THEN
     `read (memory :> bytes128 (word_add out_p (word 16))) (s363:armstate) =
      word_xor (word_and (pt1:int128) (word (2 EXP (8 * bl1) - 1)))
