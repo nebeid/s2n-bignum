@@ -10,10 +10,10 @@
    2-block proof (DEC_2BLK_GMULT2_BRIDGE_TAC, parameterised over the block-1
    ciphertext atom).
 
-   Requires arm/proofs/aesv8_gcm_8x_dec_256_2block.ml loaded (EXEC rule, the
-   GMULT2 bridge + GMULT2_FULL_CORRECT_BA + MERGE_2BLK + helpers) and the dec
-   1-block file (MASK_LEMMA / BLEND_OR_XOR / INSERT2_JOIN / bl_resolve machinery /
-   X5_ZERO_LEMMA / USHR_8BL_LEMMA / AESV8_GCM_8X_DEC_256_LE1BLOCK).
+   Requires arm/proofs/aesv8_gcm_8x_dec_256_le1block.ml loaded, which pulls in
+   core (EXEC rule, the GMULT2 bridge + GMULT2_FULL_CORRECT_BA + MERGE_2BLK +
+   helpers) and itself provides the masked-tail lemmas (MASK_LEMMA /
+   BLEND_OR_XOR / INSERT2_JOIN) and AESV8_GCM_8X_DEC_256_LE1BLOCK.
 
    Scalable: the masked-tail spec is aes_ctr_full_tail_bytes at nfull=1, tail=bl1,
    bridged to byte_list_at by the generic BYTE_LIST_AT_NBLOCK_CTR (which is
@@ -22,7 +22,7 @@
    No CHEAT_TAC, no new axioms.
    ============================================================================ *)
 
-needs "arm/proofs/aesv8_gcm_8x_dec_256_2block.ml";;
+needs "arm/proofs/aesv8_gcm_8x_dec_256_le1block.ml";;
 
 (* ---- symbolic-bit_len helper lemmas (2-block band: bit_len = 128 + 8*bl1) ---- *)
 
@@ -172,7 +172,7 @@ let dec_bl2_resolve_stale =
    (steps 270.., per-band resolver rungs) is appended by the caller — the rung
    structure (fall/boundary/taken placement) genuinely differs per byte-length.
    The le1 band (1..16 bytes, NO full blocks) never enters the more_than_k path,
-   so its front in aesv8_gcm_8x_dec_256_1block.ml stays separate by design.
+   so its front in aesv8_gcm_8x_dec_256_le1block.ml stays separate by design.
    See STEP C of _docs/dec-band-homogenization-convergence-plan.md. *)
 let keys15 = `[k0:int128;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]`;;
 
