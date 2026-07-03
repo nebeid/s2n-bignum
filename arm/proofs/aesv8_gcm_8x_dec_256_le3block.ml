@@ -436,39 +436,13 @@ let BRIDGE_CLOSE_TAC : tactic = fun (asl,w) ->
    REWRITE_TAC[JOIN_EQ_SPLIT] THEN CONJ_TAC THEN LANE_FINISH_TAC)
   (asl,w);;
 
-(* ---- the full proof tactic, in 3 stages ---- *)
-let keys15 = `[k0:int128;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]`;;
+(* ---- the full proof tactic, in 3 stages.  keys15 + the shared front generator
+   DEC_FRONT_TAC (STEP C) are defined in le2block.ml (first band on the more_than_k
+   path); each band passes its length/x5 lemmas, discard lists, in_p offset and
+   ks-abbrev count, then appends its own cascade rungs. ---- *)
 
 let full_le3_tac_front =
-  REPEAT GEN_TAC THEN STRIP_TAC THEN REWRITE_TAC[C_ARGUMENTS;SOME_FLAGS] THEN
-  ENSURES_INIT_TAC "s0" THEN RULE_ASSUM_TAC(REWRITE_RULE[C_ARGUMENTS]) THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (1--5) THEN
-  MP_TAC(SPEC `bl1:num` USHR_256_8BL_LEMMA) THEN ASM_REWRITE_TAC[] THEN
-    DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th])) THEN
-  EVERY(map (fun i -> ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (i--i) THEN
-             GCM_SIMD_SIMPLIFY_TAC THEN mk_discard2 [3;4;5;6;7]) (6--30)) THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (31--84) THEN mk_discard2 [3;4;5;6;7;30] THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (85--173) THEN mk_discard2 [3;4;5;6;7;30] THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (174--177) THEN GCM_SIMD_SIMPLIFY_TAC THEN mk_discard2 [3;4;5;6;7;30] THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (178--184) THEN mk_discard2 [3;4;5;6;7;30] THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (185--254) THEN mk_discard2 [3;4;5;6;7;30] THEN GCM_SIMD_SIMPLIFY_TAC THEN
-  MP_TAC(SPEC `bl1:num` X5_ZERO_LEMMA3) THEN ASM_REWRITE_TAC[] THEN
-    DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th]) THEN ASSUME_TAC th) THEN
-    RULE_ASSUM_TAC(REWRITE_RULE[WORD_ADD_0]) THEN
-  ARM_VSTEPS_TAC AESV8_GCM_8X_DEC_256_EXEC [255] THEN
-    RULE_ASSUM_TAC(REWRITE_RULE[INT_SUB_REFL; INT_OF_NUM_EQ]) THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (256--265) THEN mk_discard2 [3;4;5;6;30] THEN
-  MP_TAC(SPEC `bl1:num` USHR_256_8BL_LEMMA) THEN ASM_REWRITE_TAC[] THEN
-    DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th])) THEN
-    RULE_ASSUM_TAC(REWRITE_RULE[WORD_RULE
-      `word_sub (word_add in_p (word (32 + bl1):int64)) in_p = word (32 + bl1)`]) THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (266--269) THEN
-  FIRST_X_ASSUM(MP_TAC o SPEC (mk_comb(mk_comb(`word_xor:int128->int128->int128`,`cph0:int128`),mk_comb(mk_comb(`aes256_encrypt`,`ctr0:int128`),keys15)))
-    o MATCH_MP (MESON[] `read Q12 s = a ==> !a'. a = a' ==> read Q12 s = a'`)) THEN
-  ANTS_TAC THENL
-   [REWRITE_TAC[aes256_encrypt] THEN REWRITE_TAC EL_15_128_CLAUSES THEN
-    REWRITE_TAC[aes256_encrypt_round; aese; aesmc] THEN CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN CONV_TAC WORD_BLAST; DISCH_TAC] THEN
-  ABBREV_TAC (mk_eq(`pt0:int128`, mk_comb(mk_comb(`word_xor:int128->int128->int128`,`cph0:int128`),mk_comb(mk_comb(`aes256_encrypt`,`ctr0:int128`),keys15)))) THEN
+  DEC_FRONT_TAC USHR_256_8BL_LEMMA X5_ZERO_LEMMA3 [3;4;5;6;7] [3;4;5;6;30] 32 0 THEN
   ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (270--270) THEN dec_bl3_resolve 270 112 3808 THEN
   ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (271--282) THEN dec_bl3_resolve 282 96 3856 THEN
   ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_EXEC (283--290) THEN dec_bl3_resolve 290 80 3888 THEN
