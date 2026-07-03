@@ -1,6 +1,22 @@
 # AES-256-GCM decrypt band homogenization & Mila-convergence plan
 
-Status: **plan only** (2026-07-03). All seven decrypt bands `le2block`..`le8block`
+Status: **STEPS A–C + le8 optimization EXECUTED** (2026-07-03, same day as plan).
+- STEP A (b3b9499e): FOLD_MID_HPOW machinery promoted to le3block; le4–le7's
+  fragile whole-term-keyed folds replaced by uniform `FOLD_MID_HPOW "Hk"`.
+- le8 Q18-only stores (1f9bb255): `ARM_STEPS_FOLD_KEEPQ18_TAC` over 271–374;
+  le8 loadt 853s -> 687s (~20%).
+- STEP B (b51229e4): all five bridge closers = one-line instantiations of
+  `DEC_BRIDGE_CLOSE_TAC nblk sN gmult_ba spec_bf extra_fix` (in le3block);
+  `dec_bridge_specl` verified concl-equal to the hand SPECL at N=8.
+- STEP C (7e24ce48 + 055c8ac8): `DEC_FRONT_TAC ushr x5 disc disc2 inoff nks`
+  hosted in le2block; ALL more_than_k bands le2..le8 use it (le1 has no full
+  blocks / never enters more_than_k, so keeps its own front by design).
+  Cascade rungs stay per-band (structurally length-dependent).
+Every commit chain-verified: hyps=0, axioms()=3, no cheats, no slowdown.
+STEP D (3-layer dispatch + Mila D2/D4 spec convergence) remains OPEN — it
+requires coordinating file layout/spec vocabulary with Mila's branch.
+
+Original plan follows.  All seven decrypt bands `le2block`..`le8block`
 (17–128 B, nfull=1..7) are PROVED + loadt-clean (axioms()=3, hyps=0, no cheats).
 This doc records how to homogenize them into ONE recognizable pattern that is *not
 slower*, and how that pattern aligns with Mila's live encrypt branch
