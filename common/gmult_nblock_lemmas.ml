@@ -17,8 +17,13 @@
    Verified: build_GMULTn_fast 2 / 3 reproduce the old hand-written
    GMULT2_FULL_CORRECT_BA / GMULT3_FULL_CORRECT_BA concl EXACTLY.
 
-   needs the common nblock GHASH layer (PMUL_KARATSUBA / GMULT_REDUCE_PROP3 /
-   KARATSUBA_LIMBS) and HOL Light core word lemmas (WORD_ZX_XOR / WORD_SHL_XOR).
+   SELF-CONTAINED: needs only the common nblock GHASH layer (PMUL_KARATSUBA /
+   KARATSUBA_LIMBS from common/ghash_nblock_karatsuba.ml); the shared Prop3
+   reduction lemma GMULT_REDUCE_PROP3 (+ its V0LO helper) is proved HERE so the
+   file loads correctly in ANY order.  (It was previously proved only inside
+   the dec proof chain, which armed a load-order landmine: loading this file
+   first failed with Unbound GMULT_REDUCE_PROP3, `needs` still marked it
+   loaded, and the eventual caller died with Unbound build_GMULTn_fast.)
    ============================================================================ *)
 
 needs "common/ghash_nblock_karatsuba.ml";;
@@ -29,6 +34,36 @@ let WORD_XOR_ACI = WORD_RULE
   `(!x y:N word. word_xor x y = word_xor y x) /\
    (!x y z:N word. word_xor (word_xor x y) z = word_xor x (word_xor y z)) /\
    (!x y z:N word. word_xor x (word_xor y z) = word_xor y (word_xor x z))`;;
+
+(* Helper: the low 64-bit lane of v0 = word_join aa bb XOR wa.  Used to make
+   the GMULT and Prop3 `word_pmul _ W` atoms syntactically identical (pmul is
+   opaque to BITBLAST, so the two wv-inputs must match before the lane blast). *)
+let V0LO = prove(
+  `!aa bb:64 word. !wa:int128.
+     word_subword (word_xor (word_join aa bb:int128) wa) (0,64):64 word =
+     word_xor bb (word_subword wa (0,64):64 word)`,
+  REPEAT GEN_TAC THEN BITBLAST_TAC);;
+
+(* The shared Prop3 reduction: the GMULT/assembly W-reduction byteform over an
+   abstract 256-bit accumulator t equals polyval_reduce_prop3 t.  aa/bb/cc/dd
+   are t's four 64-bit lanes; w = 0xC200000000000000.  Reusable at any block
+   count (the N-block loop reduces the accumulated 256-bit sum exactly once). *)
+let GMULT_REDUCE_PROP3 = prove(
+  `!t:256 word.
+     let aa = word_subword t (0,64):64 word in
+     let bb = word_subword t (64,64):64 word in
+     let cc = word_subword t (128,64):64 word in
+     let dd = word_subword t (192,64):64 word in
+     let w = word 13979173243358019584:64 word in
+     let wa:int128 = word_pmul aa w in
+     let v0:int128 = word_xor (word_join aa bb) wa in
+     let wv:int128 = word_pmul (word_subword v0 (0,64):64 word) w in
+     word_xor wv (word_xor (byteswap128 v0) (word_join dd cc)) = polyval_reduce_prop3 t`,
+  GEN_TAC THEN REWRITE_TAC[polyval_reduce_prop3; LET_DEF; LET_END_DEF] THEN
+  REWRITE_TAC[V0LO] THEN
+  ABBREV_TAC `wa:int128 = word_pmul (word_subword (t:256 word) (0,64):64 word) (word 13979173243358019584:64 word)` THEN
+  ABBREV_TAC `wv:int128 = word_pmul (word_xor (word_subword (t:256 word) (64,64):64 word) (word_subword (wa:int128) (0,64):64 word)) (word 13979173243358019584:64 word)` THEN
+  REWRITE_TAC[byteswap128] THEN BITBLAST_TAC);;
 
 let mk_sub v lo = mk_comb(mk_comb(`word_subword:int128->num#num->64 word`, v), mk_pair(mk_small_numeral lo,`64`));;
 let blk_lo k =
