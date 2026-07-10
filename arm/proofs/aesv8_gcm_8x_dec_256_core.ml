@@ -30,6 +30,10 @@ needs "arm/proofs/utils/aes.ml";;
 needs "arm/proofs/utils/aes_encrypt_spec.ml";;
 needs "common/karatsuba_pmul.ml";;
 needs "common/polyval_ghash.ml";;
+needs "common/ghash_nblock_karatsuba.ml";;
+needs "common/gmult_nblock_lemmas.ml";;
+needs "arm/proofs/utils/gcm_ctr_helpers.ml";;
+needs "arm/proofs/utils/aes_ctr_spec.ml";;
 
 
 
@@ -1821,15 +1825,11 @@ let FINISH_WV_REDUCE_TAC : tactic =
 (* N-block GHASH bridge infrastructure (formerly aesv8_gcm_8x_dec_256_        *)
 (* 2block.ml), used by the le2..le8 bands.                                    *)
 (*                                                                            *)
-(* These library layers must load AFTER the lemma layer above:                *)
-(* gmult_nblock_lemmas.ml's build_GMULTn_fast references KARATSUBA_LIMBS and  *)
-(* GMULT_REDUCE_PROP3, which are proved in THIS file (mid-core), so a top-of- *)
-(* file needs would hit Unbound value.                                        *)
+(* All library needs are at the top of this file: gmult_nblock_lemmas.ml is   *)
+(* SELF-CONTAINED (it proves its own GMULT_REDUCE_PROP3/V0LO), so load order  *)
+(* no longer matters.  The V0LO/GMULT_REDUCE_PROP3 definitions earlier in     *)
+(* this file harmlessly shadow the identical library ones.                    *)
 (* ========================================================================= *)
-needs "common/ghash_nblock_karatsuba.ml";;
-needs "common/gmult_nblock_lemmas.ml";;
-needs "arm/proofs/utils/gcm_ctr_helpers.ml";;
-needs "arm/proofs/utils/aes_ctr_spec.ml";;
 (* ========================================================================= *)
 (* Helper lemmas for the 2-product GHASH bridge (copied verbatim from the      *)
 (* encrypt 2-block proof; they are byte-form-agnostic so transfer unchanged).  *)
