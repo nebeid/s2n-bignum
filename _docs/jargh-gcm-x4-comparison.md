@@ -1,10 +1,12 @@
 # John Harrison's AES-128-GCM x4 proof vs our decrypt bands vs Mila's encrypt tail
 
-Date: 2026-07-10.  Sources compared:
+Date: 2026-07-10; **updated 2026-07-13** (§7: his branch advanced to 3d449993 —
+21 of 23 variants proved, incl. fast_tail whose remainder-dispatch technique is
+directly relevant to our band structure).  Sources compared:
 
 | effort | repo/branch (tip) | binary | proof target |
 |---|---|---|---|
-| **JRH** | `jargh/s2n-bignum-dev` branch `gcm` (c491a04c, 2026-07-10) | `arm/aes_gcm/aes_gcm_enc_kernel_x4_basic.S` — Hanno Becker's "clean" (non-interleaved, SLOTHY-input) AES-128-GCM, 4x unrolled | **encrypt**, ANY whole-block length (two genuine loops) |
+| **JRH** | `jargh/s2n-bignum-dev` branch `gcm` (c491a04c, 2026-07-10; §7 updates to 3d449993, 2026-07-12) | `arm/aes_gcm/aes_gcm_enc_kernel_x4_basic.S` — Hanno Becker's "clean" (non-interleaved, SLOTHY-input) AES-128-GCM, 4x unrolled | **encrypt**, ANY whole-block length (two genuine loops) |
 | **ours** | this repo, branch `aes-gcm-nblock-tail` (9e534058) | `arm/aes-gcm/aesv8_gcm_8x_dec_256.o` — aws-lc `aesv8-gcm-armv8-unroll8.S`, production 8x interleaved | **decrypt**, tail path ≤128B (bands le1..le8, straight-line after cascade) |
 | **Mila** | `mila/aes256_gcm_tail` (14154e49, 2026-06-30) | `arm/aes-gcm/aes256_gcm.S` — her own clean AES-256-GCM binary | **encrypt**, ≤128B dispatch (LT_0..LT_8BLOCK_CONCRETE) |
 | shared | `common/polyval_ghash.ml` is **byte-identical** in all three lineages; JRH's `common/ghash_nist_bridge.ml` is byte-identical to Mila's | | |
@@ -229,8 +231,8 @@ dual_acc_keep_htable, scalar_iv) reuse the x4_basic proof with only machine-code
 PC constants + step counts changed (~585 diff lines vs basic for ilp, mostly the mc
 literal).  That's the same "one recognizable pattern, re-instantiated" philosophy as our
 STEP A-C generators and Mila's closers — at the granularity of whole proofs, enabled by
-the variants sharing one control-flow skeleton.  16 more variants imported but not yet
-proved (fast_tail, scalar_iv_mem*, rotate, reload_round_keys...).
+the variants sharing one control-flow skeleton.  (As of the 2026-07-13 update this
+has scaled to 21 of 23 variants — see §7.)
 
 ---
 
@@ -284,8 +286,8 @@ and needs his loop discipline for the rest.
    mask, MASK_LEMMA/BLEND_OR_XOR, byte_list_at weakening) is what their family needs for
    the `len_bits` not-multiple-of-128 case (their kernels currently spec whole blocks
    only), and our aws-lc-binary work covers the interleaved-production-code case SLOTHY
-   variants sidestep.  Also the fast_tail variants (unproved as of c491a04c) will need
-   cascade-resolver machinery like our `dec_blN_resolve` rungs.
+   variants sidestep.  (The fast_tail prediction is resolved — he proved it on
+   2026-07-12 with an exhaustive-cases dispatch rather than resolver rungs; §7.)
 
 ---
 
@@ -301,3 +303,76 @@ and needs his loop discipline for the rest.
 - Mila comparison references: memory `project_ghash_approach_vs_mila`,
   `_docs/gcm-spec-divergence-from-mila-handback.md`,
   `_docs/dec-band-homogenization-convergence-plan.md` §2.
+
+---
+
+## 7. Update 2026-07-13: branch advanced to 3d449993 (2026-07-12)
+
+Fourteen more variants proved in two days (c491a04c → 3d449993): scalar_iv2,
+scalar_iv_mem(2), reload_round_keys_{partial,full}, the scalar_iv_mem*_late_tag*
+family, keep_htable_scalar_rk combinations, and — most relevant to us — **fast_tail**
+and **scalar_iv_mem2_late_tag_fast_tail**.  Now **21 of 23** variants carry proofs;
+only `keep_htable_rotate` and one deep scalar_rk combination remain.  Local copies
+added: `_docs/jargh_gcm/aes_gcm_enc_kernel_x4_fast_tail.ml`,
+`..._scalar_iv_mem.ml`.
+
+The pace itself is a datapoint: each variant proof is the x4_basic skeleton with
+control-flow constants adjusted plus one or two variant-specific tactics — evidence
+that the "one recognizable pattern, re-instantiated" structure amortizes hard.
+
+### 7.1 fast_tail — his version of OUR problem (and the reverse of our answer)
+
+fast_tail replaces the basic tail *loop* with a fully unrolled 3-way remainder
+dispatch (`cmp/b.eq` to straight-line `Lremainder_1/2/3` blocks converging on a
+shared `Lend` writeback) — structurally the same shape as our band cascade.  §5.6
+predicted he'd need resolver-rung machinery like our `dec_blN_resolve`; he didn't:
+
+- `loop_remain < 4` is *derived* (`nblocks MOD 4`), then an exhaustive
+  `r = 0 \/ 1 \/ 2 \/ 3` case split makes each dispatch path a **concrete-constant**
+  straight-line simulation (51/85/119 steps) — the branches resolve by computation,
+  no symbolic-comparison rungs needed.  Our cascade rungs exist because our dispatch
+  variable (byte length, `16k+bl1` with symbolic `bl1`) stays symbolic through the
+  cmp cascade; his is a small finite enum.  Two regimes, both now demonstrated:
+  symbolic-length band (ours/Mila's) vs exhaustive-enum remainder (his).
+- **Split-at-Lend**: an `ENSURES_SEQUENCE_TAC` at the shared writeback PC carrying
+  `Q11 = byteswap128(nist_ghash …)` as a *register* invariant, so the three
+  remainder paths each just re-establish the clean accumulator and one shared
+  segment proves the writeback.  This is the convergent-exit analog of our bands
+  all bridging at the same `eor v19,v19,v18` state — but done as an explicit
+  sequence point rather than per-band repetition of the post-bridge steps.  Worth
+  copying if we ever unify our per-band post-bridge (rev64+st1+FINAL_STATE) tails.
+- `TAG_STORE_REV64`/`IVEC_STORE_REV32`: the final store bit-permutations proved
+  as standalone lemmas over an *opaque* operand, applied after abbreviation —
+  same philosophy as our BREV_JOIN_REV8-on-`gval` move (abbreviate the compound
+  term BEFORE the byte-permutation blast).  Independent confirmation of the trick.
+- His htable-reload gotcha (expand `htable_mem_4` into per-cell reads BEFORE
+  stepping, else the ldr goes stale and DISCARD erases the accumulator) is the
+  mirror of our le8 KEEPGH/midacc lesson: named memory predicates must be unpacked
+  ahead of loads that the discard machinery would otherwise orphan.
+
+### 7.2 Other techniques worth noting
+
+- **MERGE_CTR128_TAC** (scalar_iv_mem): the simulator doesn't merge two 64-bit
+  `stp` stores into a later 128-bit `ldr`; a 3-line tactic derives the joined
+  `bytes128` read from `READ_MEMORY_BYTESIZED_SPLIT` at each site.  Remember this
+  for any future binary that round-trips values through the stack (our dec binary's
+  `stp x5,xzr,[sp,64]` Prop3-constant store is currently handled by disjointness,
+  but a store-then-vector-reload pattern would need exactly this).
+- **reload_round_keys_partial**: loop invariants assert transient keys as
+  *key-memory cells* (`read (bytes128 (key_p+16k)) s = rev8 (EL k rk)`) instead of
+  registers — the invariant-shape answer for values that don't stay resident.
+  Directly applicable when our whole-binary proof meets the aws-lc main loop's
+  register pressure.
+
+### 7.3 Impact on the earlier sections
+
+- §4 table: "16 more variants imported but unproved" → 21/23 proved (row otherwise
+  unchanged; still AES-128, whole blocks only, encrypt, clean kernels).
+- §5.6: the "they'll need our cascade machinery for fast_tail" offer is dead —
+  replaced by the sharper observation that exhaustive-enum dispatch suffices when
+  the remainder domain is tiny; our symbolic-`bl1` bands remain the technique for
+  byte-granular lengths (his kernels still have no partial-block path, so that
+  offer stands).
+- §5.1 (loop template) unchanged and reinforced: the same skeleton has now absorbed
+  stack-assembled counters, transient round keys, and unrolled tails without
+  structural change.
