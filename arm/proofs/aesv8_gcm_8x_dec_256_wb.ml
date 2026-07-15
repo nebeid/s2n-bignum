@@ -1512,3 +1512,254 @@ let AESV8_GCM_8X_DEC_256_WB_1BLOCK = prove(
   [EXPAND_TAC "gval" THEN AP_TERM_TAC THEN REWRITE_TAC[GHASH_1BLOCK_CORRECT];
    REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
    REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC THEN ASM_REWRITE_TAC[]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* The WB 2-block bridge close: DEC_2BLK_GMULT2_BRIDGE_TAC (core.ml) with
+   karatsuba_mid unfolded first (htable_mem_dec presents the hk slot as
+   word_join (karatsuba_mid h2) (karatsuba_mid h); the merge needs the
+   expanded subword form to pair machine mids with spec mids). *)
+let WB2_GMULT2_BRIDGE_TAC : tactic =
+  let a0t = `word_xor (word_bytereverse xi) (word_bytereverse cph0):int128`
+  and a1t = `word_bytereverse cph1:int128` in
+  let gmult2_dec = REWRITE_RULE[LET_DEF;LET_END_DEF]
+    (SPECL [a0t; `byteswap128 h2:int128`; a1t; `byteswap128 h:int128`] GMULT2_FULL_CORRECT_BA) in
+  let r1def = `word_xor (word_xor (word_shl (word_zx (wal:64 word):128 word) 63) (word_shl (word_zx wal:128 word) 62)) (word_shl (word_zx wal:128 word) 57)` in
+  let udef = `word_xor (word_subword (r1:128 word) (0,64):64 word) (word_xor (word_xor qq1h qq6h) (word_xor (word_xor qq0l (word_xor qq1l qq4l)) (word_xor qq5l (word_xor qq10l qq6l))))` in
+  FIRST_ASSUM(fun th ->
+    if (try lhs(concl th)=`byteswap128 h2` with _->false)
+    then GEN_REWRITE_TAC RAND_CONV
+           [REWRITE_RULE[GSYM gmult2_dec]
+             (GEN_REWRITE_RULE (RAND_CONV o ONCE_DEPTH_CONV) [GSYM th]
+               (SPECL [`byteswap128 h:int128`; `word_bytereverse xi:int128`;
+                       `word_bytereverse cph0:int128`; `word_bytereverse cph1:int128`]
+                 GHASH_POLYVAL_ACC_2))]
+    else NO_TAC) THEN
+  REWRITE_TAC[WORD_XOR_0; WORD_XOR_0_LEFT] THEN
+  REWRITE_TAC[byteswap128] THEN
+  REWRITE_TAC[WORD_BYTEREVERSE_REVERSEFIELDS] THEN
+  REWRITE_TAC[WORD_INSERT_SUBWORD; WORD_SUBWORD_SUBWORD] THEN
+  REWRITE_TAC[SUBWORD_XOR_JOIN_DIST] THEN
+  REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; RF8_SUBWORD] THEN
+  REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES] THEN
+  REWRITE_TAC[karatsuba_mid] THEN
+  ABBREV_INNER_PMULS_TAC THEN MERGE_2BLK_TAC THEN
+  REWRITE_TAC[PMUL_W_64_128] THEN REWRITE_TAC[JOINMID] THEN
+  REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
+  EVERY (map (fun a ->
+    let av = mk_var(a,`:int128`) in
+    ABBREV_TAC (mk_eq(mk_var(a^"l",`:64 word`), mk_comb(mk_comb(`word_subword:int128->num#num->64 word`, av), `(0,64)`))) THEN
+    ABBREV_TAC (mk_eq(mk_var(a^"h",`:64 word`), mk_comb(mk_comb(`word_subword:int128->num#num->64 word`, av), `(64,64)`))))
+    ["qq0";"qq1";"qq4";"qq5";"qq6";"qq10"]) THEN
+  ABBREV_TAC `wal:64 word = word_xor qq1l qq6l` THEN
+  REWRITE_TAC[DEC2_WXSYM] THEN
+  FIRST_ASSUM(fun th -> if (try rhs(concl th)=`wal:64 word` && lhs(concl th)=`word_xor qq1l qq6l:64 word` with _->false) then REWRITE_TAC[th] else NO_TAC) THEN
+  ABBREV_TAC (mk_eq(`r1:128 word`, r1def)) THEN
+  SUBGOAL_THEN
+   `word_xor (word_xor (word_subword (word_shl (word_zx (wal:64 word):128 word) 63) (0,64):64 word) (word_subword (word_shl (word_zx wal:128 word) 62) (0,64):64 word)) (word_subword (word_shl (word_zx wal:128 word) 57) (0,64):64 word) = word_subword (r1:128 word) (0,64):64 word`
+   (fun th -> REWRITE_TAC[th]) THENL [EXPAND_TAC "r1" THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
+  SUBGOAL_THEN
+   `word_xor (word_xor (word_subword (word_shl (word_zx (wal:64 word):128 word) 63) (64,64):64 word) (word_subword (word_shl (word_zx wal:128 word) 62) (64,64):64 word)) (word_subword (word_shl (word_zx wal:128 word) 57) (64,64):64 word) = word_subword (r1:128 word) (64,64):64 word`
+   (fun th -> REWRITE_TAC[th]) THENL [EXPAND_TAC "r1" THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
+  SUBGOAL_THEN
+   `word_xor (word_subword (word_shl (word_zx (wal:64 word):128 word) 57) (0,64):64 word) (word_xor (word_subword (word_shl (word_zx wal:128 word) 62) (0,64):64 word) (word_subword (word_shl (word_zx wal:128 word) 63) (0,64):64 word)) = word_subword (r1:128 word) (0,64):64 word`
+   (fun th -> REWRITE_TAC[th]) THENL [EXPAND_TAC "r1" THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
+  SUBGOAL_THEN
+   `word_xor (word_subword (word_shl (word_zx (wal:64 word):128 word) 57) (64,64):64 word) (word_xor (word_subword (word_shl (word_zx wal:128 word) 62) (64,64):64 word) (word_subword (word_shl (word_zx wal:128 word) 63) (64,64):64 word)) = word_subword (r1:128 word) (64,64):64 word`
+   (fun th -> REWRITE_TAC[th]) THENL [EXPAND_TAC "r1" THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
+  ABBREV_TAC (mk_eq(`u:64 word`, udef)) THEN
+  SUBGOAL_THEN
+   `word_xor (word_xor (word_xor qq10l qq4l) (word_xor wal (word_xor qq0l qq5l))) (word_xor (word_xor qq1h qq6h) (word_subword (r1:128 word) (0,64):64 word)) = u`
+   (fun th -> REWRITE_TAC[th]) THENL [MAP_EVERY EXPAND_TAC ["u";"wal"] THEN CONV_TAC WORD_RULE; ALL_TAC] THEN
+  SUBGOAL_THEN
+   `word_xor (word_subword (r1:128 word) (0,64):64 word) (word_xor (word_xor qq1h qq6h) (word_xor (word_xor qq0l (word_xor qq1l qq4l)) (word_xor qq5l (word_xor qq10l qq6l)))) = u`
+   (fun th -> REWRITE_TAC[th]) THENL [EXPAND_TAC "u" THEN CONV_TAC WORD_RULE; ALL_TAC] THEN
+  ABBREV_TAC `us57:128 word = word_shl (word_zx (u:64 word):128 word) 57` THEN
+  ABBREV_TAC `us62:128 word = word_shl (word_zx (u:64 word):128 word) 62` THEN
+  ABBREV_TAC `us63:128 word = word_shl (word_zx (u:64 word):128 word) 63` THEN
+  GEN_REWRITE_TAC ONCE_DEPTH_CONV [QQ0SPLIT] THEN
+  REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
+  REWRITE_TAC[JOIN_EQ_SPLIT] THEN CONJ_TAC THEN LANE_CLOSE_TAC;;
+
+(* ------------------------------------------------------------------------- *)
+(* AESV8_GCM_8X_DEC_256_WB_2BLOCK: whole-blocks dec variant, bit_len=256.     *)
+(* ------------------------------------------------------------------------- *)
+let AESV8_GCM_8X_DEC_256_WB_2BLOCK = prove(
+ `!pc stackpointer out_p xi_p ivec_p in_p key_p htbl_p
+    cph0 cph1 xi ctr0 k0 k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13 k14 h.
+    aligned 16 stackpointer /\
+    nonoverlapping (word pc, 4560) (stackpointer:int64, 80) /\
+    nonoverlapping (word pc, 4560) (out_p:int64, 32) /\
+    nonoverlapping (word pc, 4560) (xi_p:int64, 16) /\
+    nonoverlapping (word pc, 4560) (ivec_p:int64, 16) /\
+    nonoverlapping (out_p, 32) (xi_p, 16) /\
+    nonoverlapping (out_p, 32) (ivec_p, 16) /\
+    nonoverlapping (xi_p, 16) (ivec_p, 16) /\
+    nonoverlapping (ivec_p, 16) (in_p:int64, 32) /\
+    nonoverlapping (ivec_p, 16) (key_p:int64, 240) /\
+    nonoverlapping (ivec_p, 16) (htbl_p:int64, 192) /\
+    nonoverlapping (in_p, 32) (stackpointer, 80) /\
+    nonoverlapping (key_p, 240) (stackpointer, 80) /\
+    nonoverlapping (htbl_p, 192) (stackpointer, 80) /\
+    nonoverlapping (ivec_p, 16) (stackpointer, 80) /\
+    nonoverlapping (xi_p, 16) (in_p, 32) /\
+    nonoverlapping (xi_p, 16) (key_p, 240) /\
+    nonoverlapping (xi_p, 16) (htbl_p, 192) /\
+    nonoverlapping (xi_p, 16) (stackpointer, 80) /\
+    nonoverlapping (out_p, 32) (in_p, 32) /\
+    nonoverlapping (out_p, 32) (key_p, 240) /\
+    nonoverlapping (out_p, 32) (htbl_p, 192) /\
+    nonoverlapping (out_p, 32) (stackpointer, 80)
+    ==> ensures arm
+     (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
+          read PC s = word (pc + 0x20) /\ read SP s = stackpointer /\
+          C_ARGUMENTS [in_p; word 256; out_p; xi_p; ivec_p; key_p; htbl_p] s /\
+          read (memory :> bytes128 in_p) s = cph0 /\
+          read (memory :> bytes128 (word_add in_p (word 16))) s = cph1 /\
+          read (memory :> bytes128 xi_p) s = xi /\
+          read (memory :> bytes128 ivec_p) s = ctr0 /\
+          read (memory :> bytes128 key_p) s = k0 /\
+          read (memory :> bytes128 (word_add key_p (word 16))) s = k1 /\
+          read (memory :> bytes128 (word_add key_p (word 32))) s = k2 /\
+          read (memory :> bytes128 (word_add key_p (word 48))) s = k3 /\
+          read (memory :> bytes128 (word_add key_p (word 64))) s = k4 /\
+          read (memory :> bytes128 (word_add key_p (word 80))) s = k5 /\
+          read (memory :> bytes128 (word_add key_p (word 96))) s = k6 /\
+          read (memory :> bytes128 (word_add key_p (word 112))) s = k7 /\
+          read (memory :> bytes128 (word_add key_p (word 128))) s = k8 /\
+          read (memory :> bytes128 (word_add key_p (word 144))) s = k9 /\
+          read (memory :> bytes128 (word_add key_p (word 160))) s = k10 /\
+          read (memory :> bytes128 (word_add key_p (word 176))) s = k11 /\
+          read (memory :> bytes128 (word_add key_p (word 192))) s = k12 /\
+          read (memory :> bytes128 (word_add key_p (word 208))) s = k13 /\
+          read (memory :> bytes128 (word_add key_p (word 224))) s = k14 /\
+          htable_mem_dec h htbl_p s)
+     (\s. read PC s = word (pc + 4528) /\
+          read (memory :> bytes128 out_p) s =
+          word_xor cph0 (aes256_encrypt ctr0
+            [(k0:int128);k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]) /\
+          read (memory :> bytes128 (word_add out_p (word 16))) s =
+          word_xor cph1 (aes256_encrypt (gcm_ctr_inc ctr0)
+            [k0;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]) /\
+          read (memory :> bytes128 xi_p) s =
+          word_bytereverse
+            (ghash_polyval_acc (byteswap128 h) (word_bytereverse xi)
+              [word_bytereverse cph0; word_bytereverse cph1]))
+     (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+      MAYCHANGE [memory :> bytes(out_p, 32); memory :> bytes(xi_p, 16);
+                 memory :> bytes(ivec_p, 16);
+                 memory :> bytes(stackpointer:int64, 80)] ,,
+      MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                 Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;Q29;Q30;Q31])`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  REWRITE_TAC[C_ARGUMENTS; SOME_FLAGS] THEN ENSURES_INIT_TAC "s0" THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[C_ARGUMENTS]) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_dec]) THEN
+  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV let_CONV)) THEN
+  FIRST_X_ASSUM(STRIP_ASSUME_TAC o check(is_conj o concl)) THEN
+  (* fold the H^2 tower value to the atom h2 (the GMULT2 bridge keys on
+     `byteswap128 h2 = polyval_dot (byteswap128 h) (byteswap128 h)`) *)
+  ABBREV_TAC `h2:int128 = byteswap128 (polyval_dot (byteswap128 h) (byteswap128 h))` THEN
+  SUBGOAL_THEN `byteswap128 h2 = polyval_dot (byteswap128 h) (byteswap128 h)`
+    ASSUME_TAC THENL
+  [EXPAND_TAC "h2" THEN REWRITE_TAC[BYTESWAP128_INVOLUTION]; ALL_TAC] THEN
+  (* === front 1..254 (le2block-style discards keep Q0/Q1/Q7 keystreams) === *)
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (1--5) THEN
+  EVERY(map (fun i -> ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (i--i) THEN
+             GCM_SIMD_SIMPLIFY_TAC THEN mk_discard2 [2;3;4;5;6;7]) (6--30)) THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (31--84) THEN mk_discard2 [2;3;4;5;6;7;30] THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (85--173) THEN mk_discard2 [2;3;4;5;6;7;30] THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (174--177) THEN
+  GCM_SIMD_SIMPLIFY_TAC THEN mk_discard2 [2;3;4;5;6;7;30] THEN
+  (* THE FIX: keep Q19 across its ldr/ext/rev64 setup, rewrite to brev xi *)
+  ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (178--189) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[Q19_BREVXI]) THEN mk_discard2 [2;3;4;5;6;7;30] THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (190--254) THEN
+  mk_discard2 [2;3;4;5;6;7;30] THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  ARM_VSTEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC [255] THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[INT_SUB_REFL; INT_OF_NUM_EQ]) THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (256--265) THEN
+  GCM_SIMD_SIMPLIFY_TAC THEN mk_discard2 [2;3;4;5;6;30] THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[WORD_RULE
+    `word_sub (word_add in_p (word 32)) in_p:int64 = word 32`]) THEN
+  (* === branch cascade: X5=32 takes the #16 branch -> more_than_1 pc+4348 === *)
+  ARM_STEPS_RESOLVE_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (266--277) THEN
+  ARM_STEPS_RESOLVE_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (278--313) THEN
+  (* === more_than_1 block-0 GHASH round; capture block-0 PT at s319 === *)
+  ARM_STEPS_FOLD_KEEPGH_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (314--319) THEN
+  SUBGOAL_THEN `read Q12 (s319:armstate) = word_xor cph0 (aes256_encrypt (ctr0:int128)
+      [k0:int128;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14])`
+    (fun th -> RULE_ASSUM_TAC(fun asm ->
+       if can (find_term (fun t -> t = `read Q12 s319`)) (concl asm)
+       then th else asm) THEN ASSUME_TAC th) THENL
+  [FIRST_ASSUM(fun th ->
+     if is_eq(concl th) && (try lhs(concl th) = `read Q12 s319` with _ -> false)
+     then GEN_REWRITE_TAC LAND_CONV [th] else NO_TAC) THEN
+   REWRITE_TAC[GSYM AES256_XOR_ENCRYPT_RECONSTRUCT] THEN CONV_TAC WORD_RULE;
+   ALL_TAC] THEN
+  (* s320 = st1 v12,[x2],#16 (block-0 PT store); carry readback across discard *)
+  ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_WB_EXEC [320] THEN
+  FIRST_X_ASSUM(fun th ->
+    if (try lhs(concl th) = `read (memory :> bytes128 out_p) s320` with _ -> false)
+    then MP_TAC th else NO_TAC) THEN
+  DISCARD_OLDSTATE_KEEPGH_TAC "s320" THEN DISCH_TAC THEN
+  (* 321-325: block-1 PT lands in Q12 via eor3 v12,v9,v7,v29; capture with
+     GCM_CTR_INC_LANES folding the keystream input to gcm_ctr_inc ctr0 *)
+  ARM_STEPS_FOLD_KEEPGH_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (321--325) THEN
+  SUBGOAL_THEN `read Q12 (s325:armstate) = word_xor cph1 (aes256_encrypt
+      (gcm_ctr_inc ctr0:int128)
+      [k0:int128;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14])`
+    (fun th -> RULE_ASSUM_TAC(fun asm ->
+       if can (find_term (fun t -> t = `read Q12 s325`)) (concl asm)
+       then th else asm) THEN ASSUME_TAC th) THENL
+  [FIRST_ASSUM(fun th ->
+     if is_eq(concl th) && (try lhs(concl th) = `read Q12 s325` with _ -> false)
+     then GEN_REWRITE_TAC LAND_CONV [th] else NO_TAC) THEN
+   GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [GCM_CTR_INC_LANES] THEN
+   REWRITE_TAC[GSYM AES256_XOR_ENCRYPT_RECONSTRUCT] THEN CONV_TAC WORD_RULE;
+   ALL_TAC] THEN
+  (* 326-347: block-1 GHASH round + start of shared reduction *)
+  ARM_STEPS_FOLD_KEEPGH_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (326--347) THEN
+  (* s348 = str q12,[x2] (block-1 PT store).  Plain VSTEPS (the FOLD variant's
+     simplifier chokes here); carry BOTH out_p readbacks across the discard. *)
+  ARM_VSTEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC [348] THEN
+  FIRST_X_ASSUM(fun th ->
+    if (try lhs(concl th) = `read (memory :> bytes128 (word_add out_p (word 16))) s348` with _ -> false)
+    then MP_TAC th else NO_TAC) THEN
+  FIRST_X_ASSUM(fun th ->
+    if (try lhs(concl th) = `read (memory :> bytes128 out_p) s348` with _ -> false)
+    then MP_TAC th else NO_TAC) THEN
+  DISCARD_OLDSTATE_KEEPGH_TAC "s348" THEN DISCH_TAC THEN DISCH_TAC THEN
+  (* 349-355: single Prop3 reduction folding both blocks -> bridge at s355 *)
+  ARM_STEPS_FOLD_KEEPGH_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (349--355) THEN
+  (* === GMULT2 bridge at s355 (pc+4516, post eor v19,v19,v18) === *)
+  SUBGOAL_THEN
+    `read Q19 (s355:armstate) =
+     ghash_polyval_acc (byteswap128 h) (word_bytereverse xi)
+       [word_bytereverse cph0; word_bytereverse cph1]`
+    (fun th -> RULE_ASSUM_TAC(fun asm ->
+       if can (find_term (fun t -> t = `read Q19 s355`)) (concl asm)
+       then th else asm) THEN ASSUME_TAC th) THENL
+  [FIRST_ASSUM(fun th ->
+     if is_eq(concl th) && (try lhs(concl th) = `read Q19 s355` with _ -> false)
+     then GEN_REWRITE_TAC LAND_CONV [th] else NO_TAC) THEN
+   WB2_GMULT2_BRIDGE_TAC;
+   ALL_TAC] THEN
+  ABBREV_TAC `gval:int128 = ghash_polyval_acc (byteswap128 h) (word_bytereverse xi)
+      [word_bytereverse cph0; word_bytereverse cph1]` THEN
+  (* 356 ext (half-swap), 357 rev64 -> Q19 = word_bytereverse gval *)
+  ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (356--357) THEN
+  SUBGOAL_THEN `read Q19 (s357:armstate) = word_bytereverse (gval:int128)`
+    (fun th -> RULE_ASSUM_TAC(fun asm ->
+       if can (find_term (fun t -> t = `read Q19 s357`)) (concl asm)
+       then th else asm) THEN ASSUME_TAC th) THENL
+  [FIRST_ASSUM(fun th ->
+     if is_eq(concl th) && (try lhs(concl th) = `read Q19 s357` with _ -> false)
+     then GEN_REWRITE_TAC LAND_CONV [th] else NO_TAC) THEN CONV_TAC WORD_BLAST;
+   ALL_TAC] THEN
+  (* 358 = str q19,[x3] (tag store); exit at pc+4528 *)
+  ARM_VSTEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC [358] THEN
+  DISCARD_COUNTER_ONLY_TAC THEN
+  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+  REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC THEN ASM_REWRITE_TAC[]);;
+
