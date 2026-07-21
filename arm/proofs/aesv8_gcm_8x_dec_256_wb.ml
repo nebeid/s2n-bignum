@@ -3244,3 +3244,247 @@ let AESV8_GCM_8X_DEC_256_WB_BUF_6BLOCK = prove_band 6 WB_TAIL_6_TAC;;
 let AESV8_GCM_8X_DEC_256_WB_BUF_7BLOCK = prove_band 7 WB_TAIL_7_TAC;;
 let AESV8_GCM_8X_DEC_256_WB_BUF_8BLOCK = prove_band 8 WB_TAIL_8_TAC;;
 
+
+(* ------------------------------------------------------------------------- *)
+(* Readable byte_list_at wrappers + the <=8-block dispatch theorem.           *)
+(* Sim-free from the BUF band theorems: only the input/output presentations   *)
+(* change, discharged by ARM-free bridges via ENSURES_PRE/POSTCONDITION_THM.  *)
+(* Together with AESV8_GCM_8X_DEC_256_WB_GUARD (above) this is the complete   *)
+(* contract of the whole-blocks binary: valid bit_len = 128*nblk (1<=nblk<=8) *)
+(* -> DISPATCH; invalid bit_len -> GUARD (ret 0, no memory).                  *)
+(* ------------------------------------------------------------------------- *)
+
+(* ---- step 1: input bridge (byte_list_at -> whole-buffer bytes read) -------- *)
+let BYTE_LIST_AT_TO_READ_BYTES = prove
+ (`!bl (ptr:int64) (len:int64) s.
+    byte_list_at bl ptr len s /\ LENGTH bl = val len
+    ==> read (memory :> bytes (ptr, val len)) s = num_of_bytelist bl`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[byte_list_at] THEN STRIP_TAC THEN
+  SUBGOAL_THEN `num_of_bytelist (bl:byte list) = num_of_bytelist (SUB_LIST (0, val (len:int64)) bl)` SUBST1_TAC THENL
+   [AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN MATCH_MP_TAC SUB_LIST_LENGTH_IMPLIES THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  MP_TAC(SPECL [`val (len:int64)`; `ptr:int64`; `bl:byte list`; `s:armstate`] BYTE_LIST_TO_NUM_THM) THEN
+  ASM_REWRITE_TAC[LE_REFL] THEN DISCH_THEN(fun th -> ASM_REWRITE_TAC[GSYM th]));;
+
+(* ---- step 2: whole-blocks output bridge (per-block stores -> byte_list_at).
+   Whole-blocks analogue of BYTE_LIST_AT_NBLOCK_CTR: specialize at tail=16 via
+   AES_CTR_FULL_TAIL_BYTES_WHOLE; the all-ones mask makes outprev irrelevant
+   (word 0 witness). *)
+let BYTE_LIST_AT_WHOLE_CTR = prove
+ (`!ctr0 pts keys n out_p (len:int64) s.
+    1 <= n /\ n = LENGTH pts /\ val len = 16 * n /\
+    (!j. j < n ==> read (memory :> bytes128 (word_add out_p (word (16 * j)))) s =
+                   EL j (aes_ctr ctr0 pts keys))
+    ==> byte_list_at (aes_ctr_bytes ctr0 pts keys) out_p len s`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN `aes_ctr_bytes ctr0 pts keys = aes_ctr_full_tail_bytes ctr0 pts keys (n - 1) 16` SUBST1_TAC THENL
+   [CONV_TAC SYM_CONV THEN MATCH_MP_TAC AES_CTR_FULL_TAIL_BYTES_WHOLE THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  MATCH_MP_TAC BYTE_LIST_AT_NBLOCK_CTR THEN
+  EXISTS_TAC `word 0:int128` THEN
+  REPEAT CONJ_TAC THENL
+   [ARITH_TAC;
+    ARITH_TAC;
+    ASM_ARITH_TAC;
+    ASM_ARITH_TAC;
+    REPEAT STRIP_TAC THEN FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC;
+    REWRITE_TAC[WORD_AND_ALLONES_128] THEN
+    REWRITE_TAC[WORD_RULE `word_xor x (word_and (word 0) y) = x`] THEN
+    FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC]);;
+
+(* ---- step 3: per-band EL facts builder (generalizes the hand AES_CTR_k_EL). *)
+let build_aes_ctr_el k =
+  let pts = map (fun i -> mk_var("pt"^string_of_int i,`:int128`)) (0--(k-1)) in
+  let plist = mk_flist pts in
+  let rec ctr j = if j = 0 then `ctr0:int128` else mk_comb(`gcm_ctr_inc`, ctr (j-1)) in
+  let conj_of j =
+    mk_eq(list_mk_comb(`EL:num->(int128)list->int128`,
+            [mk_small_numeral j;
+             list_mk_comb(`aes_ctr`, [`ctr0:int128`; plist; `keys:int128 list`])]),
+          list_mk_comb(`word_xor:int128->int128->int128`,
+            [el j pts;
+             list_mk_comb(`aes256_encrypt`, [ctr j; `keys:int128 list`])])) in
+  let goal = list_mk_conj (map conj_of (0--(k-1))) in
+  let sucs = map (fun i -> num_CONV (mk_small_numeral i)) (1--(k-1)) in
+  prove(goal,
+    REWRITE_TAC[aes_ctr; aes_ctr_rec; aes_ctr_block; gcm_ctr_inc_iter] THEN
+    CONV_TAC NUM_REDUCE_CONV THEN
+    REWRITE_TAC(sucs @ [EL; HD; TL]) THEN
+    REWRITE_TAC[gcm_ctr_inc_iter] THEN
+    CONV_TAC NUM_REDUCE_CONV THEN
+    REWRITE_TAC(sucs @ [gcm_ctr_inc_iter]) THEN
+    CONV_TAC NUM_REDUCE_CONV THEN
+    REWRITE_TAC(sucs @ [gcm_ctr_inc_iter]));;
+
+(* ---- step 4: wrapper goal builder + prover ---------------------------------
+   Wrapper = BUF band statement with (a) the input buffer read replaced by
+   byte_list_at ibytes, (b) the postcondition per-block stores + explicit GHASH
+   replaced by gcm_dec_pt_bytes / gcm_dec_final_xi over the whole buffer.
+   Sim-free: PRE via BYTE_LIST_AT_TO_READ_BYTES, POST via BYTE_LIST_AT_WHOLE_CTR
+   + the per-band EL facts; the spec unfolds via GCM_DEC_*_WHOLE_k. *)
+let wb_keys_tm = `[k0:int128;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]`;;
+let mk_wb_wrapper_goal k =
+  let g = mk_band_goal k in
+  let vars, body = strip_forall g in
+  let hyps, ens = dest_imp body in
+  let frame = rand ens and post = rand(rator ens) and pre = rand(rator(rator ens)) in
+  let n16 = mk_small_numeral(16*k) in
+  let sv = `s:armstate` in
+  let oldread = subst [n16,`nnn:num`]
+    `read (memory :> bytes (in_p,nnn)) s = num_of_bytelist (ibytes:byte list)` in
+  let newread = subst [n16,`nnn:num`]
+    `byte_list_at (ibytes:byte list) in_p (word nnn) s` in
+  let pre_body = snd(dest_abs pre) in
+  let pre' = mk_abs(sv, list_mk_conj
+    (map (fun c -> if c = oldread then newread else c) (conjuncts pre_body))) in
+  let post_body = snd(dest_abs post) in
+  let pcc = hd(conjuncts post_body) in
+  let outpost = subst [n16,`nnn:num`; wb_keys_tm,`kl:int128 list`]
+    `byte_list_at (gcm_dec_pt_bytes nnn ibytes ctr0 (kl:int128 list)) out_p (word nnn) s` in
+  let xipost = subst [n16,`nnn:num`]
+    `read (memory :> bytes128 xi_p) s = gcm_dec_final_xi nnn ibytes xi h` in
+  let post' = mk_abs(sv, list_mk_conj [pcc; outpost; xipost]) in
+  list_mk_forall(vars,
+    mk_imp(hyps, list_mk_comb(rator(rator(rator ens)), [pre'; post'; frame])));;
+
+let ghash_wholes = [GCM_DEC_GHASH_BLOCKS_WHOLE_1;GCM_DEC_GHASH_BLOCKS_WHOLE_2;
+                    GCM_DEC_GHASH_BLOCKS_WHOLE_3;GCM_DEC_GHASH_BLOCKS_WHOLE_4;
+                    GCM_DEC_GHASH_BLOCKS_WHOLE_5;GCM_DEC_GHASH_BLOCKS_WHOLE_6;
+                    GCM_DEC_GHASH_BLOCKS_WHOLE_7;GCM_DEC_GHASH_BLOCKS_WHOLE_8];;
+let pt_wholes = [GCM_DEC_PT_BYTES_WHOLE_1;GCM_DEC_PT_BYTES_WHOLE_2;
+                 GCM_DEC_PT_BYTES_WHOLE_3;GCM_DEC_PT_BYTES_WHOLE_4;
+                 GCM_DEC_PT_BYTES_WHOLE_5;GCM_DEC_PT_BYTES_WHOLE_6;
+                 GCM_DEC_PT_BYTES_WHOLE_7;GCM_DEC_PT_BYTES_WHOLE_8];;
+let prove_wb_wrapper k buf_thm =
+  let n16 = mk_small_numeral(16*k) in
+  let band = mk_band_goal k in
+  let _, bbody = strip_forall band in
+  let _, bens = dest_imp bbody in
+  let pre_buf = rand(rator(rator bens)) and post_buf = rand(rator bens) in
+  let el_facts = build_aes_ctr_el k in
+  let inbridge = CONV_RULE (ONCE_DEPTH_CONV WORD_REDUCE_CONV)
+    (SPECL [`ibytes:byte list`;`in_p:int64`; mk_comb(`word:num->int64`,n16); `s:armstate`]
+       BYTE_LIST_AT_TO_READ_BYTES) in
+  let jsplit = ARITH_RULE
+    (mk_eq(subst [mk_small_numeral k,`kkk:num`] `j < kkk:num`,
+           list_mk_disj (map (fun i -> mk_eq(`j:num`, mk_small_numeral i)) (0--(k-1))))) in
+  prove(mk_wb_wrapper_goal k,
+    REPEAT GEN_TAC THEN STRIP_TAC THEN
+    REWRITE_TAC[gcm_dec_final_xi; el (k-1) ghash_wholes; el (k-1) pt_wholes; MAP] THEN
+    MATCH_MP_TAC ENSURES_PRECONDITION_THM THEN
+    EXISTS_TAC pre_buf THEN
+    CONJ_TAC THENL
+     [X_GEN_TAC `s:armstate` THEN BETA_TAC THEN STRIP_TAC THEN ASM_REWRITE_TAC[] THEN
+      MP_TAC inbridge THEN ASM_REWRITE_TAC[];
+      MATCH_MP_TAC ENSURES_POSTCONDITION_THM THEN
+      EXISTS_TAC post_buf THEN
+      CONJ_TAC THENL
+       [X_GEN_TAC `s:armstate` THEN BETA_TAC THEN STRIP_TAC THEN ASM_REWRITE_TAC[] THEN
+        MATCH_MP_TAC BYTE_LIST_AT_WHOLE_CTR THEN
+        EXISTS_TAC (mk_small_numeral k) THEN
+        REPEAT CONJ_TAC THENL
+         [ARITH_TAC;
+          REWRITE_TAC[LENGTH] THEN ARITH_TAC;
+          CONV_TAC WORD_REDUCE_CONV THEN ARITH_TAC;
+          X_GEN_TAC `j:num` THEN REWRITE_TAC[jsplit] THEN
+          STRIP_TAC THEN ASM_REWRITE_TAC[] THEN
+          CONV_TAC NUM_REDUCE_CONV THEN
+          REWRITE_TAC[WORD_ADD_0; el_facts] THEN ASM_REWRITE_TAC[el_facts]];
+        MATCH_MP_TAC buf_thm THEN ASM_REWRITE_TAC[]]]);;
+
+(* ---- the 8 readable byte_list_at band wrappers ----------------------------- *)
+let AESV8_GCM_8X_DEC_256_WB_1BLOCK = prove_wb_wrapper 1 AESV8_GCM_8X_DEC_256_WB_BUF_1BLOCK;;
+let AESV8_GCM_8X_DEC_256_WB_2BLOCK = prove_wb_wrapper 2 AESV8_GCM_8X_DEC_256_WB_BUF_2BLOCK;;
+let AESV8_GCM_8X_DEC_256_WB_3BLOCK = prove_wb_wrapper 3 AESV8_GCM_8X_DEC_256_WB_BUF_3BLOCK;;
+let AESV8_GCM_8X_DEC_256_WB_4BLOCK = prove_wb_wrapper 4 AESV8_GCM_8X_DEC_256_WB_BUF_4BLOCK;;
+let AESV8_GCM_8X_DEC_256_WB_5BLOCK = prove_wb_wrapper 5 AESV8_GCM_8X_DEC_256_WB_BUF_5BLOCK;;
+let AESV8_GCM_8X_DEC_256_WB_6BLOCK = prove_wb_wrapper 6 AESV8_GCM_8X_DEC_256_WB_BUF_6BLOCK;;
+let AESV8_GCM_8X_DEC_256_WB_7BLOCK = prove_wb_wrapper 7 AESV8_GCM_8X_DEC_256_WB_BUF_7BLOCK;;
+let AESV8_GCM_8X_DEC_256_WB_8BLOCK = prove_wb_wrapper 8 AESV8_GCM_8X_DEC_256_WB_BUF_8BLOCK;;
+
+(* ---- step 5: the <=8-block dispatch theorem --------------------------------
+   ONE readable theorem for every valid whole-blocks call: symbolic nblk
+   (1 <= nblk <= 8), bit_len C-argument = word (128*nblk), byte_list_at in/out
+   over the whole 16*nblk-byte buffer, postcondition via the recursive specs
+   gcm_dec_pt_bytes / gcm_dec_final_xi.  Proof: 8-way case split on nblk, each
+   case reduces 16*k/128*k to numerals and MATCH_MP_TACs the band wrapper.
+   Combined with AESV8_GCM_8X_DEC_256_WB_GUARD (wb.ml) this is the complete
+   contract of the whole-blocks binary. *)
+let mk_wb_dispatch_goal () =
+  let n16 = `16 * nblk` and n128 = `128 * nblk` in
+  let hyps0 = subst [n16,`sss:num`]
+    `LENGTH (ibytes:byte list) = sss /\
+     aligned 16 stackpointer /\
+     nonoverlapping (word pc, 4560) (stackpointer:int64, 80) /\
+     nonoverlapping (word pc, 4560) (out_p:int64, sss) /\
+     nonoverlapping (word pc, 4560) (xi_p:int64, 16) /\
+     nonoverlapping (word pc, 4560) (ivec_p:int64, 16) /\
+     nonoverlapping (out_p, sss) (xi_p, 16) /\
+     nonoverlapping (out_p, sss) (ivec_p, 16) /\
+     nonoverlapping (xi_p, 16) (ivec_p, 16) /\
+     nonoverlapping (ivec_p, 16) (in_p:int64, sss) /\
+     nonoverlapping (ivec_p, 16) (key_p:int64, 240) /\
+     nonoverlapping (ivec_p, 16) (htbl_p:int64, 192) /\
+     nonoverlapping (in_p, sss) (stackpointer, 80) /\
+     nonoverlapping (key_p, 240) (stackpointer, 80) /\
+     nonoverlapping (htbl_p, 192) (stackpointer, 80) /\
+     nonoverlapping (ivec_p, 16) (stackpointer, 80) /\
+     nonoverlapping (xi_p, 16) (in_p, sss) /\
+     nonoverlapping (xi_p, 16) (key_p, 240) /\
+     nonoverlapping (xi_p, 16) (htbl_p, 192) /\
+     nonoverlapping (xi_p, 16) (stackpointer, 80) /\
+     nonoverlapping (out_p, sss) (in_p, sss) /\
+     nonoverlapping (out_p, sss) (key_p, 240) /\
+     nonoverlapping (out_p, sss) (htbl_p, 192) /\
+     nonoverlapping (out_p, sss) (stackpointer, 80)` in
+  let hyps = mk_conj(`1 <= nblk`, mk_conj(`nblk <= 8`, hyps0)) in
+  let pre = subst [n16,`sss:num`; n128,`bbb:num`]
+    `\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
+        read PC s = word (pc + 0x20) /\ read SP s = stackpointer /\
+        C_ARGUMENTS [in_p; word bbb; out_p; xi_p; ivec_p; key_p; htbl_p] s /\
+        byte_list_at (ibytes:byte list) in_p (word sss) s /\
+        read (memory :> bytes128 xi_p) s = xi /\
+        read (memory :> bytes128 ivec_p) s = ctr0 /\
+        read (memory :> bytes128 key_p) s = k0 /\
+        read (memory :> bytes128 (word_add key_p (word 16))) s = k1 /\
+        read (memory :> bytes128 (word_add key_p (word 32))) s = k2 /\
+        read (memory :> bytes128 (word_add key_p (word 48))) s = k3 /\
+        read (memory :> bytes128 (word_add key_p (word 64))) s = k4 /\
+        read (memory :> bytes128 (word_add key_p (word 80))) s = k5 /\
+        read (memory :> bytes128 (word_add key_p (word 96))) s = k6 /\
+        read (memory :> bytes128 (word_add key_p (word 112))) s = k7 /\
+        read (memory :> bytes128 (word_add key_p (word 128))) s = k8 /\
+        read (memory :> bytes128 (word_add key_p (word 144))) s = k9 /\
+        read (memory :> bytes128 (word_add key_p (word 160))) s = k10 /\
+        read (memory :> bytes128 (word_add key_p (word 176))) s = k11 /\
+        read (memory :> bytes128 (word_add key_p (word 192))) s = k12 /\
+        read (memory :> bytes128 (word_add key_p (word 208))) s = k13 /\
+        read (memory :> bytes128 (word_add key_p (word 224))) s = k14 /\
+        htable_mem_dec h htbl_p s` in
+  let post = subst [n16,`sss:num`; wb_keys_tm,`kl:int128 list`]
+    `\s. read PC s = word (pc + 4528) /\
+         byte_list_at (gcm_dec_pt_bytes sss ibytes ctr0 (kl:int128 list)) out_p (word sss) s /\
+         read (memory :> bytes128 xi_p) s = gcm_dec_final_xi sss ibytes xi h` in
+  let frame = subst [n16,`sss:num`]
+    `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+     MAYCHANGE [memory :> bytes(out_p:int64, sss); memory :> bytes(xi_p:int64, 16);
+                memory :> bytes(ivec_p:int64, 16);
+                memory :> bytes(stackpointer:int64, 80)] ,,
+     MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;Q29;Q30;Q31]` in
+  let ens = subst [pre,`PPP:armstate->bool`; post,`QQQ:armstate->bool`;
+                   frame,`CCC:armstate->armstate->bool`] `ensures arm PPP QQQ CCC` in
+  list_mk_forall(wb_front_vars, mk_imp(hyps, ens));;
+
+let AESV8_GCM_8X_DEC_256_WB_DISPATCH =
+  let wrappers = [AESV8_GCM_8X_DEC_256_WB_1BLOCK;AESV8_GCM_8X_DEC_256_WB_2BLOCK;
+                  AESV8_GCM_8X_DEC_256_WB_3BLOCK;AESV8_GCM_8X_DEC_256_WB_4BLOCK;
+                  AESV8_GCM_8X_DEC_256_WB_5BLOCK;AESV8_GCM_8X_DEC_256_WB_6BLOCK;
+                  AESV8_GCM_8X_DEC_256_WB_7BLOCK;AESV8_GCM_8X_DEC_256_WB_8BLOCK] in
+  let case_tac =
+    CONV_TAC NUM_REDUCE_CONV THEN
+    RULE_ASSUM_TAC(CONV_RULE NUM_REDUCE_CONV) THEN
+    FIRST (map (fun w -> MATCH_MP_TAC w THEN ASM_REWRITE_TAC[]) wrappers) in
+  prove(mk_wb_dispatch_goal (),
+    REPEAT GEN_TAC THEN STRIP_TAC THEN
+    SUBGOAL_THEN `nblk = 1 \/ nblk = 2 \/ nblk = 3 \/ nblk = 4 \/ nblk = 5 \/ nblk = 6 \/ nblk = 7 \/ nblk = 8`
+      MP_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+    STRIP_TAC THEN FIRST_X_ASSUM SUBST_ALL_TAC THEN case_tac);;
