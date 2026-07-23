@@ -425,3 +425,123 @@ let ABBREV_ALL_PMUL_TAC =
 ```
 word_subword hk (0,64) :64 word = word_xor (word_subword h (0,64)) (word_subword h (64,64))
 ```
+
+## Embedding Harvested State Postconditions as Literals (and Keeping Them Readable)
+
+Context: a shared "front" lemma whose postcondition is the full machine state at a
+seam (harvested from the assumption list after simulating). Two lessons, from the
+WB decrypt chain (`arm/proofs/aesv8_gcm_8x_dec_256_wb.ml`):
+
+* **Don't simulate twice.** If a harvest pass runs the same N-step simulation the
+  proof then re-runs, embed the harvested postcondition as a `parse_term {|...|}`
+  literal instead (~232s saved per cold load in our case). Print it with
+  `print_types_of_subterms := 2` so it reparses without context. One gotcha: the
+  int injection `&` prints as `(&:num->int)` which does NOT reparse — replace it
+  with `(int_of_num:num->int)`. Always verify the reparsed term is `aconv` to the
+  harvested one, and keep the regeneration recipe in a comment next to the literal.
+* **Fold repeated machine towers into named definitions before embedding** (JRH
+  style, e.g. his `aes9c`). Our 8 in-flight 13-round `aese/aesmc` keystream towers
+  (~2.6k chars each) folded to `aes13 (gcm_ctr_inc^i ctr0) k0..k13` via
+  `REWRITE_CONV[GSYM aes13]` + `GSYM` of the per-i counter-lane lemmas
+  (`GCM_CTR_INCi_LANES`), shrinking the literal 83k -> 32k annotated chars
+  (1783 -> 723 lines) and cutting the chain load ~19%. The savings are in term
+  handling: every `SPECL`, `REWRITE_CONV`, and `ENSURES_TRANS` seam downstream
+  manipulates the small form.
+* **Keep downstream tactics verbatim by rebinding, not editing.** If tail tactics
+  match on the raw form (e.g. `REWRITE_TAC[GSYM AES256_XOR_ENCRYPT_RECONSTRUCT]`),
+  rebind the lemma over the named definition once
+  (`let LEMMA = REWRITE_RULE[GSYM aes13] LEMMA;;`) right after its proof; every
+  capture site then works on the folded assumptions unchanged. Also check for
+  rewrites the fold makes redundant: a tail that rewrote a counter swizzle with
+  `GCM_CTR_INC_LANES` no longer needs to when the front already presents
+  `gcm_ctr_inc ctr0`.
+* **Re-expansion needs descending order.** To prove compact = raw (or to re-derive
+  the raw-form theorem), expand the counter lemmas from the deepest power down
+  (`INC7, INC6, ..., INC1` with `ONCE_DEPTH_CONV(REWR_CONV ...)`) then unfold the
+  tower definition; ascending order rewrites inner occurrences inside already-
+  expanded terms and diverges from the original.
+
+## Loop Invariants ARE a Discard Mechanism (`ENSURES_WHILE`)
+
+* On straight-line unrolled code, hypotheses accumulate for the entire run: every
+  intermediate register/memory fact from step 1 survives to step N unless a
+  discard tactic drops it, and the O(n^2) hyp-pile is what drives blowups (our
+  30GB OOMs on the WB 7/8-block windows before per-step discard steppers).
+* `ENSURES_WHILE_UP_TAC` (and variants) reframe the goal at every loop boundary:
+  the ONLY facts that cross an iteration are what the invariant states. Nothing
+  else needs discarding — the framing throws it away for you, and the assumption
+  pile stays bounded by the invariant size regardless of trip count. This is how
+  JRH's GCM x4 proofs stay small without any DISCARD machinery; his per-step
+  `WORD_SIMPLE_SUBWORD_CONV` normalization handles term *width*, the invariant
+  handles hypothesis *count*.
+* Corollary for planning: if code has a real loop, proving it with a genuine
+  invariant is not just more general (length-generic vs fixed-size bands), it is
+  also the cheapest memory/time structure. Reach for per-step-discard steppers
+  only where the code is genuinely straight-line (unrolled bands, tails) and an
+  invariant can't be stated.
+* The skeleton of a loop-invariant proof of an unrolled crypto kernel
+  (JRH's AES-GCM x4 kernels are the reference example):
+
+  ```ocaml
+  ENSURES_SEQUENCE_TAC `pc + init_end`   (* init: registers/counters set up *)
+  ENSURES_WHILE_UP_TAC `loop_count` `pc + body_start` `pc + body_end`
+    (* invariant, as a function of iteration i:
+       - pointers advanced by (bytes-per-iteration * i)
+       - counter register = spec counter as a function of i
+       - accumulator (e.g. GHASH tag) = spec fold over `list_of_seq ... (k*i)`
+       - output cells written for j < k*i; input array untouched
+       - loop-constant state re-asserted: round keys in their registers,
+         htable memory predicate, stack contents *)
+  ENSURES_SEQUENCE_TAC ...               (* between main loop and tail loop *)
+  ENSURES_WHILE_UP_TAC `loop_remain` ... (* 1x tail loop, small body *)
+  (* final straight-line steps: byte-reverse tag, store *)
+  ```
+
+  The induction is over the list length: each iteration extends
+  `list_of_seq ... (k*i)` to `k*(i+1)` via append lemmas for the accumulator
+  spec (e.g. `GHASH_ACC_APPEND`-style: fold over `l1 ++ l2` = fold of `l2`
+  starting from fold of `l1`). Prove those list lemmas before starting the
+  simulation. Handle the trivial cases (`loop_count = 0`, `loop_remain = 0`)
+  by `ASM_CASES_TAC` + a short direct simulation.
+* The costs: an invariant must be written by hand (finding the right one is the
+  hard part — everything the body reads must be in it, including loop-constant
+  facts like round keys that "obviously" don't change), entry/exit/preservation
+  are three separate proof obligations, and fixed-size specialization from a
+  loop theorem still needs arithmetic normalization per instance.
+
+## Splitting a Proof at a Shared Seam (Front + Tails)
+
+When k similar theorems share a long identical prefix (e.g. 8 fixed-size bands of
+one binary sharing a 265-step front), prove ONE symbolic front lemma and recompose:
+
+* `ENSURES_SEQUENCE_TAC` THROWS (`MAYCHANGE_IDEMPOT`) on frames with several
+  memory regions. Use the manual route instead:
+  `MATCH_MP_TAC ENSURES_FRAME_SUBSUMED` with the doubled frame `F ,, F`
+  (discharged by `SUBSUMED_MAYCHANGE_TAC`), then `MATCH_MP_TAC ENSURES_TRANS`
+  with the front lemma's postcondition as the intermediate assertion.
+* The front postcondition must include `aligned_bytes_loaded s (word pc) mc` —
+  without it the back leg's first ARM step fails with
+  "ARM_CONV: can't find aligned_bytes_loaded". Easy to drop when harvesting
+  (it is not a `read` equation, so a reads-only filter misses it).
+* A buffer-form input precondition
+  (`read (memory :> bytes (in_p, 16*n)) s = num_of_bytelist ibytes` + `LENGTH`)
+  is the shape a symbolic-n lemma can state and every band can satisfy; recover
+  per-block 128-bit lanes in each band with an induction lemma
+  (`INPUT_BYTES_TO_BYTE128_LANES` pattern).
+
+## Session / Environment Pitfalls (HOL MCP + DMTCP checkpoints)
+
+* **`hol_restart` resets the working directory** to the HOL Light checkout. Run
+  `Sys.chdir "<project root>";;` before loading anything, or
+  `define_assert_from_elf` fails to find the `.o` — sometimes silently far
+  downstream as an `Unbound value <mc-name>` half-loaded state.
+* **A partially failed `loadt` poisons `loaded_files`.** Files that loaded before
+  the failure are marked loaded; a retry silently skips them even in the same
+  broken state. Purge the relevant marks before retrying:
+  `loaded_files := filter (fun (f,_) -> not (has_sub "aesv8_gcm" f)) !loaded_files;;`
+* **DMTCP checkpoint restore requires a pty.** Launching the checkpointed HOL with
+  stdin redirected from a script (`./restart.sh < driver.ml`) dies with
+  "Illegal instruction" during restore. Drive cold-load verifications through the
+  MCP server (`hol_restart` + `loadt`) or a real terminal (tmux pane), not a
+  stdin redirect. In tmux, `send-keys '...;;'` needs the `-l` (literal) flag —
+  a trailing `;` is otherwise parsed as a tmux command separator.
