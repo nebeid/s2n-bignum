@@ -3,7 +3,7 @@
 (*                                                                            *)
 (* Used by BOTH decrypt binaries:                                             *)
 (*   - aesv8_gcm_8x_dec_256.o    (masked band chain: core -> le1..le8block)   *)
-(*   - aesv8_gcm_8x_dec_256_wb.o (whole-blocks variant: wb -> wb_nist)        *)
+(*   - aesv8_gcm_8x_dec_256_wb.o (whole-blocks variant: wb)                   *)
 (* so that each proof chain loads ONLY its own binary.                        *)
 (*                                                                            *)
 (* Contents (formerly the tail of aesv8_gcm_8x_dec_256_core.ml; provenance    *)
