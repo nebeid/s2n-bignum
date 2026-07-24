@@ -509,6 +509,84 @@ WB decrypt chain (`arm/proofs/aesv8_gcm_8x_dec_256_wb.ml`):
   are three separate proof obligations, and fixed-size specialization from a
   loop theorem still needs arithmetic normalization per instance.
 
+## Finding the Loop Invariant (JRH's method — the creative step)
+
+Distilled from John Harrison's loop-invariant tutorial (2026-06-17). The
+`ENSURES_WHILE` mechanics above are routine; *articulating* the invariant is
+"maybe the single hardest thing about big verification proofs" and is a genuine
+creative act, not a mechanical generalization. His guidance:
+
+* **An invariant IS a strengthened induction hypothesis.** Proving a loop is
+  literally proof by induction (the `ENSURES_WHILE` theorems are themselves
+  proved by `INDUCT`/`num_WF` internally). As in pure math, the natural proof
+  often needs you to prove something *stronger* than the final goal, because the
+  step case then also gets to *assume* that stronger fact. When in doubt, put
+  MORE into the invariant, not less. If you want the "assume it for all earlier
+  iterations" form, that is just `num_WF` well-founded induction.
+
+* **`ENSURES_WHILE_*` yields ~4 subgoals, not 2** (plus a trivial `count <> 0`):
+  (1) entry → initial invariant [the "base case"]; (2) the inductive step
+  (loop-back case, `i+1 → i` for a `DOWN` variant, `i → i+1` for `UP`);
+  (3) the terminate/exit case; (4) final invariant → postcondition. It is more
+  elaborate than textbook induction because the tactic combines
+  `ENSURES_SEQUENCE` (carving the loop out of the surrounding straight-line
+  init/tail) with the induction itself. Subgoal (2) is the interesting one.
+
+* **Bootstrap empirically — prove the ENTRY subgoal first with a fake invariant.**
+  The recommended *first move*: write a skeletal/placeholder invariant, fire the
+  `ENSURES_WHILE` tactic, and just symbolically simulate the init→entry subgoal.
+  That reveals which registers/addresses actually hold which pointers, counters,
+  and accumulators — so you read the state layout off the goal instead of
+  reverse-engineering register allocation by hand. Then generalize the concrete
+  `0`/`K` constants you see into the iteration variable `i`. Iterate: attempt the
+  step case, watch what breaks, refine. "The first version almost never works."
+
+* **Nothing is inherited — re-assert every loop-constant fact.** The framing
+  drops everything not in the invariant, so facts that are "obviously" still true
+  (input pointer unchanged, round keys still in their registers, htable memory
+  predicate, SP frame, a `nonoverlapping`/flag condition) VANISH unless the
+  invariant states them explicitly. Two diagnostic failure signatures during the
+  step case: (a) a state component *disappears* mid-simulation → you forgot to
+  assert it (or forgot a ghost variable, below); (b) proving the output needs a
+  *stronger* property of the input than you assumed → strengthen the input side.
+
+* **Ghost variables — needed only when a boundary-crossing value has no clean
+  name.** If the invariant says something *about* a register's iteration-`i`
+  value but never binds that value to a named logic variable, the first
+  simulation step ERASES it (prior-state facts are discarded unless you
+  `VSTEPS`); the fix is a ghost variable in the initial state. BUT note: John's
+  *proven* GCM x4 kernels (basic/ilp/fast_tail/scalar_iv_mem_late_tag_scalar_rk
+  on `jargh/gcm`) use ZERO ghost variables — because a full-block loop names
+  everything crossing the boundary directly (`word_add in_p (word(64*i))`,
+  `ctr_block nonce (4*i+2)`, `nist_ghash ... (4*i)`). Reach for ghosts only if
+  you actually see a needed hypothesis vanish; `arm_print_log := true` shows the
+  exact erasing instruction. (Ghosts DO show up in harder loops like
+  `bignum_modinv`.)
+
+* **Full-block loops are lag-free; only SLOTHY-pipelined asm needs a lag.** A
+  loop that processes complete groups per iteration (John's proven GCM x4 =
+  4 blocks/iter; our WB x8 = 8 blocks/iter) satisfies the naive "after `i`
+  iterations, `i` groups are fully done": ALL his proven kernels carry a SINGLE
+  GHASH clause at the CURRENT index (`list_of_seq ... (4 * i)`), no lag, no
+  half-updated state. The lag only arises in a SLOTHY software-pipelined variant
+  (`..._swp`), where instructions are moved across the back-edge — and note
+  John has NOT yet proven that variant (the `_swp` kernel is committed as `.S`
+  with no proof `.ml`). So: match the proven full-block pattern (one fold at
+  `k*i`) unless you are specifically verifying pipelined asm. IF you ever do
+  hit a pipelined body AND its two computations read disjoint state, the
+  mitigation is to state them as two independent invariant clauses at different
+  indices (e.g. GCM's store stream reads only the counter, the GHASH fold reads
+  only ciphertext), so the lag becomes a clean index offset between two simple
+  folds rather than one tangled clause — but this is a contingency, not the
+  default.
+
+* **In-repo precedents, easiest → hardest:** `bignum_iszero` main loop (the
+  tutorial's teaching example — a downward loop with a low/high-digit split);
+  `bignum_copy` (invariant must not assume the input array is untouched, since
+  in/out buffers may alias); AES-XTS loop invariants (nearest complex crypto
+  idiom in this repo); `bignum_modinv` main loop ("the single worst loop
+  invariant in the codebase, ~3 pages") for how large a real one gets.
+
 ## Splitting a Proof at a Shared Seam (Front + Tails)
 
 When k similar theorems share a long identical prefix (e.g. 8 fixed-size bands of
