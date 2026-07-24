@@ -28,14 +28,15 @@
 (*    bytes_to_int128 (SUB_LIST (16i,16) ibytes).                             *)
 (*  - A guard-abort theorem (unchanged).                                      *)
 (*                                                                            *)
-(* Reuses the mask-agnostic machinery from the masked chain via core.ml       *)
-(* (GHASH/Karatsuba bridge layer, SIMD-fold steppers).  JRH-style statement   *)
+(* Reuses the shared binary-independent machinery from                        *)
+(* aesv8_gcm_8x_dec_256_lemmas.ml (GHASH/Karatsuba bridge layer, SIMD-fold    *)
+(* steppers) -- NOT the masked binary's core.ml.  JRH-style statement         *)
 (* simplifications: AES256_XOR_ENCRYPT_RECONSTRUCT (machine aese/aesmc tower  *)
 (* = aes256_encrypt, proved once) and the htable_mem_dec named memory         *)
 (* predicate over the abstract key h.  No CHEAT_TAC, no new axioms.           *)
 (* ========================================================================= *)
 
-needs "arm/proofs/aesv8_gcm_8x_dec_256_core.ml";;
+needs "arm/proofs/aesv8_gcm_8x_dec_256_lemmas.ml";;
 needs "arm/proofs/utils/aes_gcm_dec_spec.ml";;
 
 (* ------------------------------------------------------------------------- *)
