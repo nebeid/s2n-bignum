@@ -1,140 +1,40 @@
 (* ========================================================================= *)
-(* WB main-loop (nblk > 8) proof: ENSURES_WHILE invariant, JRH x4 style.     *)
-(* Plan: _docs/wb-main-loop-plan.md.  Binary: aesv8_gcm_8x_dec_256_wb.o.     *)
-(*                                                                           *)
-(* VERIFIED FROM DISASSEMBLY (2026-07-24):                                   *)
-(*  - GHASH IS staggered one 8-block group behind AES-CTR/stores, exactly as *)
-(*    in encrypt.  Body (0x4a0..0x9ec): rev64+pmull on q8..q15 = ciphertext  *)
-(*    group loaded LAST iteration; mid-body ldp q8..q15 loads the next group *)
-(*    (raw ciphertext preserved in q8..q15 for next fold), eor3 into v0..v7  *)
-(*    = plaintext, stores.  Dec-specific: GHASH input = the LOADED blocks.   *)
-(*  - Scalar bound: x9 = 16*nblk (lsr x1,#3 @0x20); x5 = (16*nblk-1) & ~127  *)
-(*    (sub @0x4c, and @0x2a0) then x5 += in_p (@0x300); x4 = in_p + 16*nblk  *)
-(*    (@0x2fc).  So x5 = in_p + 128*((nblk-1) DIV 8).                        *)
-(*  - 0x42c b.ge tail:      taken iff (nblk-1) DIV 8 = 0  iff nblk <= 8.     *)
-(*  - 0x49c b.ge prepretail: at x0 = in_p+128; taken iff (nblk-1) DIV 8 <= 1 *)
-(*    iff nblk <= 16 (loop body never runs for nblk in 9..16).               *)
-(*  - backedge 0x9ec b.lt: body runs q = (nblk-9) DIV 8 times (nblk >= 9);   *)
-(*    x0 at loop head after i bodies = in_p + 128*(i+1); exit when           *)
-(*    x0 >= x5 = in_p + 128*(q+1).                                           *)
-(*  - Both the q=0 path (0x49c b.ge -> 0x9f0) and the loop exit land at      *)
-(*    0x9f0 (prepretail) in the SAME invariant(q) state: uniform seam.       *)
-(*                                                                           *)
-(* INVARIANT (loop head 0x4a0, after i of q body executions), NIST vocab:    *)
-(*  - PC = pc+0x4a0; X0 = in_p+128*(i+1); X2 = out_p+128*(i+1);              *)
-(*    X4 = in_p+16*nblk; X5 = in_p+128*(q+1); X9, X11 = htbl?/key ptrs.      *)
-(*  - v30 counter reg; v0..v4 = rev32 counters 8(i+1)..8(i+1)+4 partially    *)
-(*    prepared (v5..v7 completed at body start 0x4a0/0x4a8/...).             *)
-(*  - q8..q15 = raw ciphertext blocks 8i..8i+7 (rev64 NOT yet applied).      *)
-(*  - v19 = GHASH acc over blocks 0..8i-1 + tag, post-reduction pre-ext      *)
-(*    form (front convention Q19_BREVXI: v19 = brev-xi-half-swap shape).     *)
-(*  - stores: !j < 8*(i+1). out_p+16j = block j XOR aes256(ctr+j).           *)
-(*  - htable_mem_8 / keys / SP frame invariant.                              *)
-(*                                                                           *)
-(* DELIVERABLE ORDER (plan sec 5):                                           *)
-(*  1. scalar rung lemmas (below)                                            *)
-(*  2. FRONT-N harvested statement entry(0x20) -> loop head 0x4a0            *)
-(*  3. ENSURES_WHILE loop (q iterations) -> invariant(q) @ 0x9f0             *)
-(*  4. PREPRETAIL 0x9f0 -> 0xec0 (GHASH fold of last in-flight group)        *)
-(*  5. recompose with WB_TAIL_r dispatch (r = nblk - 8*(q+1) in 1..8)        *)
+(* WB AES-256-GCM decrypt main loop (nblk > 8): ENSURES_WHILE proof.          *)
+(*                                                                            *)
+(* Extends the proven <=8-block WB chain (aesv8_gcm_8x_dec_256_wb.ml) to the  *)
+(* software-pipelined 8-blocks-per-iteration main loop .L256_dec_main_loop    *)
+(* (0x4a0..0x9ec), the GHASH catch-up prepretail (0x9f0..0xec0), and the tail *)
+(* cascade (0xec0), so correctness holds for arbitrary nblk >= 1.             *)
+(*                                                                            *)
+(* Binary: arm/aes-gcm/aesv8_gcm_8x_dec_256_wb.o (frozen).                    *)
+(* Plan:   _docs/wb-main-loop-plan.md (sec 3b -> 4 -> 5), with the pipeline   *)
+(*         correction from orchestrator/logs/plan-rationale.md baked in:      *)
+(*         GHASH lags stores by one 8-block group, so the ENSURES_WHILE       *)
+(*         invariant is the TWO-STREAM form (store/counter stream at 8(i+1),  *)
+(*         GHASH stream at 8i, bridged by raw ciphertext regs q8..q15), NOT   *)
+(*         a lag-free single fold.                                            *)
+(*                                                                            *)
+(* This file holds, in phase order:                                          *)
+(*   Sec 1. Scalar rung lemmas (nblk>8 generalizations; pure word/arith).     *)
+(*   Sec 2. Symbolic counter layer (gcm_ctr_add; closed form at symbolic k).  *)
+(*   [later] FRONT-N capture (WBN_FRONT_BUF), ENSURES_WHILE loop, prepretail, *)
+(*           recomposition, subroutine wrapper.                               *)
+(*                                                                            *)
+(* Lemmas in sec 1-2 were developed and committed in work.ml (commit          *)
+(* 41f4953b) and are moved here verbatim (all proved; total < 2s).            *)
 (* ========================================================================= *)
 
-(* needs "arm/proofs/aesv8_gcm_8x_dec_256_wb_nist.ml";; *)
-
-(* minimal deps so this file loads standalone on a fresh checkpoint:
-   IVAL_WORD_LT lives in aes_xts_common; gcm_ctr_inc/_iter + LANES in
-   gcm_ctr_helpers (both no-ops if wb_nist chain is already loaded) *)
+needs "arm/proofs/aesv8_gcm_8x_dec_256_wb.ml";;
+(* aes_xts_common: IVAL_WORD_LT.  gcm_ctr_helpers: gcm_ctr_inc / _iter, the
+   GCM_CTR_INC*_LANES lemmas.  Both are no-ops if wb.ml already pulled them. *)
 needs "arm/proofs/utils/aes_xts_common.ml";;
 needs "arm/proofs/utils/gcm_ctr_helpers.ml";;
-
-(* =========================================================================
-   PROGRESS (2026-07-24, session 1):
-   - Front-N sim VALIDATED LIVE to s288 = loop head pc+0x4a0 (nblk symbolic,
-     hyps: 17 <= nblk, 128*nblk < 2^62, val in_p + 16*nblk < 2^63 [signed
-     compare needs no-2^63-straddle], LENGTH ibytes = 16*nblk, band nonovers
-     + out_p/in_p out_p/key etc).
-   - Steps: wbn_init (prep: SUB_LIST, lane 0, USHR_128NBLK_ANY,
-     AND_MASK_16NBLK_ANY) THEN WBN_LANES_TAC (lanes 0..7) THEN
-     WBN_FRONT_STEP_TAC (1..259 = WB_FRONT_STEP_TAC modulo: mk_discard2[30]
-     -> DISCARD_STALE_Q30_TAC + steps 255..259 straight) THEN
-     WB_LOOPENTER_FLAGS rewrite (0x42c b.ge falls through) THEN
-     per-step 260..287 with GCM_SIMD_SIMPLIFY_TAC + DISCARD_STALE_Q30_TAC
-     [IMPORTANT: raw ARM_STEPS_TAC 260--287 in one block leaves ~57MB
-     goalstate; the per-step simplify keeps Q0..Q4 at 1366ch each]
-     THEN WBN_RESOLVE_49C_TAC (0x49c b.ge falls through iff 128 <
-     128*((nblk-1) DIV 8) ie nblk>=17) THEN step 288 (the b.ge, not taken).
-   - s288 state (post GSYM aes13 + GSYM GCM_CTR_INCk_LANES fold):
-     PC = pc+1184 (0x4a0); X0 = in_p+128; X2 = out_p+128;
-     X4 = in_p + 16*nblk; X5 = word_add (word (128*(nblk-1) DIV 8)) in_p;
-     X9 = 16*nblk; X1 = 128*nblk; X3 = xi_p; X6 = htbl_p; X11 = key_p;
-     X16 = ivec_p; X10 = sp+64; X15 = word 2^32;
-     Q8..Q15 = bytes_to_int128 (SUB_LIST (16k,16) ibytes), k=0..7 (RAW ct);
-     Q19 = word_bytereverse xi;  NO Q16/Q17/Q18 facts (GHASH acc = tag only);
-     Q0..Q4 = rev32-lane forms of counters 8..12 (1366ch raw, contain
-       word 8..word 12 adds);  Q30 = lane-accum form w/ top+13 pending;
-     Q5..Q7 = plaintext-5..7 values = DEAD at loop head (overwritten by
-       rev32 v5/v6/v7 at body start 0x4a0/0x4b8/0x4d0 before any read
-       -> OMIT from invariant);
-     out_p stores k=0..7: word_xor (word_xor ct_k (aes13 (inc^k ctr0) ..)) k14;
-     Q26/Q27/Q28 = k12/k13/k14; htable/keys/in_p cells unchanged;
-     stack slots sp+64 = word 13979173243358019584, sp+72 = 0;
-     Q31 = word 79228162514264337593543950336.
-   - PIPELINE INDEXING (verified): at loop head after i body executions:
-     q8..q15 = ct blocks 8i..8i+7 (pending GHASH), stores = blocks 0..8(i+1)-1,
-     GHASH acc (v19) = tag + blocks 0..8i-1, counters v0..v4 = 8(i+1)..8(i+1)+4,
-     Q30 top-lane increment = 8(i+1)+5 pending; X0 = in_p + 128(i+1)+... wait
-     X0 at head i = in_p + 128*(i+1) (lookahead loads happen mid-body).
-     Body i: GHASH q8..q15 (blocks 8i..), ldp new q8..q15 = blocks 8(i+1)..,
-     eor3+store plaintexts 8(i+1).., backedge cmp x0,x5.
-   - Loop trip count: body executes q = (nblk-1) DIV 8 - 1 times
-     (x0: in_p+128(i+1) at head; exits to prepretail when
-      128*(i+2) >= 128*((nblk-1) DIV 8) -- CHECK: backedge taken while
-      x0_after = in_p+128(i+2) < x5 = in_p + 128*((nblk-1) DIV 8)).
-     For nblk in 9..16: (nblk-1) DIV 8 = 1, x5 = in_p+128 = x0@head0,
-     0x49c b.ge TAKEN -> prepretail directly (loop never entered).
-     [=> FRONT-N with 17<=nblk enters loop; a SEPARATE nblk in 9..16 leg
-      goes front -> prepretail. Handle later via same seam at 0x9f0.]
-   - NEXT STEPS:
-     1. symbolic counter closed form: GCM_CTR_INC_ITER_INSERT (induction) +
-        generic-w lanes lemma so Q0..Q4/Q30 fold to gcm_ctr_inc_iter forms
-        with symbolic index (needed for invariant at symbolic i).
-        [DONE session 2 -- see section 2 below: gcm_ctr_add layer.]
-     2. harvest s288 -> FRONT-N postcond literal = INV(0); prove WBN_FRONT_BUF.
-     3. ENSURES_WHILE_UP q with INV(i); body = 0x4a0..0x9ec (~340 instrs);
-        backedge via WB_PTRCMP_FLAGS (a = 128*(i+2), d = 128*((nblk-1) DIV 8)).
-     4. prepretail + tail recomposition.
-   =========================================================================
-   PROGRESS (2026-07-24, session 2 -- OOM POST-MORTEM + FIX):
-   - Session 1 DIED at 09:01 UTC: OOM-killer took the 31GB ocaml-hol process.
-     ROOT CAUSE: `prove(GCM_CTR_ADD_LANES, ... BITBLAST_TAC)` on the
-     generic-w lane goal.  Unlike GCM_CTR_INC_LANES (add of CONSTANT word 1,
-     BDD stays ~1.4k nodes), the abstract `w:32 word` makes every one of the
-     32 sum bits depend on all lower w-bits AND ctr0-bits -> the BDD for the
-     byte-extracted carry chain explodes exponentially.  First attempt hit
-     the 300s eval timeout, hol_interrupt did NOT abort the BDD build
-     (allocation continued in C-side loop), and the RETRY of the same prove
-     doubled the pressure until the kernel killed it.
-     LESSON: never BITBLAST a word_add with a symbolic addend on >=32-bit
-     lanes; and after a timeout on a memory-heavy tactic, Gc.compact and
-     VERIFY the goalstate -- do not re-fire the same tactic.
-   - FIX (all proved, total <1s, this file section 2):
-     factor into wiring-only BITBLASTs (constant-free: BREV_TOP_LANE,
-     INSERT_BREV_WIRING) + the abstract add stays a free variable `s`,
-     then GCM_CTR_ADD_LANES is pure REWRITE composition.  Also proved the
-     algebra layer: GCM_CTR_ADD_COMPOSE, GCM_CTR_ADD_0/1,
-     GCM_CTR_INC_ITER_ADD (`gcm_ctr_inc_iter k x = gcm_ctr_add (word k) x`)
-     -- the symbolic-index counter form the invariant needs (NEXT STEP 1).
-   - Session-1 interactive defs salvaged from transcript into
-     _docs/wbn_session1_salvage.ml (wbn_init/goal builders, WBN_LANES_TAC,
-     WBN_RESOLVE_49C_TAC, DISCARD_STALE_Q30_TAC, WBN_FRONT_STEP_TAC 1..259,
-     per-step 260..287 recipe).  Front sim itself must be re-run.
-   ========================================================================= *)
 
 (* ------------------------------------------------------------------------- *)
 (* 1. Scalar rung lemmas (nblk > 8 generalizations of USHR_128NBLK /         *)
 (*    AND_MASK_16NBLK).  All pure word/arith, no sim.                        *)
 (*                                                                           *)
-(* NOTE (signed pointer compares): the 0x3e0/0x440/0x9e4 cmp x0,x5 feed      *)
+(* NOTE (signed pointer compares): the 0x42c/0x49c/0x9e4 cmp x0,x5 feed      *)
 (* b.ge/b.lt = SIGNED conditions on pointers.  For nblk <= 8 x5 = in_p so    *)
 (* the compare was reflexive; for nblk > 8 the exactness of                  *)
 (* ival(x0) - ival(x5) needs the buffer to not straddle the 2^63 signed     *)
@@ -410,3 +310,182 @@ let GCM_CTR_INC_ITER_ADD = prove
     REWRITE_TAC[GSYM GCM_CTR_ADD_1; GCM_CTR_ADD_COMPOSE] THEN
     AP_THM_TAC THEN AP_TERM_TAC THEN REWRITE_TAC[ADD1; GSYM WORD_ADD] THEN
     CONV_TAC WORD_RULE]);;
+
+(* ------------------------------------------------------------------------- *)
+(* 3. FRONT-N: capture the nblk>8 front (entry 0x20 -> loop head 0x4a0) as    *)
+(*    WBN_FRONT_BUF.  Its harvested postcondition (state s288 at the loop     *)
+(*    head) IS the i=0 instance of the ENSURES_WHILE loop invariant.          *)
+(*                                                                            *)
+(* Deltas vs wb.ml's <=8-block WB_FRONT_BUF (entry 0x20 -> 0x42c tail):       *)
+(*  - hyps: 1<=nblk /\ nblk<=8  becomes  17<=nblk /\ 128*nblk<2^62 /\         *)
+(*    val in_p + 16*nblk < 2^63 (the signed pointer-compare no-2^63-straddle).*)
+(*  - prep uses the _ANY scalar rungs (X5 = word(128*((nblk-1)DIV8)) not 0).  *)
+(*  - front steps 1..259 identical to WB_FRONT_STEP_TAC modulo mk_discard2[30]*)
+(*    -> DISCARD_STALE_Q30_TAC, and STOPPING before the 0x42c branch (no <=8  *)
+(*    INT_SUB_REFL / WORD_RULE collapse, since X5 != in_p here).              *)
+(*  - the 0x42c b.ge (step 260) FALLS THROUGH via WB_LOOPENTER_FLAGS; then    *)
+(*    bulk-8 segment 261..287; the 0x49c b.ge (step 288) FALLS THROUGH to     *)
+(*    the loop head via WB_PTRCMP_FLAGS + D_GT_128.                           *)
+(*                                                                            *)
+(* Route A (as wb.ml WB_FRONT_BUF): the 8 in-flight keystream towers cannot   *)
+(* be hand-written and the printed s288 term does not reparse, so we run the  *)
+(* front once against a MINIMAL postcond, harvest the s288 assumptions with   *)
+(* build_state_postcond_tms2 (folded to aes13 + gcm_ctr_inc^k lanes by        *)
+(* wb_front_fold_tac), then prove.  The front therefore sims twice per cold   *)
+(* load (once to harvest, once in the proof) -- the checkpoint hides this for *)
+(* interactive work.                                                          *)
+(* ------------------------------------------------------------------------- *)
+
+(* nblk>8 front hypotheses: swap the (1<=nblk /\ nblk<=8) prefix of wb.ml's
+   wb_front_hyps_tm for the nblk>=17 regime, KEEP every nonoverlapping/aligned/
+   length conjunct. *)
+let wbn_front_hyps_tm =
+  let _,rest1 = dest_conj wb_front_hyps_tm in
+  let _,rest = dest_conj rest1 in
+  mk_conj(`17 <= nblk /\ 128 * nblk < 2 EXP 62 /\ val (in_p:int64) + 16 * nblk < 2 EXP 63`,
+          rest);;
+
+let mk_wbn_front_goal postcond =
+  let ens = subst [wb_front_pre_tm,`PPP:armstate->bool`; postcond,`QQQ:armstate->bool`;
+                   wb_front_frame_tm,`CCC:armstate->armstate->bool`]
+              `ensures arm PPP QQQ CCC` in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_tm, ens));;
+
+(* pure-arith closer for the nblk>=17 side conditions *)
+let NBLK_ARITH_TAC =
+  MP_TAC(ASSUME `17 <= nblk`) THEN MP_TAC(ASSUME `128 * nblk < 2 EXP 62`) THEN
+  POP_ASSUM_LIST(K ALL_TAC) THEN ARITH_TAC;;
+
+(* nblk>8 buffer prep: same shape as wb.ml WB_FRONT_PREP_BUF_TAC but with the
+   _ANY rungs and the nblk>=17 arithmetic for the block-0 lane. *)
+let WBN_FRONT_PREP_BUF_TAC =
+  SUBGOAL_THEN `SUB_LIST (0, 16 * nblk) (ibytes:byte list) = ibytes` ASSUME_TAC THENL
+   [MATCH_MP_TAC SUB_LIST_LENGTH_IMPLIES THEN ASM_REWRITE_TAC[LE_REFL]; ALL_TAC] THEN
+  SUBGOAL_THEN `read (memory :> bytes128 in_p) s0 = bytes_to_int128 (SUB_LIST (0,16) ibytes)` ASSUME_TAC THENL
+   [MP_TAC(SPECL [`nblk:num`; `in_p:int64`; `ibytes:byte list`; `s0:armstate`] INPUT_BYTES_TO_BYTE128_LANES) THEN
+    ASM_REWRITE_TAC[LE_REFL] THEN DISCH_THEN(MP_TAC o SPEC `0`) THEN
+    ANTS_TAC THENL [NBLK_ARITH_TAC; ALL_TAC] THEN
+    REWRITE_TAC[MULT_CLAUSES; WORD_ADD_0] THEN DISCH_THEN(fun th -> REWRITE_TAC[th]); ALL_TAC] THEN
+  SUBGOAL_THEN `word_ushr (word (128 * nblk):int64) 3 = word (16 * nblk)` ASSUME_TAC THENL
+   [MATCH_MP_TAC USHR_128NBLK_ANY THEN NBLK_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `word_and (word_sub (word (16 * nblk)) (word 1)) (word 18446744073709551488):int64 = word (128 * ((nblk - 1) DIV 8))` ASSUME_TAC THENL
+   [MATCH_MP_TAC AND_MASK_16NBLK_ANY THEN NBLK_ARITH_TAC; ALL_TAC];;
+
+(* input lanes 0..7 for the bulk-8 ldp at 0x430 *)
+let WBN_LANES_TAC =
+  SUBGOAL_THEN
+   `!k. k < 8 ==> read (memory :> bytes128 (word_add in_p (word (16 * k)))) s0 =
+                  bytes_to_int128 (SUB_LIST (16 * k, 16) (ibytes:byte list))`
+   MP_TAC THENL
+   [MP_TAC(SPECL [`nblk:num`; `in_p:int64`; `ibytes:byte list`; `s0:armstate`]
+      INPUT_BYTES_TO_BYTE128_LANES) THEN
+    ASM_REWRITE_TAC[LE_REFL] THEN
+    DISCH_THEN(fun lth -> X_GEN_TAC `k:num` THEN DISCH_TAC THEN
+      MP_TAC(SPEC `k:num` lth) THEN ANTS_TAC THENL
+       [MP_TAC(ASSUME `k < 8`) THEN NBLK_ARITH_TAC; REWRITE_TAC[]]);
+    DISCH_THEN(fun lth ->
+      EVERY(map (fun i ->
+        ASSUME_TAC(CONV_RULE(DEPTH_CONV NUM_RED_CONV)
+          (MP (SPEC (mk_small_numeral i) lth)
+              (ARITH_RULE(mk_binop `(<):num->num->bool` (mk_small_numeral i) `8`)))))
+        (0--7)))];;
+
+let wbn_init_tac =
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  REWRITE_TAC[C_ARGUMENTS; SOME_FLAGS] THEN ENSURES_INIT_TAC "s0" THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[C_ARGUMENTS]) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_dec]) THEN
+  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV let_CONV)) THEN
+  FIRST_X_ASSUM(STRIP_ASSUME_TAC o check(is_conj o concl)) THEN
+  WBN_FRONT_PREP_BUF_TAC;;
+
+(* keep only the latest read Q30 fact (the rev32 counter accumulator grows a
+   big tower each step; older ones are dead) *)
+let state_num_of_read_q30 th =
+  let c = concl th in
+  try (match lhs c with
+       | Comb(Comb(Const("read",_),q),st) when string_of_term q = "Q30" ->
+           let s = fst(dest_var st) in
+           if String.length s > 1 && s.[0] = 's'
+           then int_of_string (String.sub s 1 (String.length s - 1)) else (-1)
+       | _ -> (-1))
+  with _ -> (-1);;
+let DISCARD_STALE_Q30_TAC : tactic = fun (asl,w) ->
+  let nums = List.filter (fun n -> n >= 0)
+    (List.map (fun (_,th) -> state_num_of_read_q30 th) asl) in
+  if nums = [] then ALL_TAC (asl,w) else
+  let mx = itlist max nums (-1) in
+  DISCARD_ASSUMPTIONS_TAC (fun th ->
+    let n = state_num_of_read_q30 th in n >= 0 && n < mx) (asl,w);;
+
+(* front steps 1..259 (up to but NOT including the 0x42c branch at step 260) *)
+let WBN_FRONT_STEP_TAC =
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (1--5) THEN
+  EVERY(map (fun i -> ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (i--i) THEN
+             GCM_SIMD_SIMPLIFY_TAC) (6--30)) THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (31--84) THEN DISCARD_STALE_Q30_TAC THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (85--173) THEN DISCARD_STALE_Q30_TAC THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (174--177) THEN
+  GCM_SIMD_SIMPLIFY_TAC THEN DISCARD_STALE_Q30_TAC THEN
+  ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (178--189) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[Q19_BREVXI]) THEN DISCARD_STALE_Q30_TAC THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (190--254) THEN
+  DISCARD_STALE_Q30_TAC THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  ARM_VSTEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC [255] THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (256--259);;
+
+(* 0x42c b.ge (step 260): nblk>=17 => X0=in_p, X5=in_p+d, NF=T VF=F, FALLS THRU *)
+let WBN_RESOLVE_42C_TAC : tactic =
+  MP_TAC(SPECL [`in_p:int64`; `nblk:num`] WB_LOOPENTER_FLAGS) THEN
+  ANTS_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th]));;
+
+(* 0x49c b.ge (step 288): X0=in_p+128, X5=in_p+d, 128<d for nblk>=17 => NF=T
+   VF=F, FALLS THROUGH to loop head 0x4a0 *)
+let WBN_RESOLVE_49C_TAC : tactic = fun (asl,w) ->
+  (MP_TAC(SPECL [`in_p:int64`; `128`; `128 * (nblk - 1) DIV 8`] WB_PTRCMP_FLAGS) THEN
+   ANTS_TAC THENL
+    [CONJ_TAC THENL
+      [MP_TAC(ASSUME `val (in_p:int64) + 16 * nblk < 2 EXP 63`) THEN NBLK_ARITH_TAC;
+       MP_TAC(ASSUME `val (in_p:int64) + 16 * nblk < 2 EXP 63`) THEN
+       MP_TAC(SPECL [`nblk - 1`; `8`] DIVISION) THEN NBLK_ARITH_TAC];
+     ALL_TAC] THEN
+   DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th])) THEN
+   MP_TAC(SPEC `nblk:num` D_GT_128) THEN ANTS_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
+   DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th]))) (asl,w);;
+
+(* the complete front sim entry 0x20 -> loop head 0x4a0 (ends at s288) *)
+let WBN_FRONT_FULL_TAC =
+  wbn_init_tac THEN WBN_LANES_TAC THEN WBN_FRONT_STEP_TAC THEN
+  WBN_RESOLVE_42C_TAC THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (260--260) THEN
+  EVERY(map (fun i -> ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (i--i) THEN
+             GCM_SIMD_SIMPLIFY_TAC THEN DISCARD_STALE_Q30_TAC) (261--287)) THEN
+  WBN_RESOLVE_49C_TAC THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (288--288);;
+
+(* Harvest the s288 postcondition (the i=0 invariant), then prove WBN_FRONT_BUF.
+   The harvest runs the front against a minimal postcond; wb_front_fold_tac
+   compacts the 8 keystream towers to aes13 + gcm_ctr_inc^k lanes.  Reuses
+   wb.ml's build_state_postcond_tms2 (keeps every read _ s288 fact + the
+   aligned_bytes_loaded conjunct). *)
+let wbn_front_postcond_i0 =
+  let min_goal = mk_wbn_front_goal `\s:armstate. read PC s = word (pc + 0x4a0)` in
+  let _ = g min_goal in
+  let _ = e (WBN_FRONT_FULL_TAC THEN wb_front_fold_tac) in
+  let (asl288,_) = top_goal() in
+  let pc = build_state_postcond_tms2 "s288" asl288 in
+  let _ = b() in pc;;
+
+(* WBN_FRONT_BUF: the FRONT-N theorem.  Its postcond = the i=0 loop invariant
+   (two-stream pipelined form): q8..q15 = RAW ct blocks 0..7 pending fold,
+   Q19 = word_bytereverse xi (GHASH acc over blocks 0..-1 = tag only), stores
+   done for blocks 0..7, counters at 8..12, X0=in_p+128, X2=out_p+128.
+   Close = WB_FRONT_BUF's, plus one REWRITE_TAC[WORD_ADD_0] (the harvested Q30
+   lower lanes carry a spurious word_add _ (word 0) vs the sim's assumption). *)
+let WBN_FRONT_BUF = prove(mk_wbn_front_goal wbn_front_postcond_i0,
+  WBN_FRONT_FULL_TAC THEN wb_front_fold_tac THEN
+  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[WORD_ADD_0] THEN
+  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+  REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC);;
