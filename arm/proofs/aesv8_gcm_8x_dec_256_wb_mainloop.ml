@@ -489,3 +489,119 @@ let WBN_FRONT_BUF = prove(mk_wbn_front_goal wbn_front_postcond_i0,
   REWRITE_TAC[WORD_ADD_0] THEN
   REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
   REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC);;
+
+(* ------------------------------------------------------------------------- *)
+(* 4. Phase 2: the TWO-STREAM ENSURES_WHILE loop invariant (FROZEN).          *)
+(*                                                                            *)
+(* Derived (session-003) by generalizing WBN_FRONT_BUF's harvested s288       *)
+(* postcond to symbolic block index i.  The i=0 instance was VALIDATED to     *)
+(* follow from WBN_FRONT_BUF: 44 of 47 conjuncts (all registers, counters,    *)
+(* keystreams, GHASH acc, stores, pointers) close by                          *)
+(*   CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN                                  *)
+(*   RULE_ASSUM_TAC(REWRITE_RULE[GSYM GCM_CTR_ADD_LANES]) THEN                *)
+(*   REWRITE_TAC[GCM_CTR_INC_ITER_ADD; GCM_CTR_ADD_1; GSYM GCM_CTR_ADD_LANES] *)
+(*     THEN REWRITE_TAC[list_of_seq; MAP; ghash_polyval_acc] THEN             *)
+(*   RULE_ASSUM_TAC(REWRITE_RULE[GCM_CTR_INC_LANES;..;GCM_CTR_INC7_LANES])    *)
+(*     THEN RULE_ASSUM_TAC(REWRITE_RULE[GSYM GCM_CTR_ADD_LANES]) THEN         *)
+(*   REWRITE_TAC[GCM_CTR_ADD_0] THEN CONV_TAC(ONCE_DEPTH_CONV EXPAND_CASES_   *)
+(*     CONV) THEN CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN                     *)
+(*   REWRITE_TAC[WORD_ADD_0] THEN ASM_REWRITE_TAC[].                          *)
+(*                                                                            *)
+(* GAP (documented, sound): the remaining 3 conjuncts                         *)
+(*   read (memory :> bytes (in_p,16 * nblk)) s = num_of_bytelist ibytes       *)
+(*   read (memory :> bytes128 key_p) s = k0                                   *)
+(*   htable_mem_dec h htbl_p s                                                *)
+(* are loop-CONSTANTS that hold at the loop head (they are in wb_front_pre_tm *)
+(* and NOT in the front MAYCHANGE frame -> preserved) but are NOT in          *)
+(* WBN_FRONT_BUF's harvested postcond (build_state_postcond_tms2 keeps only   *)
+(* `read _ s = _` + aligned_bytes_loaded, so htable_mem_dec is dropped, and   *)
+(* the in_p/key_p reads were s0 facts not re-stated at s288).  FIX for next   *)
+(* session: extend the front postcond harvest to re-assert these 3 (add them  *)
+(* to wbn_front_postcond_i0 / the keep-filter, OR carry them via a strengthen *)
+(* step), then WBN_FRONT_BUF closes them from the precond (they are in the    *)
+(* MAYCHANGE-preserved set).  With that, the ENSURES_WHILE_UP_TAC entry       *)
+(* subgoal (i=0) closes by MATCH_MP_TAC WBN_FRONT_BUF + the tactic above.     *)
+(*                                                                            *)
+(* Two-stream reading of the invariant (VERIFIED off the i=0 goal):           *)
+(*  - store/counter stream AHEAD at 8(i+1): X0=in_p+128(i+1), X2=out_p+128(i+1)*)
+(*    Q0..Q4 = gcm_ctr_add (word (8i+8..12)) ctr0 (next group's counters),    *)
+(*    Q5..Q7 = plaintext blocks at 8i+5..7 (in-flight keystream XOR),         *)
+(*    stores done for all j < 8(i+1).                                         *)
+(*  - GHASH stream LAGS at 8i: Q19 = ghash_polyval_acc (byteswap128 h)        *)
+(*    (word_bytereverse xi) over reversed raw ct blocks 0..8i-1;              *)
+(*    q8..q15 = RAW ct blocks 8i..8i+7 pending fold (the bridge).             *)
+(*                                                                            *)
+(* STEP-CASE TODO (Phase 4, plan-rationale risk #2): the +8*i offset on the   *)
+(* Q5..Q7 keystream indices (5,6,7 at i=0, all < 8) must be READ OFF the      *)
+(* loop-body sim goal, not trusted from this generalization.                  *)
+(* loop control flow (objdump): head pc1=pc+0x4a0; back-edge cmp x0,x5 @0x9e4 *)
+(* + b.lt 0x4a0 @0x9ec (SIGNED, so a P-variant / WB_PTRCMP_FLAGS handles it); *)
+(* exit fall-through @0x9f0.  count q = (nblk-9) DIV 8.                        *)
+(* ------------------------------------------------------------------------- *)
+
+let wbn_loop_invariant = new_definition
+ `wbn_loop_invariant (pc:num) (ctr0:int128) (in_p:int64) (out_p:int64)
+    (xi_p:int64) (ivec_p:int64) (key_p:int64) (htbl_p:int64) (stackpointer:int64)
+    (nblk:num) (ibytes:byte list) (xi:int128) (h:int128)
+    (k0:int128) k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13 (k14:int128) =
+  \(i:num) (s:armstate).
+    aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
+    read PC s = word (pc + 1184) /\
+    read Q0 s = gcm_ctr_add (word (8 * i + 8)) ctr0 /\
+    read Q1 s = gcm_ctr_add (word (8 * i + 9)) ctr0 /\
+    read Q2 s = gcm_ctr_add (word (8 * i + 10)) ctr0 /\
+    read Q3 s = gcm_ctr_add (word (8 * i + 11)) ctr0 /\
+    read Q4 s = gcm_ctr_add (word (8 * i + 12)) ctr0 /\
+    read Q5 s =
+    word_xor
+    (word_xor (bytes_to_int128 (SUB_LIST (16 * (8 * i + 5),16) ibytes))
+    (aes13 (gcm_ctr_inc_iter (8 * i + 5) ctr0) k0 k1 k2 k3 k4 k5 k6 k7 k8 k9
+     k10 k11 k12 k13)) k14 /\
+    read Q6 s =
+    word_xor
+    (word_xor (bytes_to_int128 (SUB_LIST (16 * (8 * i + 6),16) ibytes))
+    (aes13 (gcm_ctr_inc_iter (8 * i + 6) ctr0) k0 k1 k2 k3 k4 k5 k6 k7 k8 k9
+     k10 k11 k12 k13)) k14 /\
+    read Q7 s =
+    word_xor
+    (word_xor (bytes_to_int128 (SUB_LIST (16 * (8 * i + 7),16) ibytes))
+    (aes13 (gcm_ctr_inc_iter (8 * i + 7) ctr0) k0 k1 k2 k3 k4 k5 k6 k7 k8 k9
+     k10 k11 k12 k13)) k14 /\
+    read Q8 s = bytes_to_int128 (SUB_LIST (16 * (8 * i + 0),16) ibytes) /\
+    read Q9 s = bytes_to_int128 (SUB_LIST (16 * (8 * i + 1),16) ibytes) /\
+    read Q10 s = bytes_to_int128 (SUB_LIST (16 * (8 * i + 2),16) ibytes) /\
+    read Q11 s = bytes_to_int128 (SUB_LIST (16 * (8 * i + 3),16) ibytes) /\
+    read Q12 s = bytes_to_int128 (SUB_LIST (16 * (8 * i + 4),16) ibytes) /\
+    read Q13 s = bytes_to_int128 (SUB_LIST (16 * (8 * i + 5),16) ibytes) /\
+    read Q14 s = bytes_to_int128 (SUB_LIST (16 * (8 * i + 6),16) ibytes) /\
+    read Q15 s = bytes_to_int128 (SUB_LIST (16 * (8 * i + 7),16) ibytes) /\
+    read Q19 s =
+    ghash_polyval_acc (byteswap128 h) (word_bytereverse xi)
+    (MAP word_bytereverse
+    (list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16) ibytes)) (8 * i))) /\
+    read Q26 s = k12 /\
+    read Q27 s = k13 /\
+    read Q28 s = k14 /\
+    read X0 s = word_add in_p (word (128 * (i + 1))) /\
+    read X2 s = word_add out_p (word (128 * (i + 1))) /\
+    read X4 s = word_add in_p (word (16 * nblk)) /\
+    read X5 s = word_add (word (128 * (nblk - 1) DIV 8)) in_p /\
+    read X9 s = word (16 * nblk) /\
+    read X10 s = word_add stackpointer (word 64) /\
+    read X1 s = word (128 * nblk) /\
+    read X15 s = word 4294967296 /\
+    read Q31 s = word 79228162514264337593543950336 /\
+    read X16 s = ivec_p /\
+    read X6 s = htbl_p /\
+    read X3 s = xi_p /\
+    read X11 s = key_p /\
+    read SP s = stackpointer /\
+    (!j. j < 8 * (i + 1)
+         ==> read (memory :> bytes128 (word_add out_p (word (16 * j)))) s =
+             word_xor
+             (word_xor (bytes_to_int128 (SUB_LIST (16 * j,16) ibytes))
+             (aes13 (gcm_ctr_inc_iter j ctr0) k0 k1 k2 k3 k4 k5 k6 k7 k8 k9
+              k10 k11 k12 k13)) k14) /\
+    read (memory :> bytes (in_p,16 * nblk)) s = num_of_bytelist ibytes /\
+    read (memory :> bytes128 key_p) s = k0 /\
+    htable_mem_dec h htbl_p s`;;
