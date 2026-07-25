@@ -489,3 +489,419 @@ let WBN_FRONT_BUF = prove(mk_wbn_front_goal wbn_front_postcond_i0,
   REWRITE_TAC[WORD_ADD_0] THEN
   REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
   REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC);;
+
+(* ------------------------------------------------------------------------- *)
+(* 4. Phase 2: the TWO-STREAM ENSURES_WHILE loop invariant (FROZEN).          *)
+(*                                                                            *)
+(* Derived (session-003) by generalizing WBN_FRONT_BUF's harvested s288       *)
+(* postcond to symbolic block index i.  The i=0 instance was VALIDATED to     *)
+(* follow from WBN_FRONT_BUF: 44 of 47 conjuncts (all registers, counters,    *)
+(* keystreams, GHASH acc, stores, pointers) close by                          *)
+(*   CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN                                  *)
+(*   RULE_ASSUM_TAC(REWRITE_RULE[GSYM GCM_CTR_ADD_LANES]) THEN                *)
+(*   REWRITE_TAC[GCM_CTR_INC_ITER_ADD; GCM_CTR_ADD_1; GSYM GCM_CTR_ADD_LANES] *)
+(*     THEN REWRITE_TAC[list_of_seq; MAP; ghash_polyval_acc] THEN             *)
+(*   RULE_ASSUM_TAC(REWRITE_RULE[GCM_CTR_INC_LANES;..;GCM_CTR_INC7_LANES])    *)
+(*     THEN RULE_ASSUM_TAC(REWRITE_RULE[GSYM GCM_CTR_ADD_LANES]) THEN         *)
+(*   REWRITE_TAC[GCM_CTR_ADD_0] THEN CONV_TAC(ONCE_DEPTH_CONV EXPAND_CASES_   *)
+(*     CONV) THEN CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN                     *)
+(*   REWRITE_TAC[WORD_ADD_0] THEN ASM_REWRITE_TAC[].                          *)
+(*                                                                            *)
+(* GAP (documented, sound): the remaining 3 conjuncts                         *)
+(*   read (memory :> bytes (in_p,16 * nblk)) s = num_of_bytelist ibytes       *)
+(*   read (memory :> bytes128 key_p) s = k0                                   *)
+(*   htable_mem_dec h htbl_p s                                                *)
+(* are loop-CONSTANTS that hold at the loop head (they are in wb_front_pre_tm *)
+(* and NOT in the front MAYCHANGE frame -> preserved) but are NOT in          *)
+(* WBN_FRONT_BUF's harvested postcond (build_state_postcond_tms2 keeps only   *)
+(* `read _ s = _` + aligned_bytes_loaded, so htable_mem_dec is dropped, and   *)
+(* the in_p/key_p reads were s0 facts not re-stated at s288).  FIX for next   *)
+(* session: extend the front postcond harvest to re-assert these 3 (add them  *)
+(* to wbn_front_postcond_i0 / the keep-filter, OR carry them via a strengthen *)
+(* step), then WBN_FRONT_BUF closes them from the precond (they are in the    *)
+(* MAYCHANGE-preserved set).  With that, the ENSURES_WHILE_UP_TAC entry       *)
+(* subgoal (i=0) closes by MATCH_MP_TAC WBN_FRONT_BUF + the tactic above.     *)
+(*                                                                            *)
+(* Two-stream reading of the invariant (VERIFIED off the i=0 goal):           *)
+(*  - store/counter stream AHEAD at 8(i+1): X0=in_p+128(i+1), X2=out_p+128(i+1)*)
+(*    Q0..Q4 = gcm_ctr_add (word (8i+8..12)) ctr0 (next group's counters),    *)
+(*    Q5..Q7 = plaintext blocks at 8i+5..7 (in-flight keystream XOR),         *)
+(*    stores done for all j < 8(i+1).                                         *)
+(*  - GHASH stream LAGS at 8i: Q19 = ghash_polyval_acc (byteswap128 h)        *)
+(*    (word_bytereverse xi) over reversed raw ct blocks 0..8i-1;              *)
+(*    q8..q15 = RAW ct blocks 8i..8i+7 pending fold (the bridge).             *)
+(*                                                                            *)
+(* STEP-CASE TODO (Phase 4, plan-rationale risk #2): the +8*i offset on the   *)
+(* Q5..Q7 keystream indices (5,6,7 at i=0, all < 8) must be READ OFF the      *)
+(* loop-body sim goal, not trusted from this generalization.                  *)
+(* loop control flow (objdump): head pc1=pc+0x4a0; back-edge cmp x0,x5 @0x9e4 *)
+(* + b.lt 0x4a0 @0x9ec (SIGNED, so a P-variant / WB_PTRCMP_FLAGS handles it); *)
+(* exit fall-through @0x9f0.  count q = (nblk-9) DIV 8.                        *)
+(* ------------------------------------------------------------------------- *)
+
+let wbn_loop_invariant = new_definition
+ `wbn_loop_invariant (pc:num) (ctr0:int128) (in_p:int64) (out_p:int64)
+    (xi_p:int64) (ivec_p:int64) (key_p:int64) (htbl_p:int64) (stackpointer:int64)
+    (nblk:num) (ibytes:byte list) (xi:int128) (h:int128)
+    (k0:int128) k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13 (k14:int128) =
+  \(i:num) (s:armstate).
+    aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
+    read PC s = word (pc + 1184) /\
+    read Q0 s = gcm_ctr_add (word (8 * i + 8)) ctr0 /\
+    read Q1 s = gcm_ctr_add (word (8 * i + 9)) ctr0 /\
+    read Q2 s = gcm_ctr_add (word (8 * i + 10)) ctr0 /\
+    read Q3 s = gcm_ctr_add (word (8 * i + 11)) ctr0 /\
+    read Q4 s = gcm_ctr_add (word (8 * i + 12)) ctr0 /\
+    read Q5 s =
+    word_xor
+    (word_xor (bytes_to_int128 (SUB_LIST (16 * (8 * i + 5),16) ibytes))
+    (aes13 (gcm_ctr_inc_iter (8 * i + 5) ctr0) k0 k1 k2 k3 k4 k5 k6 k7 k8 k9
+     k10 k11 k12 k13)) k14 /\
+    read Q6 s =
+    word_xor
+    (word_xor (bytes_to_int128 (SUB_LIST (16 * (8 * i + 6),16) ibytes))
+    (aes13 (gcm_ctr_inc_iter (8 * i + 6) ctr0) k0 k1 k2 k3 k4 k5 k6 k7 k8 k9
+     k10 k11 k12 k13)) k14 /\
+    read Q7 s =
+    word_xor
+    (word_xor (bytes_to_int128 (SUB_LIST (16 * (8 * i + 7),16) ibytes))
+    (aes13 (gcm_ctr_inc_iter (8 * i + 7) ctr0) k0 k1 k2 k3 k4 k5 k6 k7 k8 k9
+     k10 k11 k12 k13)) k14 /\
+    read Q8 s = bytes_to_int128 (SUB_LIST (16 * (8 * i + 0),16) ibytes) /\
+    read Q9 s = bytes_to_int128 (SUB_LIST (16 * (8 * i + 1),16) ibytes) /\
+    read Q10 s = bytes_to_int128 (SUB_LIST (16 * (8 * i + 2),16) ibytes) /\
+    read Q11 s = bytes_to_int128 (SUB_LIST (16 * (8 * i + 3),16) ibytes) /\
+    read Q12 s = bytes_to_int128 (SUB_LIST (16 * (8 * i + 4),16) ibytes) /\
+    read Q13 s = bytes_to_int128 (SUB_LIST (16 * (8 * i + 5),16) ibytes) /\
+    read Q14 s = bytes_to_int128 (SUB_LIST (16 * (8 * i + 6),16) ibytes) /\
+    read Q15 s = bytes_to_int128 (SUB_LIST (16 * (8 * i + 7),16) ibytes) /\
+    read Q19 s =
+    ghash_polyval_acc (byteswap128 h) (word_bytereverse xi)
+    (MAP word_bytereverse
+    (list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16) ibytes)) (8 * i))) /\
+    read Q26 s = k12 /\
+    read Q27 s = k13 /\
+    read Q28 s = k14 /\
+    read X0 s = word_add in_p (word (128 * (i + 1))) /\
+    read X2 s = word_add out_p (word (128 * (i + 1))) /\
+    read X4 s = word_add in_p (word (16 * nblk)) /\
+    read X5 s = word_add (word (128 * (nblk - 1) DIV 8)) in_p /\
+    read X9 s = word (16 * nblk) /\
+    read X10 s = word_add stackpointer (word 64) /\
+    read X1 s = word (128 * nblk) /\
+    read X15 s = word 4294967296 /\
+    read Q31 s = word 79228162514264337593543950336 /\
+    read X16 s = ivec_p /\
+    read X6 s = htbl_p /\
+    read X3 s = xi_p /\
+    read X11 s = key_p /\
+    read SP s = stackpointer /\
+    (!j. j < 8 * (i + 1)
+         ==> read (memory :> bytes128 (word_add out_p (word (16 * j)))) s =
+             word_xor
+             (word_xor (bytes_to_int128 (SUB_LIST (16 * j,16) ibytes))
+             (aes13 (gcm_ctr_inc_iter j ctr0) k0 k1 k2 k3 k4 k5 k6 k7 k8 k9
+              k10 k11 k12 k13)) k14) /\
+    read (memory :> bytes (in_p,16 * nblk)) s = num_of_bytelist ibytes /\
+    read (memory :> bytes128 key_p) s = k0 /\
+    htable_mem_dec h htbl_p s`;;
+
+(* ---- Entry-subgoal recipe (validated interactively, session-003) ----------
+   The ENSURES_WHILE_UP_TAC entry subgoal is  pre ==> (PC=pc1 /\ inv 0 s).
+   Given WBN_FRONT_BUF establishes pre ==> (PC=pc+0x4a0 /\ <postcond s>), the
+   i=0 invariant  (wbn_loop_invariant ... 0 s)  follows from <postcond s> PLUS
+   the 3 loop-constants (in_p read-only, key_p=k0, htable_mem_dec) once those
+   are added to WBN_FRONT_BUF's harvest.  The closing tactic (proves 44/47
+   directly from the postcond hyps; the 3 come from the extended front):
+
+     GEN_TAC THEN REWRITE_TAC[wbn_loop_invariant] THEN
+     CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN STRIP_TAC THEN
+     CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN
+     RULE_ASSUM_TAC(REWRITE_RULE[GSYM GCM_CTR_ADD_LANES]) THEN
+     REWRITE_TAC[GCM_CTR_INC_ITER_ADD; GCM_CTR_ADD_1; GSYM GCM_CTR_ADD_LANES] THEN
+     REWRITE_TAC[list_of_seq; MAP; ghash_polyval_acc] THEN
+     RULE_ASSUM_TAC(REWRITE_RULE[GCM_CTR_INC_LANES; GCM_CTR_INC2_LANES;
+        GCM_CTR_INC3_LANES; GCM_CTR_INC4_LANES; GCM_CTR_INC5_LANES;
+        GCM_CTR_INC6_LANES; GCM_CTR_INC7_LANES]) THEN
+     RULE_ASSUM_TAC(REWRITE_RULE[GSYM GCM_CTR_ADD_LANES]) THEN
+     REWRITE_TAC[GCM_CTR_ADD_0] THEN
+     CONV_TAC(ONCE_DEPTH_CONV EXPAND_CASES_CONV) THEN
+     CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN
+     REWRITE_TAC[WORD_ADD_0] THEN ASM_REWRITE_TAC[]
+
+   With the RAW WBN_FRONT_BUF postcond as the assumption set this reduces the
+   goal to EXACTLY the 3 loop-constant conjuncts (confirmed session-003).  When
+   packaging as a standalone lemma with the postcond as a `\s.`-abstraction
+   antecedent, watch the beta step: STRIP_TAC must see the antecedent already
+   beta-reduced (do CONV_TAC(TOP_DEPTH_CONV BETA_CONV) on the WHOLE goal, incl.
+   the antecedent, before STRIP_TAC) — a naive `(\s.P) s /\ (\s.Q) s ==> ...`
+   left unreduced makes STRIP_TAC give conjunct hyps still wrapped.
+
+   NEXT-SESSION FIX to get a clean entry (no extra hyps):
+   extend WBN_FRONT_BUF so its postcond re-asserts the 3 loop-constants.  Either
+   (a) widen build_state_postcond_tms2's keep-filter to also retain
+       `htable_mem_dec _ _ s` and the input/key `read _ s = _` facts (they are
+       preserved: NOT in wb_front_frame_tm's MAYCHANGE), re-run the front sim,
+       or (b) prove WBN_FRONT_BUF_EXT = WBN_FRONT_BUF strengthened with the 3
+       (they hold in wb_front_pre_tm and survive the frame), via a framing/
+       ENSURES_TRANS wrapper avoiding a full re-sim.  Then the entry subgoal of
+       ENSURES_WHILE_UP_TAC closes by MATCH_MP_TAC WBN_FRONT_BUF_EXT + the tactic
+       above (no leftover conjuncts). *)
+
+(* ------------------------------------------------------------------------- *)
+(* 5. Phase 3: GHASH 8-block extension algebra (pure list/field, no sim).     *)
+(*                                                                            *)
+(* The invariant's Q19 GHASH accumulator is                                   *)
+(*   ghash_polyval_acc (byteswap128 h) (word_bytereverse xi)                  *)
+(*     (MAP word_bytereverse (list_of_seq blk (8 * i)))                       *)
+(* where blk k = bytes_to_int128 (SUB_LIST (16*k,16) ibytes) is the raw ct    *)
+(* block k.  The step case (i -> i+1) must extend this fold from 8*i to       *)
+(* 8*(i+1) blocks.  The loop body performs exactly 8 Horner steps (one        *)
+(* polyval_dot per fresh ciphertext block, each byte-reversed then XORed into *)
+(* the accumulator), so we need the fold over 8*(i+1) blocks to equal the     *)
+(* fold over 8*i blocks continued by 8 explicit steps over blocks            *)
+(* 8*i .. 8*i+7.  This is pure algebra over GHASH_ACC_APPEND                   *)
+(* (common/polyval_ghash.ml:62) + list_of_seq, provable BEFORE any sim.       *)
+(* ------------------------------------------------------------------------- *)
+
+(* list_of_seq splits at any offset (APPEND-at-end recursion, induct on n) *)
+let LIST_OF_SEQ_SPLIT = prove
+ (`!(f:num->int128) m n. list_of_seq f (m + n) =
+     APPEND (list_of_seq f m) (list_of_seq (\j. f (m + j)) n)`,
+  GEN_TAC THEN GEN_TAC THEN INDUCT_TAC THEN
+  REWRITE_TAC[ADD_CLAUSES; list_of_seq; APPEND_NIL] THEN
+  ASM_REWRITE_TAC[ADD_CLAUSES; list_of_seq; APPEND_ASSOC]);;
+
+(* generic group-extension of the byte-reversed GHASH fold: split m+n *)
+let GHASH_ACC_GROUP_EXTEND = prove
+ (`!(g:num->int128) H acc m n.
+    ghash_polyval_acc H acc (MAP word_bytereverse (list_of_seq g (m + n))) =
+    ghash_polyval_acc H
+      (ghash_polyval_acc H acc (MAP word_bytereverse (list_of_seq g m)))
+      (MAP word_bytereverse (list_of_seq (\j. g (m + j)) n))`,
+  REPEAT GEN_TAC THEN
+  REWRITE_TAC[LIST_OF_SEQ_SPLIT; MAP_APPEND; GHASH_ACC_APPEND]);;
+
+(* clean 8-element unfold of list_of_seq (numerals, no SUC towers) *)
+let LIST_OF_SEQ_8 = prove
+ (`!f:num->int128. list_of_seq f 8 =
+    [f 0; f 1; f 2; f 3; f 4; f 5; f 6; f 7]`,
+  GEN_TAC THEN
+  CONV_TAC(LAND_CONV(REWRITE_CONV[num_CONV `8`; num_CONV `7`; num_CONV `6`;
+    num_CONV `5`; num_CONV `4`; num_CONV `3`; num_CONV `2`; num_CONV `1`;
+    LIST_OF_SEQ])) THEN
+  REWRITE_TAC[o_THM] THEN CONV_TAC(DEPTH_CONV NUM_SUC_CONV) THEN REWRITE_TAC[]);;
+
+(* THE Phase-3 deliverable: extend the invariant's GHASH fold by one 8-block  *)
+(* group.  RHS = the 8*i fold, continued by a fold over the 8 concrete new    *)
+(* raw-ct blocks (8*i .. 8*i+7).  Instantiate blk := \k. bytes_to_int128      *)
+(* (SUB_LIST (16*k,16) ibytes) in the body; REWRITE_TAC[MAP; ghash_polyval_acc]*)
+(* then unfolds the RHS to the nested polyval_dot/word_xor Horner chain the    *)
+(* 8 body GHASH instructions produce. *)
+let GHASH_ACC_8BLOCK_EXTEND = prove
+ (`!(blk:num->int128) H acc i.
+    ghash_polyval_acc H acc
+      (MAP word_bytereverse (list_of_seq blk (8 * (i + 1)))) =
+    ghash_polyval_acc H
+      (ghash_polyval_acc H acc (MAP word_bytereverse (list_of_seq blk (8 * i))))
+      (MAP word_bytereverse
+        [blk (8 * i); blk (8 * i + 1); blk (8 * i + 2); blk (8 * i + 3);
+         blk (8 * i + 4); blk (8 * i + 5); blk (8 * i + 6); blk (8 * i + 7)])`,
+  REPEAT GEN_TAC THEN
+  SUBGOAL_THEN `8 * (i + 1) = 8 * i + 8` SUBST1_TAC THENL
+   [ARITH_TAC; ALL_TAC] THEN
+  REWRITE_TAC[GHASH_ACC_GROUP_EXTEND] THEN
+  REWRITE_TAC[LIST_OF_SEQ_8] THEN
+  CONV_TAC(DEPTH_CONV BETA_CONV) THEN REWRITE_TAC[ADD_CLAUSES]);;
+
+(* ------------------------------------------------------------------------- *)
+(* 6. Route-(b) tool: strengthen an ensures postcondition with a frame-       *)
+(*    PRESERVED fact, with NO re-simulation.  Pure ensures/eventually logic.  *)
+(*                                                                            *)
+(* This is the clean combinator for WBN_FRONT_BUF_EXT (and reusable in the    *)
+(* Phase-6 recompose): given `ensures step P Q C` and that the frame C, from  *)
+(* precondition P, preserves R (i.e. !s s'. P s /\ C s s' ==> R s'), we get   *)
+(* `ensures step P (\s. Q s /\ R s) C` for free.                              *)
+(*                                                                            *)
+(* Usage for WBN_FRONT_BUF_EXT: take R s = (the 3 loop-constants at s:         *)
+(*   read (memory :> bytes (in_p,16*nblk)) s = num_of_bytelist ibytes /\      *)
+(*   read (memory :> bytes128 key_p) s = k0 /\ htable_mem_dec h htbl_p s).     *)
+(* The preservation obligation !s s'. wb_front_pre_tm s /\ wb_front_frame_tm  *)
+(* s s' ==> R s' holds because none of in_p's input bytes, key_p, or htbl_p   *)
+(* memory is in wb_front_frame_tm's MAYCHANGE (only out_p/xi_p/ivec_p/stack + *)
+(* Q-regs are).  Discharge it by: STRIP the frame (MAYCHANGE ... ,, ...),     *)
+(* then for each read-conjunct use the nonoverlapping hyps + the fact the     *)
+(* frame's memory writes miss those regions (the standard READ_OVER_WRITE /   *)
+(* MAYCHANGE-preservation reasoning; htable_mem_dec unfolds to bytes128 reads *)
+(* off htbl_p that are likewise disjoint).                                    *)
+(* ------------------------------------------------------------------------- *)
+
+let ENSURES_ADD_PRESERVED = prove
+ (`!(step:A->A->bool) P Q R C.
+    ensures step P Q C /\ (!s s'. P s /\ C s s' ==> R s')
+    ==> ensures step P (\s. Q s /\ R s) C`,
+  REWRITE_TAC[ensures] THEN REPEAT GEN_TAC THEN STRIP_TAC THEN
+  X_GEN_TAC `s0:A` THEN DISCH_TAC THEN
+  SUBGOAL_THEN `!s':A. Q s' /\ C (s0:A) s' ==> (Q s' /\ R s') /\ C s0 s'`
+    (MP_TAC o MATCH_MP EVENTUALLY_MONO) THENL
+   [X_GEN_TAC `s1:A` THEN STRIP_TAC THEN ASM_REWRITE_TAC[] THEN
+    FIRST_X_ASSUM(fun th -> MP_TAC(SPECL [`s0:A`;`s1:A`] th)) THEN
+    ANTS_TAC THENL [ASM_REWRITE_TAC[]; DISCH_THEN ACCEPT_TAC];
+    DISCH_THEN(MP_TAC o SPECL [`step:A->A->bool`; `s0:A`]) THEN
+    DISCH_THEN MATCH_MP_TAC THEN ASM_SIMP_TAC[]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* 7. Phase 2 hyp-gap fix: WBN_FRONT_BUF_EXT (session-005).                   *)
+(*                                                                            *)
+(* The i=0 invariant instance needs 3 loop-CONSTANTS at the loop head that    *)
+(* WBN_FRONT_BUF's harvested postcond drops (session-003/004 GAP note above): *)
+(*   read (memory :> bytes (in_p,16*nblk)) s = num_of_bytelist ibytes         *)
+(*   read (memory :> bytes128 key_p) s = k0                                   *)
+(*   htable_mem_dec h htbl_p s                                                *)
+(* These are preserved by the front MAYCHANGE frame (which writes only        *)
+(* out_p/xi_p/ivec_p/stack + Q-regs), PROVIDED out_p is disjoint from in_p/   *)
+(* key_p/htbl_p.  wbn_front_hyps_tm was missing exactly those 3 out_p         *)
+(* disjointness conjuncts (they ARE in wb.ml's <=8 band hyps, wb.ml:3854-57). *)
+(*                                                                            *)
+(* ROUTE (b) (session-004's ENSURES_ADD_PRESERVED), NOT route (a): we DON'T   *)
+(* re-run the front sim with widened hyps (the build_state_postcond_tms2      *)
+(* re-harvest the reviewer flagged as risky).  Instead keep the proven        *)
+(* WBN_FRONT_BUF verbatim and STRENGTHEN its postcond with the 3 constants    *)
+(* via ENSURES_ADD_PRESERVED: leg1 = WBN_FRONT_BUF (narrow hyps <= wide hyps, *)
+(* closed by MATCH_MP_TAC + ASM_REWRITE), leg2 = the pure frame-preservation  *)
+(* obligation (no sim).  Whole thing proves in ~4s.                           *)
+(* ------------------------------------------------------------------------- *)
+
+(* widened front hyps = wbn_front_hyps_tm + the 3 out_p disjointness conjuncts *)
+let wbn_front_hyps_wide_tm =
+  mk_conj(wbn_front_hyps_tm,
+    `nonoverlapping (out_p:int64,16 * nblk) (in_p:int64,16 * nblk) /\
+     nonoverlapping (out_p:int64,16 * nblk) (key_p:int64,240) /\
+     nonoverlapping (out_p:int64,16 * nblk) (htbl_p:int64,192)`);;
+
+(* the WBN_FRONT_BUF pieces (P = precond, Q0 = harvested postcond, C = frame) *)
+let wbn_front_P_tm, wbn_front_Q0_tm, wbn_front_C_tm =
+  let ens = snd(dest_imp(snd(strip_forall(concl WBN_FRONT_BUF)))) in
+  rand(rator(rator ens)), rand(rator ens), rand ens;;
+
+(* R = the 3 loop-constants, taken verbatim from WBN_FRONT_BUF's precond so
+   they match wbn_loop_invariant's conjuncts syntactically. *)
+let wbn_front_R_tm =
+  let sv = fst(dest_abs wbn_front_P_tm) in
+  mk_abs(sv, list_mk_conj
+    [`read (memory :> bytes (in_p:int64,16 * nblk)) s = num_of_bytelist ibytes`;
+     `read (memory :> bytes128 (key_p:int64)) s = (k0:int128)`;
+     `htable_mem_dec h (htbl_p:int64) s`]);;
+
+(* EXT goal: wide hyps ==> ensures arm P (\s. Q0 s /\ R s) C *)
+let wbn_front_ext_goal =
+  let newQ = mk_abs(fst(dest_abs wbn_front_P_tm),
+    mk_conj(rhs(concl(BETA_CONV(mk_comb(wbn_front_Q0_tm,fst(dest_abs wbn_front_P_tm))))),
+            rhs(concl(BETA_CONV(mk_comb(wbn_front_R_tm,fst(dest_abs wbn_front_P_tm))))))) in
+  let ens = list_mk_comb(`ensures arm`,[wbn_front_P_tm; newQ; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
+
+(* leg2 helper: push a read through the whole MAYCHANGE write-chain to `read c s`
+   using the goal's nonoverlapping assumptions (memory-vs-memory orthogonality),
+   then close via the precond assumption `read c s = value`.  Uses the
+   assumption-aware COMPONENTS_READ_OVER_WRITE_ORTHOGONAL_CONV (common/components).
+   Applied once per R-conjunct (register writes fold away, memory writes need the
+   nonoverlapping facts). *)
+let WBN_PUSH_LHS_READ_TAC : tactic =
+  W(fun (asl,w) ->
+    let thl = map snd asl in
+    let cxt = (NONOVERLAPPING_DRIVERS thl, FILTER_CANONIZE_ASSUMPTIONS thl) in
+    CONV_TAC(LAND_CONV(COMPONENTS_READ_OVER_WRITE_ORTHOGONAL_CONV cxt))) THEN
+  ASM_REWRITE_TAC[];;
+
+let WBN_FRONT_BUF_EXT = prove(wbn_front_ext_goal,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC ENSURES_ADD_PRESERVED THEN CONJ_TAC THENL
+   [MATCH_MP_TAC WBN_FRONT_BUF THEN ASM_REWRITE_TAC[];
+    REWRITE_TAC[htable_mem_dec] THEN
+    CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
+    REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; MAYCHANGE; SEQ_ID] THEN
+    REWRITE_TAC[GSYM SEQ_ASSOC] THEN
+    PURE_REWRITE_TAC[ASSIGNS_SEQ] THEN
+    CONV_TAC(REDEPTH_CONV BETA_CONV) THEN
+    REWRITE_TAC[ASSIGNS_THM] THEN
+    CONV_TAC(REDEPTH_CONV BETA_CONV) THEN
+    REWRITE_TAC[LEFT_IMP_EXISTS_THM] THEN
+    REPEAT STRIP_TAC THEN
+    FIRST_X_ASSUM(SUBST_ALL_TAC o SYM o
+      check (fun th -> is_eq(concl th) &&
+        (match rhs(concl th) with Var("s'",_) -> true | _ -> false))) THEN
+    WBN_PUSH_LHS_READ_TAC]);;
+
+(* ------------------------------------------------------------------------- *)
+(* 8. Phase 2 CLOSE: WBN_LOOP_INVARIANT_ENTRY (session-005).                  *)
+(*                                                                            *)
+(* THE entry subgoal that ENSURES_WHILE_UP_TAC produces for the main loop:    *)
+(*   ensures arm (\s. decodes /\ PC = pc+0x20 /\ precondition s)              *)
+(*               (\s. decodes /\ PC = pc+0x4a0 /\ wbn_loop_invariant ... 0 s) *)
+(*               frame                                                        *)
+(* i.e. the front (entry -> loop head) establishes the i=0 invariant.  Proved *)
+(* by weakening WBN_FRONT_BUF_EXT's postcond (Q0 /\ 3-loop-constants) down to *)
+(* the i=0 invariant, via ENSURES_POSTCONDITION_THM.  The implication         *)
+(* (Q0 s /\ R s) ==> inv 0 s is the session-003 Sec-4 closing recipe, PLUS a  *)
+(* final numeral-normalization pass (session-005): after the recipe the goal  *)
+(* is a conjunction of trivial `f (word n) = f (word (0+n))` /                 *)
+(* `SUB_LIST(16*(0+k)..) = SUB_LIST(16*k..)` equalities + the j<8 store        *)
+(* forall; ADD_CLAUSES + NUM_MULT_CONV + GCM_CTR_ADD_0 (block-0 = ctr0) close  *)
+(* them against the postcond hyps.                                            *)
+(* ------------------------------------------------------------------------- *)
+
+(* i=0 invariant applied to all 27 loop params, as a (num->armstate->bool). *)
+let wbn_inv_applied =
+  list_mk_comb(`wbn_loop_invariant`,
+    [`pc:num`;`ctr0:int128`;`in_p:int64`;`out_p:int64`;`xi_p:int64`;`ivec_p:int64`;
+     `key_p:int64`;`htbl_p:int64`;`stackpointer:int64`;`nblk:num`;`ibytes:byte list`;
+     `xi:int128`;`h:int128`;`k0:int128`;`k1:int128`;`k2:int128`;`k3:int128`;`k4:int128`;
+     `k5:int128`;`k6:int128`;`k7:int128`;`k8:int128`;`k9:int128`;`k10:int128`;`k11:int128`;
+     `k12:int128`;`k13:int128`;`k14:int128`]);;
+
+(* post = \s. decodes /\ PC = pc+0x4a0 /\ inv 0 s *)
+let wbn_entry_post =
+  subst [wbn_inv_applied,`INVAPP:num->armstate->bool`]
+    `\s:armstate. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
+                  read PC s = word (pc + 0x4a0) /\
+                  INVAPP (0:num) s`;;
+
+let wbn_entry_goal =
+  let ens = list_mk_comb(`ensures arm`,[wbn_front_P_tm; wbn_entry_post; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
+
+(* the Q to weaken from: WBN_FRONT_BUF_EXT's postcond = \s. Q0 s /\ R s *)
+let wbn_extQ =
+  let sv = fst(dest_abs wbn_front_P_tm) in
+  mk_abs(sv, mk_conj(
+    rhs(concl(BETA_CONV(mk_comb(wbn_front_Q0_tm,sv)))),
+    rhs(concl(BETA_CONV(mk_comb(wbn_front_R_tm,sv)))))) ;;
+
+let WBN_LOOP_INVARIANT_ENTRY = prove(wbn_entry_goal,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC ENSURES_POSTCONDITION_THM THEN
+  EXISTS_TAC wbn_extQ THEN CONJ_TAC THENL
+   [(* (Q0 x /\ R x) ==> decodes /\ PC=pc+0x4a0 /\ inv 0 x *)
+    GEN_TAC THEN REWRITE_TAC[wbn_loop_invariant] THEN
+    CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN STRIP_TAC THEN
+    CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN
+    RULE_ASSUM_TAC(REWRITE_RULE[GSYM GCM_CTR_ADD_LANES]) THEN
+    REWRITE_TAC[GCM_CTR_INC_ITER_ADD; GCM_CTR_ADD_1; GSYM GCM_CTR_ADD_LANES] THEN
+    REWRITE_TAC[list_of_seq; MAP; ghash_polyval_acc] THEN
+    RULE_ASSUM_TAC(REWRITE_RULE[GCM_CTR_INC_LANES; GCM_CTR_INC2_LANES;
+       GCM_CTR_INC3_LANES; GCM_CTR_INC4_LANES; GCM_CTR_INC5_LANES;
+       GCM_CTR_INC6_LANES; GCM_CTR_INC7_LANES]) THEN
+    RULE_ASSUM_TAC(REWRITE_RULE[GSYM GCM_CTR_ADD_LANES]) THEN
+    REWRITE_TAC[GCM_CTR_ADD_0] THEN
+    CONV_TAC(ONCE_DEPTH_CONV EXPAND_CASES_CONV) THEN
+    CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN
+    REWRITE_TAC[WORD_ADD_0] THEN ASM_REWRITE_TAC[] THEN
+    (* session-005 numeral-normalization tail: 0+n, 16*(0+k), block-0=ctr0 *)
+    REWRITE_TAC[ADD_CLAUSES] THEN CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN
+    CONV_TAC(ONCE_DEPTH_CONV EXPAND_CASES_CONV) THEN
+    REWRITE_TAC[WORD_ADD_0; MULT_CLAUSES] THEN ASM_REWRITE_TAC[] THEN
+    REWRITE_TAC[GSYM GCM_CTR_ADD_LANES; GCM_CTR_ADD_0] THEN
+    CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN ASM_REWRITE_TAC[GCM_CTR_ADD_0];
+    (* the ensures = WBN_FRONT_BUF_EXT *)
+    MATCH_MP_TAC WBN_FRONT_BUF_EXT THEN ASM_REWRITE_TAC[]]);;
