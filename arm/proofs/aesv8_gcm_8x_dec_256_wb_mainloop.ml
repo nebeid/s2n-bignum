@@ -605,3 +605,45 @@ let wbn_loop_invariant = new_definition
     read (memory :> bytes (in_p,16 * nblk)) s = num_of_bytelist ibytes /\
     read (memory :> bytes128 key_p) s = k0 /\
     htable_mem_dec h htbl_p s`;;
+
+(* ---- Entry-subgoal recipe (validated interactively, session-003) ----------
+   The ENSURES_WHILE_UP_TAC entry subgoal is  pre ==> (PC=pc1 /\ inv 0 s).
+   Given WBN_FRONT_BUF establishes pre ==> (PC=pc+0x4a0 /\ <postcond s>), the
+   i=0 invariant  (wbn_loop_invariant ... 0 s)  follows from <postcond s> PLUS
+   the 3 loop-constants (in_p read-only, key_p=k0, htable_mem_dec) once those
+   are added to WBN_FRONT_BUF's harvest.  The closing tactic (proves 44/47
+   directly from the postcond hyps; the 3 come from the extended front):
+
+     GEN_TAC THEN REWRITE_TAC[wbn_loop_invariant] THEN
+     CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN STRIP_TAC THEN
+     CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN
+     RULE_ASSUM_TAC(REWRITE_RULE[GSYM GCM_CTR_ADD_LANES]) THEN
+     REWRITE_TAC[GCM_CTR_INC_ITER_ADD; GCM_CTR_ADD_1; GSYM GCM_CTR_ADD_LANES] THEN
+     REWRITE_TAC[list_of_seq; MAP; ghash_polyval_acc] THEN
+     RULE_ASSUM_TAC(REWRITE_RULE[GCM_CTR_INC_LANES; GCM_CTR_INC2_LANES;
+        GCM_CTR_INC3_LANES; GCM_CTR_INC4_LANES; GCM_CTR_INC5_LANES;
+        GCM_CTR_INC6_LANES; GCM_CTR_INC7_LANES]) THEN
+     RULE_ASSUM_TAC(REWRITE_RULE[GSYM GCM_CTR_ADD_LANES]) THEN
+     REWRITE_TAC[GCM_CTR_ADD_0] THEN
+     CONV_TAC(ONCE_DEPTH_CONV EXPAND_CASES_CONV) THEN
+     CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN
+     REWRITE_TAC[WORD_ADD_0] THEN ASM_REWRITE_TAC[]
+
+   With the RAW WBN_FRONT_BUF postcond as the assumption set this reduces the
+   goal to EXACTLY the 3 loop-constant conjuncts (confirmed session-003).  When
+   packaging as a standalone lemma with the postcond as a `\s.`-abstraction
+   antecedent, watch the beta step: STRIP_TAC must see the antecedent already
+   beta-reduced (do CONV_TAC(TOP_DEPTH_CONV BETA_CONV) on the WHOLE goal, incl.
+   the antecedent, before STRIP_TAC) — a naive `(\s.P) s /\ (\s.Q) s ==> ...`
+   left unreduced makes STRIP_TAC give conjunct hyps still wrapped.
+
+   NEXT-SESSION FIX to get a clean entry (no extra hyps):
+   extend WBN_FRONT_BUF so its postcond re-asserts the 3 loop-constants.  Either
+   (a) widen build_state_postcond_tms2's keep-filter to also retain
+       `htable_mem_dec _ _ s` and the input/key `read _ s = _` facts (they are
+       preserved: NOT in wb_front_frame_tm's MAYCHANGE), re-run the front sim,
+       or (b) prove WBN_FRONT_BUF_EXT = WBN_FRONT_BUF strengthened with the 3
+       (they hold in wb_front_pre_tm and survive the frame), via a framing/
+       ENSURES_TRANS wrapper avoiding a full re-sim.  Then the entry subgoal of
+       ENSURES_WHILE_UP_TAC closes by MATCH_MP_TAC WBN_FRONT_BUF_EXT + the tactic
+       above (no leftover conjuncts). *)
