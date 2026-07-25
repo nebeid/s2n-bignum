@@ -19,15 +19,39 @@ Read via structural walk (session-003). Confirms the TWO-STREAM pipelined form:
 ### Pointer / counter stream — AHEAD, at 8(i+1)
 - X0 = in_p  + 128        -> generalize  in_p  + word(128*(i+1))
 - X2 = out_p + 128        -> generalize  out_p + word(128*(i+1))
-- Q0..Q4 = counter towers word_join(...gcm_ctr_inc^k...) ; Q2/Q3/Q4 carry `word_add _ (word 10/11/12)` inner adds
-- Q5 = word_xor(word_xor ct5 (aes13 (gcm_ctr_inc^5 ctr0) k0..k13)) k14   (already-XORed pt, next group)
-- Q6 = ... gcm_ctr_inc^6 ...
-- Q7 = ... gcm_ctr_inc^7 ...
-  (Q0..Q7 = the in-flight keystream/counter for the NEXT group being produced.)
+- Q0..Q4 counter towers FOLD (GSYM GCM_CTR_ADD_LANES) to:
+    Q0 = gcm_ctr_add (word 8)  ctr0   (= gcm_ctr_inc_iter 8  ctr0)
+    Q1 = gcm_ctr_add (word 9)  ctr0
+    Q2 = gcm_ctr_add (word 10) ctr0
+    Q3 = gcm_ctr_add (word 11) ctr0
+    Q4 = gcm_ctr_add (word 12) ctr0
+- Q5 = word_xor(word_xor ct5 (aes13 (gcm_ctr_inc^5 ctr0) k0..k13)) k14   (already-XORed pt block 5)
+- Q6 = ... gcm_ctr_inc^6 ...  (pt block 6)
+- Q7 = ... gcm_ctr_inc^7 ...  (pt block 7)
+  So at i=0 the in-flight counter/keystream state spans block indices 5..12.
+  Q5/Q6/Q7 = keystream-XOR at 5,6,7 (< 8 = already-stored blocks!) => pipeline in-flight
+  recompute for next group.  Q0..Q4 = raw counter blocks 8..12 (next group).
+  GENERALIZE (hypothesis, VERIFY in step case): all indices shift by +8*i, i.e.
+    Q0..Q4 = gcm_ctr_add (word (8*i + {8,9,10,11,12})) ctr0
+    Q5..Q7 = word_xor(word_xor ct_{8i+{5,6,7}} (aes13 (gcm_ctr_inc_iter (8*i+{5,6,7}) ctr0)..))k14
+  *** The exact +8*i offset for Q5..Q7 (indices <8 at i=0) is the #1 thing to READ OFF
+      the step-case goal, NOT guess — plan-rationale risk #2. ***
 
 ### GHASH stream — LAGS, at 8i
-- Q19 = word_bytereverse xi          (i=0: fold over 0 blocks = byte-reversed tag only)
-   generalize -> the GHASH acc over blocks 0..8i-1 (byteswap/nist_ghash fold form)
+- Q19 = word_bytereverse xi          (i=0: fold over 0 blocks)
+   GENERALIZE (VERIFIED i=0 reduction):
+     Q19 at iter i = ghash_polyval_acc (byteswap128 h) (word_bytereverse xi)
+                       (MAP word_bytereverse (raw ct blocks 0..8i-1))
+     i.e. ghash_polyval_acc HB (word_bytereverse xi)
+            (MAP word_bytereverse (list_of_seq (\k. bytes_to_int128 (SUB_LIST(16*k,16) ibytes)) (8*i)))
+   Def (common/polyval_ghash.ml:56): ghash_polyval_acc h acc [] = acc;
+     ghash_polyval_acc h acc (CONS x xs) = ghash_polyval_acc h (polyval_dot (word_xor acc x) h) xs.
+   At i=0: empty list => ghash_polyval_acc _ (word_bytereverse xi) [] = word_bytereverse xi  ✓ (matches front)
+   NOTE: the running acc has NO outer word_bytereverse (that is applied only in gcm_dec_final_xi
+   at the very end). This is the ASM-NATIVE (polyval, keyed by byteswap128 h) form, keeping xi/h
+   free like WBN_FRONT_BUF. NIST-vocabulary (nist_ghash H tag0 (list_of_seq (nist_input_block..) ..))
+   reconciliation is deferred to Phase 6/7 recompose (the bands convert the same way).
+   Extension across iters uses GHASH_ACC_APPEND (common/polyval_ghash.ml:62) — Phase 3.
 - q8..q15 = RAW ct blocks pending fold:
     Q8  = bytes_to_int128 (SUB_LIST (0,16)  ibytes)
     Q9  = ... (16,16) ...   Q10 (32,16)  Q11 (48,16)
@@ -36,9 +60,15 @@ Read via structural walk (session-003). Confirms the TWO-STREAM pipelined form:
    (i.e. raw ct blocks 8i..8i+7, loaded but not yet GHASH-folded).
 
 ### Stores DONE for blocks 0..8(i+1)-1 (the store stream is ahead)
-- memory bytes128 (out_p + word(16*j)) = word_xor(keystream) ... for j < 8  at i=0
-   generalize -> !j. j < 8*(i+1) ==> read(out_p+16*j) = plaintext block j
+- store shape CONFIRMED: read(memory:>bytes128(out_p + word(16*j))) s =
+     word_xor (word_xor (bytes_to_int128 (SUB_LIST(16*j,16) ibytes))
+                        (aes13 (gcm_ctr_inc_iter j ctr0) k0 k1 .. k13)) k14
+   (j=0: aes13 ctr0 ..; j=1: aes13 (gcm_ctr_inc ctr0)..; folds via gcm_ctr_inc_iter j)
+   generalize -> !j. j < 8*(i+1) ==> read(out_p+16*j) = <above> = plaintext block j
    NB at i=0 the front already stored 8 blocks (out_p..out_p+112). matches X2=out_p+128.
+   NB2: WBN_FRONT_BUF spells out only out_p+0..+112 as 8 EXPLICIT conjuncts (not a !j form);
+        the invariant needs the quantified !j.j<8*(i+1) form. Entry proof must bridge
+        the 8 explicit i=0 stores <- !j.j<8 (EXPAND_CASES_CONV both ways).
 
 ### Loop-constant registers (constant across i — must be RE-ASSERTED)
 - X4  = in_p + word(16*nblk)         (input end pointer)
