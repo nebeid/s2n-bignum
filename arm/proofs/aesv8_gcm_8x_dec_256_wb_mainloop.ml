@@ -310,3 +310,182 @@ let GCM_CTR_INC_ITER_ADD = prove
     REWRITE_TAC[GSYM GCM_CTR_ADD_1; GCM_CTR_ADD_COMPOSE] THEN
     AP_THM_TAC THEN AP_TERM_TAC THEN REWRITE_TAC[ADD1; GSYM WORD_ADD] THEN
     CONV_TAC WORD_RULE]);;
+
+(* ------------------------------------------------------------------------- *)
+(* 3. FRONT-N: capture the nblk>8 front (entry 0x20 -> loop head 0x4a0) as    *)
+(*    WBN_FRONT_BUF.  Its harvested postcondition (state s288 at the loop     *)
+(*    head) IS the i=0 instance of the ENSURES_WHILE loop invariant.          *)
+(*                                                                            *)
+(* Deltas vs wb.ml's <=8-block WB_FRONT_BUF (entry 0x20 -> 0x42c tail):       *)
+(*  - hyps: 1<=nblk /\ nblk<=8  becomes  17<=nblk /\ 128*nblk<2^62 /\         *)
+(*    val in_p + 16*nblk < 2^63 (the signed pointer-compare no-2^63-straddle).*)
+(*  - prep uses the _ANY scalar rungs (X5 = word(128*((nblk-1)DIV8)) not 0).  *)
+(*  - front steps 1..259 identical to WB_FRONT_STEP_TAC modulo mk_discard2[30]*)
+(*    -> DISCARD_STALE_Q30_TAC, and STOPPING before the 0x42c branch (no <=8  *)
+(*    INT_SUB_REFL / WORD_RULE collapse, since X5 != in_p here).              *)
+(*  - the 0x42c b.ge (step 260) FALLS THROUGH via WB_LOOPENTER_FLAGS; then    *)
+(*    bulk-8 segment 261..287; the 0x49c b.ge (step 288) FALLS THROUGH to     *)
+(*    the loop head via WB_PTRCMP_FLAGS + D_GT_128.                           *)
+(*                                                                            *)
+(* Route A (as wb.ml WB_FRONT_BUF): the 8 in-flight keystream towers cannot   *)
+(* be hand-written and the printed s288 term does not reparse, so we run the  *)
+(* front once against a MINIMAL postcond, harvest the s288 assumptions with   *)
+(* build_state_postcond_tms2 (folded to aes13 + gcm_ctr_inc^k lanes by        *)
+(* wb_front_fold_tac), then prove.  The front therefore sims twice per cold   *)
+(* load (once to harvest, once in the proof) -- the checkpoint hides this for *)
+(* interactive work.                                                          *)
+(* ------------------------------------------------------------------------- *)
+
+(* nblk>8 front hypotheses: swap the (1<=nblk /\ nblk<=8) prefix of wb.ml's
+   wb_front_hyps_tm for the nblk>=17 regime, KEEP every nonoverlapping/aligned/
+   length conjunct. *)
+let wbn_front_hyps_tm =
+  let _,rest1 = dest_conj wb_front_hyps_tm in
+  let _,rest = dest_conj rest1 in
+  mk_conj(`17 <= nblk /\ 128 * nblk < 2 EXP 62 /\ val (in_p:int64) + 16 * nblk < 2 EXP 63`,
+          rest);;
+
+let mk_wbn_front_goal postcond =
+  let ens = subst [wb_front_pre_tm,`PPP:armstate->bool`; postcond,`QQQ:armstate->bool`;
+                   wb_front_frame_tm,`CCC:armstate->armstate->bool`]
+              `ensures arm PPP QQQ CCC` in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_tm, ens));;
+
+(* pure-arith closer for the nblk>=17 side conditions *)
+let NBLK_ARITH_TAC =
+  MP_TAC(ASSUME `17 <= nblk`) THEN MP_TAC(ASSUME `128 * nblk < 2 EXP 62`) THEN
+  POP_ASSUM_LIST(K ALL_TAC) THEN ARITH_TAC;;
+
+(* nblk>8 buffer prep: same shape as wb.ml WB_FRONT_PREP_BUF_TAC but with the
+   _ANY rungs and the nblk>=17 arithmetic for the block-0 lane. *)
+let WBN_FRONT_PREP_BUF_TAC =
+  SUBGOAL_THEN `SUB_LIST (0, 16 * nblk) (ibytes:byte list) = ibytes` ASSUME_TAC THENL
+   [MATCH_MP_TAC SUB_LIST_LENGTH_IMPLIES THEN ASM_REWRITE_TAC[LE_REFL]; ALL_TAC] THEN
+  SUBGOAL_THEN `read (memory :> bytes128 in_p) s0 = bytes_to_int128 (SUB_LIST (0,16) ibytes)` ASSUME_TAC THENL
+   [MP_TAC(SPECL [`nblk:num`; `in_p:int64`; `ibytes:byte list`; `s0:armstate`] INPUT_BYTES_TO_BYTE128_LANES) THEN
+    ASM_REWRITE_TAC[LE_REFL] THEN DISCH_THEN(MP_TAC o SPEC `0`) THEN
+    ANTS_TAC THENL [NBLK_ARITH_TAC; ALL_TAC] THEN
+    REWRITE_TAC[MULT_CLAUSES; WORD_ADD_0] THEN DISCH_THEN(fun th -> REWRITE_TAC[th]); ALL_TAC] THEN
+  SUBGOAL_THEN `word_ushr (word (128 * nblk):int64) 3 = word (16 * nblk)` ASSUME_TAC THENL
+   [MATCH_MP_TAC USHR_128NBLK_ANY THEN NBLK_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `word_and (word_sub (word (16 * nblk)) (word 1)) (word 18446744073709551488):int64 = word (128 * ((nblk - 1) DIV 8))` ASSUME_TAC THENL
+   [MATCH_MP_TAC AND_MASK_16NBLK_ANY THEN NBLK_ARITH_TAC; ALL_TAC];;
+
+(* input lanes 0..7 for the bulk-8 ldp at 0x430 *)
+let WBN_LANES_TAC =
+  SUBGOAL_THEN
+   `!k. k < 8 ==> read (memory :> bytes128 (word_add in_p (word (16 * k)))) s0 =
+                  bytes_to_int128 (SUB_LIST (16 * k, 16) (ibytes:byte list))`
+   MP_TAC THENL
+   [MP_TAC(SPECL [`nblk:num`; `in_p:int64`; `ibytes:byte list`; `s0:armstate`]
+      INPUT_BYTES_TO_BYTE128_LANES) THEN
+    ASM_REWRITE_TAC[LE_REFL] THEN
+    DISCH_THEN(fun lth -> X_GEN_TAC `k:num` THEN DISCH_TAC THEN
+      MP_TAC(SPEC `k:num` lth) THEN ANTS_TAC THENL
+       [MP_TAC(ASSUME `k < 8`) THEN NBLK_ARITH_TAC; REWRITE_TAC[]]);
+    DISCH_THEN(fun lth ->
+      EVERY(map (fun i ->
+        ASSUME_TAC(CONV_RULE(DEPTH_CONV NUM_RED_CONV)
+          (MP (SPEC (mk_small_numeral i) lth)
+              (ARITH_RULE(mk_binop `(<):num->num->bool` (mk_small_numeral i) `8`)))))
+        (0--7)))];;
+
+let wbn_init_tac =
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  REWRITE_TAC[C_ARGUMENTS; SOME_FLAGS] THEN ENSURES_INIT_TAC "s0" THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[C_ARGUMENTS]) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_dec]) THEN
+  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV let_CONV)) THEN
+  FIRST_X_ASSUM(STRIP_ASSUME_TAC o check(is_conj o concl)) THEN
+  WBN_FRONT_PREP_BUF_TAC;;
+
+(* keep only the latest read Q30 fact (the rev32 counter accumulator grows a
+   big tower each step; older ones are dead) *)
+let state_num_of_read_q30 th =
+  let c = concl th in
+  try (match lhs c with
+       | Comb(Comb(Const("read",_),q),st) when string_of_term q = "Q30" ->
+           let s = fst(dest_var st) in
+           if String.length s > 1 && s.[0] = 's'
+           then int_of_string (String.sub s 1 (String.length s - 1)) else (-1)
+       | _ -> (-1))
+  with _ -> (-1);;
+let DISCARD_STALE_Q30_TAC : tactic = fun (asl,w) ->
+  let nums = List.filter (fun n -> n >= 0)
+    (List.map (fun (_,th) -> state_num_of_read_q30 th) asl) in
+  if nums = [] then ALL_TAC (asl,w) else
+  let mx = itlist max nums (-1) in
+  DISCARD_ASSUMPTIONS_TAC (fun th ->
+    let n = state_num_of_read_q30 th in n >= 0 && n < mx) (asl,w);;
+
+(* front steps 1..259 (up to but NOT including the 0x42c branch at step 260) *)
+let WBN_FRONT_STEP_TAC =
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (1--5) THEN
+  EVERY(map (fun i -> ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (i--i) THEN
+             GCM_SIMD_SIMPLIFY_TAC) (6--30)) THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (31--84) THEN DISCARD_STALE_Q30_TAC THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (85--173) THEN DISCARD_STALE_Q30_TAC THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (174--177) THEN
+  GCM_SIMD_SIMPLIFY_TAC THEN DISCARD_STALE_Q30_TAC THEN
+  ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (178--189) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[Q19_BREVXI]) THEN DISCARD_STALE_Q30_TAC THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (190--254) THEN
+  DISCARD_STALE_Q30_TAC THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  ARM_VSTEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC [255] THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (256--259);;
+
+(* 0x42c b.ge (step 260): nblk>=17 => X0=in_p, X5=in_p+d, NF=T VF=F, FALLS THRU *)
+let WBN_RESOLVE_42C_TAC : tactic =
+  MP_TAC(SPECL [`in_p:int64`; `nblk:num`] WB_LOOPENTER_FLAGS) THEN
+  ANTS_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th]));;
+
+(* 0x49c b.ge (step 288): X0=in_p+128, X5=in_p+d, 128<d for nblk>=17 => NF=T
+   VF=F, FALLS THROUGH to loop head 0x4a0 *)
+let WBN_RESOLVE_49C_TAC : tactic = fun (asl,w) ->
+  (MP_TAC(SPECL [`in_p:int64`; `128`; `128 * (nblk - 1) DIV 8`] WB_PTRCMP_FLAGS) THEN
+   ANTS_TAC THENL
+    [CONJ_TAC THENL
+      [MP_TAC(ASSUME `val (in_p:int64) + 16 * nblk < 2 EXP 63`) THEN NBLK_ARITH_TAC;
+       MP_TAC(ASSUME `val (in_p:int64) + 16 * nblk < 2 EXP 63`) THEN
+       MP_TAC(SPECL [`nblk - 1`; `8`] DIVISION) THEN NBLK_ARITH_TAC];
+     ALL_TAC] THEN
+   DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th])) THEN
+   MP_TAC(SPEC `nblk:num` D_GT_128) THEN ANTS_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
+   DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th]))) (asl,w);;
+
+(* the complete front sim entry 0x20 -> loop head 0x4a0 (ends at s288) *)
+let WBN_FRONT_FULL_TAC =
+  wbn_init_tac THEN WBN_LANES_TAC THEN WBN_FRONT_STEP_TAC THEN
+  WBN_RESOLVE_42C_TAC THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (260--260) THEN
+  EVERY(map (fun i -> ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (i--i) THEN
+             GCM_SIMD_SIMPLIFY_TAC THEN DISCARD_STALE_Q30_TAC) (261--287)) THEN
+  WBN_RESOLVE_49C_TAC THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (288--288);;
+
+(* Harvest the s288 postcondition (the i=0 invariant), then prove WBN_FRONT_BUF.
+   The harvest runs the front against a minimal postcond; wb_front_fold_tac
+   compacts the 8 keystream towers to aes13 + gcm_ctr_inc^k lanes.  Reuses
+   wb.ml's build_state_postcond_tms2 (keeps every read _ s288 fact + the
+   aligned_bytes_loaded conjunct). *)
+let wbn_front_postcond_i0 =
+  let min_goal = mk_wbn_front_goal `\s:armstate. read PC s = word (pc + 0x4a0)` in
+  let _ = g min_goal in
+  let _ = e (WBN_FRONT_FULL_TAC THEN wb_front_fold_tac) in
+  let (asl288,_) = top_goal() in
+  let pc = build_state_postcond_tms2 "s288" asl288 in
+  let _ = b() in pc;;
+
+(* WBN_FRONT_BUF: the FRONT-N theorem.  Its postcond = the i=0 loop invariant
+   (two-stream pipelined form): q8..q15 = RAW ct blocks 0..7 pending fold,
+   Q19 = word_bytereverse xi (GHASH acc over blocks 0..-1 = tag only), stores
+   done for blocks 0..7, counters at 8..12, X0=in_p+128, X2=out_p+128.
+   Close = WB_FRONT_BUF's, plus one REWRITE_TAC[WORD_ADD_0] (the harvested Q30
+   lower lanes carry a spurious word_add _ (word 0) vs the sim's assumption). *)
+let WBN_FRONT_BUF = prove(mk_wbn_front_goal wbn_front_postcond_i0,
+  WBN_FRONT_FULL_TAC THEN wb_front_fold_tac THEN
+  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[WORD_ADD_0] THEN
+  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+  REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC);;
