@@ -1373,6 +1373,42 @@ let UP2_ABI_TAC k pc1 pc2 iv =
    [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_IDEMPOT_TAC;
     ALL_TAC];;
 
+(* ---- body Q8..Q15 re-derivation (session-011) ----------------------------- *)
+(* The next raw-ct group (blocks 8(i+1)+0..8(i+1)+7) is loaded fresh in the body *)
+(* (ldp q8,q9,[x0],#32 @0x810 etc, x0 = in_p+128(i+1)).  The session-010 finding *)
+(* is that the sim discards these read-facts — but they are RE-DERIVABLE at any  *)
+(* body state from the surviving in_p loop-constant (read (memory :> bytes       *)
+(* (in_p,16*nblk)) s = num_of_bytelist ibytes), which is preserved (in_p is      *)
+(* read-only, out_p disjoint).  WBN_RAWCT_BOUND: the step-case bound i<(nblk-9)   *)
+(* DIV 8 gives 8(i+1)+m < nblk for m<8.  WBN_RAWCT_READ: INPUT_BYTES_TO_BYTE128_ *)
+(* LANES (wb.ml:2909) specialized so each block reads at in_p+16*(8(i+1)+m) =     *)
+(* bytes_to_int128(SUB_LIST(16*(8(i+1)+m),16) ibytes) — exactly the invariant's  *)
+(* read Q8..Q15 (i+1) values.  Prefer this to preserving the reg facts through   *)
+(* 300+ steps (per the reviewer's "re-derive over preserve" note).               *)
+let WBN_RAWCT_BOUND = prove
+ (`i < (nblk - 9) DIV 8 /\ 9 <= nblk ==> !m. m < 8 ==> 8 * (i+1) + m < nblk`,
+  STRIP_TAC THEN X_GEN_TAC `m:num` THEN DISCH_TAC THEN
+  MP_TAC(SPECL [`nblk - 9`; `8`] DIVISION) THEN ASM_ARITH_TAC);;
+
+let WBN_RAWCT_READ = prove
+ (`i < (nblk - 9) DIV 8 /\ 9 <= nblk /\
+   LENGTH (ibytes:byte list) = 16 * nblk /\
+   read (memory :> bytes (in_p:int64, 16 * nblk)) s = num_of_bytelist ibytes
+   ==> !m. m < 8
+       ==> read (memory :> bytes128 (word_add in_p (word (16 * (8*(i+1)+m))))) s =
+           bytes_to_int128 (SUB_LIST (16 * (8*(i+1)+m), 16) ibytes)`,
+  STRIP_TAC THEN
+  MP_TAC(SPECL [`nblk:num`; `in_p:int64`; `ibytes:byte list`; `s:armstate`]
+    INPUT_BYTES_TO_BYTE128_LANES) THEN
+  ANTS_TAC THENL
+   [ASM_REWRITE_TAC[LE_REFL] THEN
+    SUBGOAL_THEN `SUB_LIST (0, 16 * nblk) (ibytes:byte list) = ibytes` SUBST1_TAC THENL
+     [MATCH_MP_TAC SUB_LIST_LENGTH_IMPLIES THEN ASM_REWRITE_TAC[LE_REFL]; ALL_TAC] THEN
+    ASM_REWRITE_TAC[];
+    DISCH_TAC THEN X_GEN_TAC `m:num` THEN DISCH_TAC THEN
+    FIRST_X_ASSUM MATCH_MP_TAC THEN
+    MP_TAC(SPEC_ALL WBN_RAWCT_BOUND) THEN ASM_SIMP_TAC[]]);;
+
 (* ------------------------------------------------------------------------- *)
 (* 10a. Phase 4 body-sim machinery (session-009).                             *)
 (*                                                                            *)
