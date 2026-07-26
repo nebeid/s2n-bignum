@@ -811,6 +811,81 @@ let SPEC_TO_BYTEFORM_WB8_ACC = prove
   STRIP_TAC THEN REWRITE_TAC[GHASH_POLYVAL_ACC_8] THEN
   ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN CONV_TAC WORD_RULE);;
 
+(* The COMPOSED body Q19-close (session-011): the invariant's Q19 conjunct at    *)
+(* i+1 equals the machine 8-block byteform, with the incoming accumulator being  *)
+(* the invariant's OWN 8*i fold.  = GHASH_ACC_8BLOCK_EXTEND (split the 8*(i+1)   *)
+(* fold into [8 fresh blocks] on the 8*i fold) then SPEC_TO_BYTEFORM_WB8_ACC     *)
+(* (acc := that 8*i fold).  This is exactly what the loop body's Q19 SUBGOAL     *)
+(* must match once the store/GHASH window is simulated with the raw reduce       *)
+(* preserved (H-power hyps `byteswap128 h2..h8 = polyval_dot..` are produced by  *)
+(* the htable reduce steps during the sim).  Proved to hyps=0: the whole GHASH   *)
+(* algebra of the body close is settled here, sim-free.                          *)
+let BODY_Q19_CLOSE_ALGEBRA = prove
+ (`byteswap128 h2 = polyval_dot (byteswap128 h) (byteswap128 h) /\
+   byteswap128 h3 =
+   polyval_dot (polyval_dot (byteswap128 h) (byteswap128 h)) (byteswap128 h) /\
+   byteswap128 h4 =
+   polyval_dot
+   (polyval_dot (polyval_dot (byteswap128 h) (byteswap128 h)) (byteswap128 h))
+   (byteswap128 h) /\
+   byteswap128 h5 =
+   polyval_dot
+   (polyval_dot
+    (polyval_dot (polyval_dot (byteswap128 h) (byteswap128 h)) (byteswap128 h))
+    (byteswap128 h))
+   (byteswap128 h) /\
+   byteswap128 h6 =
+   polyval_dot
+   (polyval_dot
+    (polyval_dot
+     (polyval_dot (polyval_dot (byteswap128 h) (byteswap128 h)) (byteswap128 h))
+     (byteswap128 h))
+    (byteswap128 h))
+   (byteswap128 h) /\
+   byteswap128 h7 =
+   polyval_dot
+   (polyval_dot
+    (polyval_dot
+     (polyval_dot
+      (polyval_dot (polyval_dot (byteswap128 h) (byteswap128 h)) (byteswap128 h))
+      (byteswap128 h))
+     (byteswap128 h))
+    (byteswap128 h))
+   (byteswap128 h) /\
+   byteswap128 h8 =
+   polyval_dot
+   (polyval_dot
+    (polyval_dot
+     (polyval_dot
+      (polyval_dot
+       (polyval_dot (polyval_dot (byteswap128 h) (byteswap128 h)) (byteswap128 h))
+       (byteswap128 h))
+      (byteswap128 h))
+     (byteswap128 h))
+    (byteswap128 h))
+   (byteswap128 h)
+   ==> ghash_polyval_acc (byteswap128 h) (word_bytereverse xi)
+        (MAP word_bytereverse
+         (list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16) ibytes))
+          (8 * (i+1)))) =
+        polyval_reduce_prop3
+        (word_xor (word_xor (word_xor (word_xor (word_xor (word_xor (word_xor
+         (word_pmul (word_xor (ghash_polyval_acc (byteswap128 h) (word_bytereverse xi)
+           (MAP word_bytereverse
+            (list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16) ibytes)) (8 * i))))
+           (word_bytereverse (bytes_to_int128 (SUB_LIST (16*(8*i+0),16) ibytes)))) (byteswap128 h8))
+         (word_pmul (word_bytereverse (bytes_to_int128 (SUB_LIST (16*(8*i+1),16) ibytes))) (byteswap128 h7)))
+         (word_pmul (word_bytereverse (bytes_to_int128 (SUB_LIST (16*(8*i+2),16) ibytes))) (byteswap128 h6)))
+         (word_pmul (word_bytereverse (bytes_to_int128 (SUB_LIST (16*(8*i+3),16) ibytes))) (byteswap128 h5)))
+         (word_pmul (word_bytereverse (bytes_to_int128 (SUB_LIST (16*(8*i+4),16) ibytes))) (byteswap128 h4)))
+         (word_pmul (word_bytereverse (bytes_to_int128 (SUB_LIST (16*(8*i+5),16) ibytes))) (byteswap128 h3)))
+         (word_pmul (word_bytereverse (bytes_to_int128 (SUB_LIST (16*(8*i+6),16) ibytes))) (byteswap128 h2)))
+        (word_pmul (word_bytereverse (bytes_to_int128 (SUB_LIST (16*(8*i+7),16) ibytes))) (byteswap128 h)))`,
+  STRIP_TAC THEN
+  REWRITE_TAC[GHASH_ACC_8BLOCK_EXTEND; MAP] THEN
+  REWRITE_TAC[ARITH_RULE `16 * 8 * i = 16 * (8*i+0)`] THEN
+  MATCH_MP_TAC SPEC_TO_BYTEFORM_WB8_ACC THEN ASM_REWRITE_TAC[]);;
+
 (* ------------------------------------------------------------------------- *)
 (* 6. Route-(b) tool: strengthen an ensures postcondition with a frame-       *)
 (*    PRESERVED fact, with NO re-simulation.  Pure ensures/eventually logic.  *)
