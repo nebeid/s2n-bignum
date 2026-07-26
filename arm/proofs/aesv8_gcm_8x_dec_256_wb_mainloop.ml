@@ -749,3 +749,86 @@ let ENSURES_ADD_PRESERVED = prove
     ANTS_TAC THENL [ASM_REWRITE_TAC[]; DISCH_THEN ACCEPT_TAC];
     DISCH_THEN(MP_TAC o SPECL [`step:A->A->bool`; `s0:A`]) THEN
     DISCH_THEN MATCH_MP_TAC THEN ASM_SIMP_TAC[]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* 7. Phase 2 hyp-gap fix: WBN_FRONT_BUF_EXT (session-005).                   *)
+(*                                                                            *)
+(* The i=0 invariant instance needs 3 loop-CONSTANTS at the loop head that    *)
+(* WBN_FRONT_BUF's harvested postcond drops (session-003/004 GAP note above): *)
+(*   read (memory :> bytes (in_p,16*nblk)) s = num_of_bytelist ibytes         *)
+(*   read (memory :> bytes128 key_p) s = k0                                   *)
+(*   htable_mem_dec h htbl_p s                                                *)
+(* These are preserved by the front MAYCHANGE frame (which writes only        *)
+(* out_p/xi_p/ivec_p/stack + Q-regs), PROVIDED out_p is disjoint from in_p/   *)
+(* key_p/htbl_p.  wbn_front_hyps_tm was missing exactly those 3 out_p         *)
+(* disjointness conjuncts (they ARE in wb.ml's <=8 band hyps, wb.ml:3854-57). *)
+(*                                                                            *)
+(* ROUTE (b) (session-004's ENSURES_ADD_PRESERVED), NOT route (a): we DON'T   *)
+(* re-run the front sim with widened hyps (the build_state_postcond_tms2      *)
+(* re-harvest the reviewer flagged as risky).  Instead keep the proven        *)
+(* WBN_FRONT_BUF verbatim and STRENGTHEN its postcond with the 3 constants    *)
+(* via ENSURES_ADD_PRESERVED: leg1 = WBN_FRONT_BUF (narrow hyps <= wide hyps, *)
+(* closed by MATCH_MP_TAC + ASM_REWRITE), leg2 = the pure frame-preservation  *)
+(* obligation (no sim).  Whole thing proves in ~4s.                           *)
+(* ------------------------------------------------------------------------- *)
+
+(* widened front hyps = wbn_front_hyps_tm + the 3 out_p disjointness conjuncts *)
+let wbn_front_hyps_wide_tm =
+  mk_conj(wbn_front_hyps_tm,
+    `nonoverlapping (out_p:int64,16 * nblk) (in_p:int64,16 * nblk) /\
+     nonoverlapping (out_p:int64,16 * nblk) (key_p:int64,240) /\
+     nonoverlapping (out_p:int64,16 * nblk) (htbl_p:int64,192)`);;
+
+(* the WBN_FRONT_BUF pieces (P = precond, Q0 = harvested postcond, C = frame) *)
+let wbn_front_P_tm, wbn_front_Q0_tm, wbn_front_C_tm =
+  let ens = snd(dest_imp(snd(strip_forall(concl WBN_FRONT_BUF)))) in
+  rand(rator(rator ens)), rand(rator ens), rand ens;;
+
+(* R = the 3 loop-constants, taken verbatim from WBN_FRONT_BUF's precond so
+   they match wbn_loop_invariant's conjuncts syntactically. *)
+let wbn_front_R_tm =
+  let sv = fst(dest_abs wbn_front_P_tm) in
+  mk_abs(sv, list_mk_conj
+    [`read (memory :> bytes (in_p:int64,16 * nblk)) s = num_of_bytelist ibytes`;
+     `read (memory :> bytes128 (key_p:int64)) s = (k0:int128)`;
+     `htable_mem_dec h (htbl_p:int64) s`]);;
+
+(* EXT goal: wide hyps ==> ensures arm P (\s. Q0 s /\ R s) C *)
+let wbn_front_ext_goal =
+  let newQ = mk_abs(fst(dest_abs wbn_front_P_tm),
+    mk_conj(rhs(concl(BETA_CONV(mk_comb(wbn_front_Q0_tm,fst(dest_abs wbn_front_P_tm))))),
+            rhs(concl(BETA_CONV(mk_comb(wbn_front_R_tm,fst(dest_abs wbn_front_P_tm))))))) in
+  let ens = list_mk_comb(`ensures arm`,[wbn_front_P_tm; newQ; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
+
+(* leg2 helper: push a read through the whole MAYCHANGE write-chain to `read c s`
+   using the goal's nonoverlapping assumptions (memory-vs-memory orthogonality),
+   then close via the precond assumption `read c s = value`.  Uses the
+   assumption-aware COMPONENTS_READ_OVER_WRITE_ORTHOGONAL_CONV (common/components).
+   Applied once per R-conjunct (register writes fold away, memory writes need the
+   nonoverlapping facts). *)
+let WBN_PUSH_LHS_READ_TAC : tactic =
+  W(fun (asl,w) ->
+    let thl = map snd asl in
+    let cxt = (NONOVERLAPPING_DRIVERS thl, FILTER_CANONIZE_ASSUMPTIONS thl) in
+    CONV_TAC(LAND_CONV(COMPONENTS_READ_OVER_WRITE_ORTHOGONAL_CONV cxt))) THEN
+  ASM_REWRITE_TAC[];;
+
+let WBN_FRONT_BUF_EXT = prove(wbn_front_ext_goal,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC ENSURES_ADD_PRESERVED THEN CONJ_TAC THENL
+   [MATCH_MP_TAC WBN_FRONT_BUF THEN ASM_REWRITE_TAC[];
+    REWRITE_TAC[htable_mem_dec] THEN
+    CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
+    REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; MAYCHANGE; SEQ_ID] THEN
+    REWRITE_TAC[GSYM SEQ_ASSOC] THEN
+    PURE_REWRITE_TAC[ASSIGNS_SEQ] THEN
+    CONV_TAC(REDEPTH_CONV BETA_CONV) THEN
+    REWRITE_TAC[ASSIGNS_THM] THEN
+    CONV_TAC(REDEPTH_CONV BETA_CONV) THEN
+    REWRITE_TAC[LEFT_IMP_EXISTS_THM] THEN
+    REPEAT STRIP_TAC THEN
+    FIRST_X_ASSUM(SUBST_ALL_TAC o SYM o
+      check (fun th -> is_eq(concl th) &&
+        (match rhs(concl th) with Var("s'",_) -> true | _ -> false))) THEN
+    WBN_PUSH_LHS_READ_TAC]);;
