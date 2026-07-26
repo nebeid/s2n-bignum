@@ -105,3 +105,61 @@ Read via structural walk (session-003). Confirms the TWO-STREAM pipelined form:
 3. Prove ONLY entry subgoal: i=0 instance = WBN_FRONT_BUF postcond. Should discharge by
    MATCH_MP_TAC WBN_FRONT_BUF (after arith-normalizing 128*(0+1)=128, 8*0=0, list_of_seq..0).
 4. Read register/counter roles off the *step* goal; FREEZE the invariant term.
+
+## SESSION-004 findings (Phase 3 done; route-b tool; a HYP GAP to fix)
+
+### Phase 3 COMPLETE — GHASH 8-block extension algebra (committed 2c8decc0)
+Proved as Sec 5 of aesv8_gcm_8x_dec_256_wb_mainloop.ml (pure list/field, no sim,
+provable in the polyval-aes checkpoint since polyval_ghash.ml is loaded):
+- LIST_OF_SEQ_SPLIT       list_of_seq f (m+n) = APPEND (list_of_seq f m)
+                          (list_of_seq (\j. f(m+j)) n)   [induct on n]
+- GHASH_ACC_GROUP_EXTEND  ghash_polyval_acc H acc (MAP wbrev (list_of_seq g (m+n)))
+                          = ghash_polyval_acc H (fold over m) (MAP wbrev (next n))
+- LIST_OF_SEQ_8           list_of_seq f 8 = [f 0;...;f 7] (numerals, no SUC)
+- GHASH_ACC_8BLOCK_EXTEND THE deliverable: fold over 8*(i+1) = fold over 8*i then
+                          8 explicit Horner steps over blocks 8*i..8*i+7.
+The fully-expanded RHS (REWRITE_TAC[MAP; ghash_polyval_acc]) is the nested
+polyval_dot/word_xor Horner chain the body's 8 GHASH folds produce — so in Phase 4
+the body's Q19 close is: REWRITE with GHASH_ACC_8BLOCK_EXTEND (blk := \k.
+bytes_to_int128(SUB_LIST(16*k,16) ibytes)) then MAP/ghash_polyval_acc, matching
+the sim output block-by-block.
+
+### Route-(b) tool ENSURES_ADD_PRESERVED (committed 4376c170, Sec 6)
+  |- ensures step P Q C /\ (!s s'. P s /\ C s s' ==> R s')
+     ==> ensures step P (\s. Q s /\ R s) C
+Pure ensures/eventually (EVENTUALLY_MONO). Use to strengthen WBN_FRONT_BUF's
+postcond with the 3 frame-preserved loop-constants WITHOUT re-sim:
+  MATCH_MP_TAC ENSURES_ADD_PRESERVED (with R = the conjunction of the 3), CONJ:
+  leg 1 = WBN_FRONT_BUF; leg 2 = the preservation obligation
+  !s s'. wb_front_pre_tm s /\ wb_front_frame_tm s s' ==> R s'.
+NB the postcond of ENSURES_ADD_PRESERVED is `\s. Q s /\ R s` — beta/assoc-normalize
+so it matches the invariant's conjunct order (the entry closer already tolerates this).
+
+### *** HYP GAP: nonoverlapping (in_p,16*nblk) (out_p,16*nblk) is MISSING ***
+wbn_front_hyps_tm (mainloop:342) is built from wb.ml's wb_front_hyps_tm tail, which
+does NOT contain `nonoverlapping (in_p) (out_p)`.  BUT the invariant asserts the
+loop-constant `read (memory :> bytes (in_p,16*nblk)) s = num_of_bytelist ibytes`
+(input read-only), and the loop body STORES to out_p.  Preserving that read across
+the body's out_p stores REQUIRES in_p and out_p to be disjoint.
+- The BAND goal (wb.ml:3853, mk_band_goal) DOES carry nonoverlapping (out_p,sss)
+  (in_p,sss) — it is a genuine precondition of the whole function (dispatch/subr).
+- So the fix for the nblk>8 chain: ADD `nonoverlapping (in_p,16*nblk)(out_p,16*nblk)`
+  (and likely the full out_p-vs-everything set from wb.ml:3839-3856) to
+  wbn_front_hyps_tm — it holds at the function contract level, we simply need to
+  thread it through the FRONT-N lemma + the loop invariant's hypotheses.
+- CONSEQUENCE for route (b): the preservation obligation for the in_p read-only
+  constant is dischargeable ONLY once this nonoverlapping is in P (wb_front_pre/hyps).
+  Add it to wbn_front_hyps_tm BEFORE proving WBN_FRONT_BUF_EXT.  (key_p=k0 and
+  htable_mem_dec are already fine: key_p/htbl_p are disjoint from the frame's
+  out_p/xi_p/ivec_p/stack via existing nonoverlapping conjuncts.)
+- This does NOT require re-running the front SIM (the front doesn't store to out_p
+  in a way that touches in_p; it's purely a hypothesis-threading + preservation-proof
+  concern for the LOOP body and the EXT wrapper).
+
+### Session-level infra note
+hol_restart REUSES the checkpoint frozen at server import (server.py:43); editing
+hol-mcp.toml does NOT switch checkpoints on hol_restart — only a full MCP server
+relaunch re-reads it.  hol-mcp.toml was edited to checkpoint="wb-dec-mainloop" so the
+NEXT session launches fast (~1min).  If a session ever finds WBN_FRONT_BUF absent
+after restart, it is on polyval-aes and must cold-load (~44min) — or the orchestrator
+must relaunch the server process.
