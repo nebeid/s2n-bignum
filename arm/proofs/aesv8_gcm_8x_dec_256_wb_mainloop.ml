@@ -647,3 +647,69 @@ let wbn_loop_invariant = new_definition
        ENSURES_TRANS wrapper avoiding a full re-sim.  Then the entry subgoal of
        ENSURES_WHILE_UP_TAC closes by MATCH_MP_TAC WBN_FRONT_BUF_EXT + the tactic
        above (no leftover conjuncts). *)
+
+(* ------------------------------------------------------------------------- *)
+(* 5. Phase 3: GHASH 8-block extension algebra (pure list/field, no sim).     *)
+(*                                                                            *)
+(* The invariant's Q19 GHASH accumulator is                                   *)
+(*   ghash_polyval_acc (byteswap128 h) (word_bytereverse xi)                  *)
+(*     (MAP word_bytereverse (list_of_seq blk (8 * i)))                       *)
+(* where blk k = bytes_to_int128 (SUB_LIST (16*k,16) ibytes) is the raw ct    *)
+(* block k.  The step case (i -> i+1) must extend this fold from 8*i to       *)
+(* 8*(i+1) blocks.  The loop body performs exactly 8 Horner steps (one        *)
+(* polyval_dot per fresh ciphertext block, each byte-reversed then XORed into *)
+(* the accumulator), so we need the fold over 8*(i+1) blocks to equal the     *)
+(* fold over 8*i blocks continued by 8 explicit steps over blocks            *)
+(* 8*i .. 8*i+7.  This is pure algebra over GHASH_ACC_APPEND                   *)
+(* (common/polyval_ghash.ml:62) + list_of_seq, provable BEFORE any sim.       *)
+(* ------------------------------------------------------------------------- *)
+
+(* list_of_seq splits at any offset (APPEND-at-end recursion, induct on n) *)
+let LIST_OF_SEQ_SPLIT = prove
+ (`!(f:num->int128) m n. list_of_seq f (m + n) =
+     APPEND (list_of_seq f m) (list_of_seq (\j. f (m + j)) n)`,
+  GEN_TAC THEN GEN_TAC THEN INDUCT_TAC THEN
+  REWRITE_TAC[ADD_CLAUSES; list_of_seq; APPEND_NIL] THEN
+  ASM_REWRITE_TAC[ADD_CLAUSES; list_of_seq; APPEND_ASSOC]);;
+
+(* generic group-extension of the byte-reversed GHASH fold: split m+n *)
+let GHASH_ACC_GROUP_EXTEND = prove
+ (`!(g:num->int128) H acc m n.
+    ghash_polyval_acc H acc (MAP word_bytereverse (list_of_seq g (m + n))) =
+    ghash_polyval_acc H
+      (ghash_polyval_acc H acc (MAP word_bytereverse (list_of_seq g m)))
+      (MAP word_bytereverse (list_of_seq (\j. g (m + j)) n))`,
+  REPEAT GEN_TAC THEN
+  REWRITE_TAC[LIST_OF_SEQ_SPLIT; MAP_APPEND; GHASH_ACC_APPEND]);;
+
+(* clean 8-element unfold of list_of_seq (numerals, no SUC towers) *)
+let LIST_OF_SEQ_8 = prove
+ (`!f:num->int128. list_of_seq f 8 =
+    [f 0; f 1; f 2; f 3; f 4; f 5; f 6; f 7]`,
+  GEN_TAC THEN
+  CONV_TAC(LAND_CONV(REWRITE_CONV[num_CONV `8`; num_CONV `7`; num_CONV `6`;
+    num_CONV `5`; num_CONV `4`; num_CONV `3`; num_CONV `2`; num_CONV `1`;
+    LIST_OF_SEQ])) THEN
+  REWRITE_TAC[o_THM] THEN CONV_TAC(DEPTH_CONV NUM_SUC_CONV) THEN REWRITE_TAC[]);;
+
+(* THE Phase-3 deliverable: extend the invariant's GHASH fold by one 8-block  *)
+(* group.  RHS = the 8*i fold, continued by a fold over the 8 concrete new    *)
+(* raw-ct blocks (8*i .. 8*i+7).  Instantiate blk := \k. bytes_to_int128      *)
+(* (SUB_LIST (16*k,16) ibytes) in the body; REWRITE_TAC[MAP; ghash_polyval_acc]*)
+(* then unfolds the RHS to the nested polyval_dot/word_xor Horner chain the    *)
+(* 8 body GHASH instructions produce. *)
+let GHASH_ACC_8BLOCK_EXTEND = prove
+ (`!(blk:num->int128) H acc i.
+    ghash_polyval_acc H acc
+      (MAP word_bytereverse (list_of_seq blk (8 * (i + 1)))) =
+    ghash_polyval_acc H
+      (ghash_polyval_acc H acc (MAP word_bytereverse (list_of_seq blk (8 * i))))
+      (MAP word_bytereverse
+        [blk (8 * i); blk (8 * i + 1); blk (8 * i + 2); blk (8 * i + 3);
+         blk (8 * i + 4); blk (8 * i + 5); blk (8 * i + 6); blk (8 * i + 7)])`,
+  REPEAT GEN_TAC THEN
+  SUBGOAL_THEN `8 * (i + 1) = 8 * i + 8` SUBST1_TAC THENL
+   [ARITH_TAC; ALL_TAC] THEN
+  REWRITE_TAC[GHASH_ACC_GROUP_EXTEND] THEN
+  REWRITE_TAC[LIST_OF_SEQ_8] THEN
+  CONV_TAC(DEPTH_CONV BETA_CONV) THEN REWRITE_TAC[ADD_CLAUSES]);;
