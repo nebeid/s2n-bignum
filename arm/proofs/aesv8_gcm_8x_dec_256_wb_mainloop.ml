@@ -604,9 +604,11 @@ let wbn_loop_invariant = new_definition
     ghash_polyval_acc (byteswap128 h) (word_bytereverse xi)
     (MAP word_bytereverse
     (list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16) ibytes)) (8 * i))) /\
-    read Q26 s = k12 /\
-    read Q27 s = k13 /\
-    read Q28 s = k14 /\
+    (* session-011: Q26/Q27/Q28 (=k12/k13/k14) DROPPED — objdump-verified dead
+       live-ins (loop head 0x4a4 `ldp q26,q27,[x11]` + 0x518 `ldp q28,q26,[x11,#32]`;
+       prepretail seam 0x9f0 `ldp q26,q27,[x11]` — all reload before first
+       aese v_,v26/28 uses at 0x4d8/0x570).  Removal gated by the alpha-shadow
+       wbn_loop_invariant_v2 (WBN_LOOP_INVARIANT_ENTRY_V2 re-proved to hyps=0). *)
     read X0 s = word_add in_p (word (128 * (i + 1))) /\
     read X2 s = word_add out_p (word (128 * (i + 1))) /\
     read X4 s = word_add in_p (word (16 * nblk)) /\
