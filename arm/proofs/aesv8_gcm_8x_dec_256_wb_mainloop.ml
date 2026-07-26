@@ -832,3 +832,76 @@ let WBN_FRONT_BUF_EXT = prove(wbn_front_ext_goal,
       check (fun th -> is_eq(concl th) &&
         (match rhs(concl th) with Var("s'",_) -> true | _ -> false))) THEN
     WBN_PUSH_LHS_READ_TAC]);;
+
+(* ------------------------------------------------------------------------- *)
+(* 8. Phase 2 CLOSE: WBN_LOOP_INVARIANT_ENTRY (session-005).                  *)
+(*                                                                            *)
+(* THE entry subgoal that ENSURES_WHILE_UP_TAC produces for the main loop:    *)
+(*   ensures arm (\s. decodes /\ PC = pc+0x20 /\ precondition s)              *)
+(*               (\s. decodes /\ PC = pc+0x4a0 /\ wbn_loop_invariant ... 0 s) *)
+(*               frame                                                        *)
+(* i.e. the front (entry -> loop head) establishes the i=0 invariant.  Proved *)
+(* by weakening WBN_FRONT_BUF_EXT's postcond (Q0 /\ 3-loop-constants) down to *)
+(* the i=0 invariant, via ENSURES_POSTCONDITION_THM.  The implication         *)
+(* (Q0 s /\ R s) ==> inv 0 s is the session-003 Sec-4 closing recipe, PLUS a  *)
+(* final numeral-normalization pass (session-005): after the recipe the goal  *)
+(* is a conjunction of trivial `f (word n) = f (word (0+n))` /                 *)
+(* `SUB_LIST(16*(0+k)..) = SUB_LIST(16*k..)` equalities + the j<8 store        *)
+(* forall; ADD_CLAUSES + NUM_MULT_CONV + GCM_CTR_ADD_0 (block-0 = ctr0) close  *)
+(* them against the postcond hyps.                                            *)
+(* ------------------------------------------------------------------------- *)
+
+(* i=0 invariant applied to all 27 loop params, as a (num->armstate->bool). *)
+let wbn_inv_applied =
+  list_mk_comb(`wbn_loop_invariant`,
+    [`pc:num`;`ctr0:int128`;`in_p:int64`;`out_p:int64`;`xi_p:int64`;`ivec_p:int64`;
+     `key_p:int64`;`htbl_p:int64`;`stackpointer:int64`;`nblk:num`;`ibytes:byte list`;
+     `xi:int128`;`h:int128`;`k0:int128`;`k1:int128`;`k2:int128`;`k3:int128`;`k4:int128`;
+     `k5:int128`;`k6:int128`;`k7:int128`;`k8:int128`;`k9:int128`;`k10:int128`;`k11:int128`;
+     `k12:int128`;`k13:int128`;`k14:int128`]);;
+
+(* post = \s. decodes /\ PC = pc+0x4a0 /\ inv 0 s *)
+let wbn_entry_post =
+  subst [wbn_inv_applied,`INVAPP:num->armstate->bool`]
+    `\s:armstate. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
+                  read PC s = word (pc + 0x4a0) /\
+                  INVAPP (0:num) s`;;
+
+let wbn_entry_goal =
+  let ens = list_mk_comb(`ensures arm`,[wbn_front_P_tm; wbn_entry_post; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
+
+(* the Q to weaken from: WBN_FRONT_BUF_EXT's postcond = \s. Q0 s /\ R s *)
+let wbn_extQ =
+  let sv = fst(dest_abs wbn_front_P_tm) in
+  mk_abs(sv, mk_conj(
+    rhs(concl(BETA_CONV(mk_comb(wbn_front_Q0_tm,sv)))),
+    rhs(concl(BETA_CONV(mk_comb(wbn_front_R_tm,sv)))))) ;;
+
+let WBN_LOOP_INVARIANT_ENTRY = prove(wbn_entry_goal,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC ENSURES_POSTCONDITION_THM THEN
+  EXISTS_TAC wbn_extQ THEN CONJ_TAC THENL
+   [(* (Q0 x /\ R x) ==> decodes /\ PC=pc+0x4a0 /\ inv 0 x *)
+    GEN_TAC THEN REWRITE_TAC[wbn_loop_invariant] THEN
+    CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN STRIP_TAC THEN
+    CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN
+    RULE_ASSUM_TAC(REWRITE_RULE[GSYM GCM_CTR_ADD_LANES]) THEN
+    REWRITE_TAC[GCM_CTR_INC_ITER_ADD; GCM_CTR_ADD_1; GSYM GCM_CTR_ADD_LANES] THEN
+    REWRITE_TAC[list_of_seq; MAP; ghash_polyval_acc] THEN
+    RULE_ASSUM_TAC(REWRITE_RULE[GCM_CTR_INC_LANES; GCM_CTR_INC2_LANES;
+       GCM_CTR_INC3_LANES; GCM_CTR_INC4_LANES; GCM_CTR_INC5_LANES;
+       GCM_CTR_INC6_LANES; GCM_CTR_INC7_LANES]) THEN
+    RULE_ASSUM_TAC(REWRITE_RULE[GSYM GCM_CTR_ADD_LANES]) THEN
+    REWRITE_TAC[GCM_CTR_ADD_0] THEN
+    CONV_TAC(ONCE_DEPTH_CONV EXPAND_CASES_CONV) THEN
+    CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN
+    REWRITE_TAC[WORD_ADD_0] THEN ASM_REWRITE_TAC[] THEN
+    (* session-005 numeral-normalization tail: 0+n, 16*(0+k), block-0=ctr0 *)
+    REWRITE_TAC[ADD_CLAUSES] THEN CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN
+    CONV_TAC(ONCE_DEPTH_CONV EXPAND_CASES_CONV) THEN
+    REWRITE_TAC[WORD_ADD_0; MULT_CLAUSES] THEN ASM_REWRITE_TAC[] THEN
+    REWRITE_TAC[GSYM GCM_CTR_ADD_LANES; GCM_CTR_ADD_0] THEN
+    CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN ASM_REWRITE_TAC[GCM_CTR_ADD_0];
+    (* the ensures = WBN_FRONT_BUF_EXT *)
+    MATCH_MP_TAC WBN_FRONT_BUF_EXT THEN ASM_REWRITE_TAC[]]);;
