@@ -1108,6 +1108,24 @@ let REV32_FOLD_TAC (qd:string) (sn:string) (wtm:term) : tactic =
     let fold_spec = INST [wtm,`w:32 word`] fold_thm in
     RULE_ASSUM_TAC(REWRITE_RULE[fold_spec]) (asl,gl);;
 
+(* CTR_RAW_INCR_FOLD_TAC qd sn wtm: the increment counterpart of REV32_FOLD_TAC.
+   After `add v30,v30,v31` @0x4a8/0x4bc/... + GCM_SIMD_SIMPLIFY_TAC, the assumption
+   `read Qd sn = <single-add tower over gcm_ctr_raw wtm ctr0>` (top lane
+   word_add (word_subword (gcm_ctr_raw wtm ctr0)(96,32))(word 1), others +0) folds
+   to `read Qd sn = gcm_ctr_raw (word_add wtm (word 1)) ctr0` via GCM_CTR_RAW_INCR
+   instantiated at w:=wtm.  Fold ONCE PER add (before the next add re-nests the
+   +1s) so only the single-+1 GCM_CTR_RAW_INCR LHS is ever matched.
+   VALIDATED (session-008, self-test proved; MATCH_ACCEPT on the exact simplified
+   single-add shape). *)
+let CTR_RAW_INCR_FOLD_TAC (qd:string) (sn:string) (wtm:term) : tactic =
+  let incr_spec = INST [wtm,`w:32 word`] GCM_CTR_RAW_INCR in
+  RULE_ASSUM_TAC(fun th ->
+    match concl th with
+    | Comb(Comb(Const("=",_),Comb(Comb(Const("read",_),c),st)),_)
+        when string_of_term c = qd && (try fst(dest_var st)=sn with _ -> false) ->
+        REWRITE_RULE[incr_spec] th
+    | _ -> th);;
+
 (* ------------------------------------------------------------------------- *)
 (* 10. Phase 4: fire the ENSURES_WHILE skeleton -> WBN_MAIN_LOOP (session-006)*)
 (*                                                                            *)
