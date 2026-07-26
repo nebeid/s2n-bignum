@@ -363,12 +363,23 @@ let gcm_ctr_raw_def = new_definition
 
 (* nblk>8 front hypotheses: swap the (1<=nblk /\ nblk<=8) prefix of wb.ml's
    wb_front_hyps_tm for the nblk>=17 regime, KEEP every nonoverlapping/aligned/
-   length conjunct. *)
+   length conjunct.
+   session-015: ALSO add nonoverlapping (out_p) (stackpointer,80).  wb.ml's
+   wb_front_hyps_tm omits it, but the nblk>8 front's FRONT-0 group (0x430..0x498)
+   does four `stp q,q,[x2],#32` stores to out_p BEFORE the loop head 0x4a0.
+   Without out_p-vs-stack disjointness the stepper cannot prove those stores miss
+   [sp+64], so it DROPS the reduction-constant fact
+   read (memory :> bytes64 (sp+64)) s = word 0xc200000000000000 (needed by the
+   body GHASH reduce; see the invariant [sp+64] conjunct + SESSION-014/015).
+   VALIDATED (session-015): with this conjunct the fact survives the full front
+   sim to s288 (=loop head 0x4a0) and is auto-harvested by
+   build_state_postcond_tms2. *)
 let wbn_front_hyps_tm =
   let _,rest1 = dest_conj wb_front_hyps_tm in
   let _,rest = dest_conj rest1 in
   mk_conj(`17 <= nblk /\ 128 * nblk < 2 EXP 62 /\ val (in_p:int64) + 16 * nblk < 2 EXP 63`,
-          rest);;
+          mk_conj(`nonoverlapping (out_p:int64,16 * nblk) (stackpointer:int64,80)`,
+                  rest));;
 
 let mk_wbn_front_goal postcond =
   let ens = subst [wb_front_pre_tm,`PPP:armstate->bool`; postcond,`QQQ:armstate->bool`;
@@ -628,6 +639,8 @@ let wbn_loop_invariant = new_definition
     read X3 s = xi_p /\
     read X11 s = key_p /\
     read SP s = stackpointer /\
+    read (memory :> bytes64 (word_add stackpointer (word 64))) s =
+    word 13979173243358019584 /\
     (!j. j < 8 * (i + 1)
          ==> read (memory :> bytes128 (word_add out_p (word (16 * j)))) s =
              word_xor
