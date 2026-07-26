@@ -742,6 +742,75 @@ let GHASH_ACC_8BLOCK_EXTEND = prove
   REWRITE_TAC[LIST_OF_SEQ_8] THEN
   CONV_TAC(DEPTH_CONV BETA_CONV) THEN REWRITE_TAC[ADD_CLAUSES]);;
 
+(* Body GHASH-close bridge (session-011): the generalization of wb.ml's         *)
+(* spec_to_byteform_wb8 to an ARBITRARY incoming accumulator `acc` (the running *)
+(* fold read Q19 at body entry) in place of the tail's hardwired                *)
+(* `word_bytereverse xi`.  Same H-power hypotheses (supplied by the htable      *)
+(* reduce steps during the sim), same machine byteform RHS.  Proof is verbatim  *)
+(* the wb.ml one (STRIP; GHASH_POLYVAL_ACC_8; ASM_REWRITE; AP_TERM; WORD_RULE) — *)
+(* it never depended on the acc being xi.  Composes with GHASH_ACC_8BLOCK_EXTEND *)
+(* (acc := the invariant's 8*i fold) to close the loop body's Q19.              *)
+let SPEC_TO_BYTEFORM_WB8_ACC = prove
+ (`byteswap128 h2 = polyval_dot (byteswap128 h) (byteswap128 h) /\
+   byteswap128 h3 =
+   polyval_dot (polyval_dot (byteswap128 h) (byteswap128 h)) (byteswap128 h) /\
+   byteswap128 h4 =
+   polyval_dot
+   (polyval_dot (polyval_dot (byteswap128 h) (byteswap128 h)) (byteswap128 h))
+   (byteswap128 h) /\
+   byteswap128 h5 =
+   polyval_dot
+   (polyval_dot
+    (polyval_dot (polyval_dot (byteswap128 h) (byteswap128 h)) (byteswap128 h))
+    (byteswap128 h))
+   (byteswap128 h) /\
+   byteswap128 h6 =
+   polyval_dot
+   (polyval_dot
+    (polyval_dot
+     (polyval_dot (polyval_dot (byteswap128 h) (byteswap128 h)) (byteswap128 h))
+     (byteswap128 h))
+    (byteswap128 h))
+   (byteswap128 h) /\
+   byteswap128 h7 =
+   polyval_dot
+   (polyval_dot
+    (polyval_dot
+     (polyval_dot
+      (polyval_dot (polyval_dot (byteswap128 h) (byteswap128 h)) (byteswap128 h))
+      (byteswap128 h))
+     (byteswap128 h))
+    (byteswap128 h))
+   (byteswap128 h) /\
+   byteswap128 h8 =
+   polyval_dot
+   (polyval_dot
+    (polyval_dot
+     (polyval_dot
+      (polyval_dot
+       (polyval_dot (polyval_dot (byteswap128 h) (byteswap128 h)) (byteswap128 h))
+       (byteswap128 h))
+      (byteswap128 h))
+     (byteswap128 h))
+    (byteswap128 h))
+   (byteswap128 h)
+   ==> ghash_polyval_acc (byteswap128 h) (acc:int128)
+       [word_bytereverse cph0; word_bytereverse cph1; word_bytereverse cph2;
+        word_bytereverse cph3; word_bytereverse cph4; word_bytereverse cph5;
+        word_bytereverse cph6; word_bytereverse cph7] =
+       polyval_reduce_prop3
+       (word_xor (word_xor (word_xor (word_xor (word_xor (word_xor (word_xor
+        (word_pmul (word_xor acc (word_bytereverse cph0)) (byteswap128 h8))
+        (word_pmul (word_bytereverse cph1) (byteswap128 h7)))
+        (word_pmul (word_bytereverse cph2) (byteswap128 h6)))
+        (word_pmul (word_bytereverse cph3) (byteswap128 h5)))
+        (word_pmul (word_bytereverse cph4) (byteswap128 h4)))
+        (word_pmul (word_bytereverse cph5) (byteswap128 h3)))
+        (word_pmul (word_bytereverse cph6) (byteswap128 h2)))
+       (word_pmul (word_bytereverse cph7) (byteswap128 h)))`,
+  STRIP_TAC THEN REWRITE_TAC[GHASH_POLYVAL_ACC_8] THEN
+  ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN CONV_TAC WORD_RULE);;
+
 (* ------------------------------------------------------------------------- *)
 (* 6. Route-(b) tool: strengthen an ensures postcondition with a frame-       *)
 (*    PRESERVED fact, with NO re-simulation.  Pure ensures/eventually logic.  *)
