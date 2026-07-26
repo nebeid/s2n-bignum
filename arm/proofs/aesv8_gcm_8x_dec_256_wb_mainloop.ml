@@ -1477,6 +1477,48 @@ let DISCARD_STALE_Q19_TAC : tactic = fun (asl,w) ->
          DISCARD_ASSUMPTIONS_TAC (fun th ->
            (match state_num_of_q19_fact th with Some k -> k<mx | None -> false)) (asl,w);;
 
+(* ---- session-015: body-close reduce-window infrastructure (SESSION-014 ADDENDUM) --------
+   The final GHASH reduce (0x924..0x9b4) reloads Q16 = the [sp+64] modulus (now carried by
+   the invariant) and feeds the pmull/eor3 chain via Q16/Q17/Q21/Q29.  Over that window we
+   must KEEP Q16-Q19 (KEEPGH) yet not let their per-step towers pile up.  KEEPGH_LATEST =
+   KEEPGH + keep only the LATEST read of each of Q16/Q17/Q18/Q19.  (KEEPGH lives in wb.ml;
+   this generalizes DISCARD_STALE_Q19_TAC to all four GHASH regs.)  VALIDATED (session-015)
+   to define+typecheck against the warm ckpt; the full-window behaviour is validated once
+   the new invariant is cold-loaded (the body reaches this window only via wbn_loop_inv_core,
+   which the warm ckpt still bakes WITHOUT the [sp+64] conjunct). *)
+let state_num_of_qreg qn th =
+  try let c = concl th in if not(is_eq c) then None else
+    (match lhs c with
+       Comb(Comb(Const("read",_),Const(n,_)),Var(sn,_))
+         when n=qn && String.length sn>1 && sn.[0]='s' ->
+           Some(int_of_string(String.sub sn 1 (String.length sn-1)))
+     | _ -> None) with _ -> None;;
+let DISCARD_STALE_QREG_TAC qn : tactic = fun (asl,w) ->
+  let nums = List.filter_map (fun (_,th) -> state_num_of_qreg qn th) asl in
+  match nums with [] | [_] -> ALL_TAC (asl,w)
+  | _ -> let mx = List.fold_left max 0 nums in
+         DISCARD_ASSUMPTIONS_TAC (fun th ->
+           (match state_num_of_qreg qn th with Some k -> k<mx | None -> false)) (asl,w);;
+let DISCARD_OLDSTATE_KEEPGH_LATEST_TAC s =
+  DISCARD_OLDSTATE_KEEPGH_TAC s THEN
+  DISCARD_STALE_QREG_TAC "Q16" THEN DISCARD_STALE_QREG_TAC "Q17" THEN
+  DISCARD_STALE_QREG_TAC "Q18" THEN DISCARD_STALE_QREG_TAC "Q19";;
+let ARM_STEPS_FOLD_KEEPGH_LATEST_TAC exec snums =
+  MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN GCM_SIMD_SIMPLIFY_TAC THEN
+              DISCARD_OLDSTATE_KEEPGH_LATEST_TAC s THEN CLARIFY_TAC) (statenames "s" snums);;
+
+(* The htable H-power memory reads give  h_k = byteswap128 (polyval_dot ...)  (the ODD
+   powers h3/h5/h7 and, after unfolding, h2), but BODY_Q19_CLOSE_ALGEBRA's antecedent wants
+   byteswap128 h_k = polyval_dot ...  Bridge by byteswap128 involution: rewrite with the
+   h_k=... fact then BYTESWAP128_INVOLUTION.  VALIDATED (session-015) on the h2 rung. *)
+let BSWAP_INVOL_MASSAGE_TAC =
+  REPEAT(FIRST_X_ASSUM(fun th ->
+    let c = concl th in
+    if is_eq c &&
+       (match rhs c with Comb(Const("byteswap128",_),_) -> true | _ -> false)
+    then SUBST_ALL_TAC th else NO_TAC)) THEN
+  REWRITE_TAC[BYTESWAP128_INVOLUTION];;
+
 (* PC back-edge arithmetic bridge (session-009). *)
 let WBN_DIV_SHIFT = prove
  (`9 <= nblk ==> (nblk - 1) DIV 8 = (nblk - 9) DIV 8 + 1`,
