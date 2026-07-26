@@ -958,6 +958,101 @@ let WBN_INV_SPLIT = prove
   CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN REWRITE_TAC[CONJ_ACI]);;
 
 (* ------------------------------------------------------------------------- *)
+(* 9b. Phase 4 PREREQ: the RAW counter accumulator Q30 (session-007).          *)
+(*                                                                            *)
+(* CRITICAL FINDING (session-007): the frozen wbn_loop_invariant (Sec 4) is    *)
+(* INCOMPLETE for the loop body.  The body's FIRST instruction                 *)
+(*   0x4a0  rev32 v5, v30                                                       *)
+(* reads Q30 -- the running CTR-block counter in its rev32-pending "raw" form  *)
+(* -- but wbn_loop_invariant has NO Q30 conjunct, so Q5 immediately goes       *)
+(* symbolic in `read Q30 s0` and the body cannot close.  Static live-in        *)
+(* analysis of the whole body (0x4a0..0x9ec) shows Q30 is the ONLY vector      *)
+(* register whose first use is a READ and which the invariant fails to pin     *)
+(* (Q0..Q4, Q19, Q31 are live-in AND already pinned).                          *)
+(*                                                                            *)
+(* WBN_FRONT_BUF DID harvest a Q30 conjunct (its postcond conjunct 46), as a   *)
+(* raw bit-tower; Sec 4's generalization to symbolic i simply dropped it.      *)
+(* The value at the loop head (iteration i) is gcm_ctr_raw (word (8*i+13)) ctr0*)
+(* -- CONFIRMED: WBN_FRONT_BUF's conjunct-46 term = gcm_ctr_raw (word 13) ctr0 *)
+(* at i=0 (proved via gcm_ctr_raw_def + WORD_RULE add-merge + WORD_ADD_0).      *)
+(*                                                                            *)
+(* gcm_ctr_raw w ctr0 is the counter in the "byte-grouped, top-lane += w"      *)
+(* representation the hardware keeps in v30: its top 32-bit lane is            *)
+(* word_add (<brev of ctr0[96:128] bytes>) w, the low 96 bits are ctr0's low   *)
+(* lanes byte-grouped.  The body does rev32(v30) -> AES keystream input for    *)
+(* block 8i+13, then add v30,v30,v31 (v31 = word 2^96) to advance to 8i+14.    *)
+(*                                                                            *)
+(* THE FIX (next session): add a Q30 conjunct                                  *)
+(*   read Q30 s = gcm_ctr_raw (word (8 * i + 13)) ctr0                          *)
+(* to wbn_loop_invariant (and thus wbn_loop_inv_core auto-tracks it).  Then     *)
+(* WBN_FRONT_BUF_EXT / WBN_LOOP_INVARIANT_ENTRY must re-establish it at i=0     *)
+(* (from conjunct 46 via the gcm_ctr_raw (word 13) identity), and the step     *)
+(* case advances it 8i+13 -> 8(i+1)+13 = 8i+21 over the 8 in-body increments.  *)
+(* ------------------------------------------------------------------------- *)
+
+(* the raw counter: byte-grouped rep with top 32-bit lane incremented by w.
+   rev32(gcm_ctr_raw w ctr0) = gcm_ctr_add w ctr0 (the AES input for block w);
+   word_add (gcm_ctr_raw w ctr0) (word 2^96) = gcm_ctr_raw (word_add w 1) ctr0. *)
+let gcm_ctr_raw_def = new_definition
+ `gcm_ctr_raw (w:32 word) (ctr0:int128) : int128 =
+   word_join
+    (word_join
+      (word_add
+        (word_join
+          (word_join (word_subword ctr0 (96,8):8 word) (word_subword ctr0 (104,8):8 word):16 word)
+          (word_join (word_subword ctr0 (112,8):8 word) (word_subword ctr0 (120,8):8 word):16 word):32 word)
+        w)
+      (word_join (word_join (word_subword ctr0 (64,8):8 word) (word_subword ctr0 (72,8):8 word):16 word)
+        (word_join (word_subword ctr0 (80,8):8 word) (word_subword ctr0 (88,8):8 word):16 word):32 word):64 word)
+    (word_join
+      (word_join (word_join (word_subword ctr0 (32,8):8 word) (word_subword ctr0 (40,8):8 word):16 word)
+        (word_join (word_subword ctr0 (48,8):8 word) (word_subword ctr0 (56,8):8 word):16 word):32 word)
+      (word_join (word_join (word_subword ctr0 (0,8):8 word) (word_subword ctr0 (8,8):8 word):16 word)
+        (word_join (word_subword ctr0 (16,8):8 word) (word_subword ctr0 (24,8):8 word):16 word):32 word):64 word):int128`;;
+
+(* the 4 lane-extraction lemmas (used to prove GCM_CTR_RAW_INCR without a
+   symbolic-w WORD_BLAST, which OOMs -- see Sec 2 AVOID note).  Each proves fast
+   via WORD_SIMPLE_SUBWORD_CONV (extracts the lane) then WORD_BLAST (w appears
+   only additively in the top lane, the addend never enters the BDD). *)
+let SUBW_RAW_96 = prove
+ (`word_subword (gcm_ctr_raw w ctr0) (96,32):32 word =
+   word_add (word_join (word_join (word_subword ctr0 (96,8):8 word) (word_subword ctr0 (104,8):8 word):16 word)
+     (word_join (word_subword ctr0 (112,8):8 word) (word_subword ctr0 (120,8):8 word):16 word):32 word) w`,
+  REWRITE_TAC[gcm_ctr_raw_def] THEN CONV_TAC(DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN CONV_TAC WORD_BLAST);;
+let SUBW_RAW_64 = prove
+ (`word_subword (gcm_ctr_raw w ctr0) (64,32):32 word =
+   word_join (word_join (word_subword ctr0 (64,8):8 word) (word_subword ctr0 (72,8):8 word):16 word)
+     (word_join (word_subword ctr0 (80,8):8 word) (word_subword ctr0 (88,8):8 word):16 word):32 word`,
+  REWRITE_TAC[gcm_ctr_raw_def] THEN CONV_TAC(DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN CONV_TAC WORD_BLAST);;
+let SUBW_RAW_32 = prove
+ (`word_subword (gcm_ctr_raw w ctr0) (32,32):32 word =
+   word_join (word_join (word_subword ctr0 (32,8):8 word) (word_subword ctr0 (40,8):8 word):16 word)
+     (word_join (word_subword ctr0 (48,8):8 word) (word_subword ctr0 (56,8):8 word):16 word):32 word`,
+  REWRITE_TAC[gcm_ctr_raw_def] THEN CONV_TAC(DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN CONV_TAC WORD_BLAST);;
+let SUBW_RAW_0 = prove
+ (`word_subword (gcm_ctr_raw w ctr0) (0,32):32 word =
+   word_join (word_join (word_subword ctr0 (0,8):8 word) (word_subword ctr0 (8,8):8 word):16 word)
+     (word_join (word_subword ctr0 (16,8):8 word) (word_subword ctr0 (24,8):8 word):16 word):32 word`,
+  REWRITE_TAC[gcm_ctr_raw_def] THEN CONV_TAC(DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN CONV_TAC WORD_BLAST);;
+
+(* the increment: `add v30.4s,v30.4s,v31.4s` (v31 = word 2^96) is a lane-wise
+   32-bit add; the model emits it as word_join of word_add(word_subword v30 lane)(word c)
+   with c=1 on the top lane, 0 elsewhere.  This advances the raw counter by 1. *)
+let GCM_CTR_RAW_INCR = prove
+ (`word_join
+    (word_join
+     (word_add (word_subword (gcm_ctr_raw w ctr0) (96,32):32 word) (word 1))
+     (word_add (word_subword (gcm_ctr_raw w ctr0) (64,32):32 word) (word 0)):64 word)
+    (word_join
+     (word_add (word_subword (gcm_ctr_raw w ctr0) (32,32):32 word) (word 0))
+     (word_add (word_subword (gcm_ctr_raw w ctr0) (0,32):32 word) (word 0)):64 word):int128 =
+    gcm_ctr_raw (word_add w (word 1)) ctr0`,
+  REWRITE_TAC[SUBW_RAW_96; SUBW_RAW_64; SUBW_RAW_32; SUBW_RAW_0; WORD_ADD_0] THEN
+  GEN_REWRITE_TAC RAND_CONV [gcm_ctr_raw_def] THEN
+  REWRITE_TAC[WORD_RULE
+    `!(x:32 word) w. word_add (word_add x w) (word 1) = word_add x (word_add w (word 1))`]);;
+
+(* ------------------------------------------------------------------------- *)
 (* 10. Phase 4: fire the ENSURES_WHILE skeleton -> WBN_MAIN_LOOP (session-006)*)
 (*                                                                            *)
 (* The back-edge of .L256_dec_main_loop is                                    *)
