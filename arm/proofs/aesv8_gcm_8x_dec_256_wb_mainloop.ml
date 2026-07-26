@@ -713,3 +713,39 @@ let GHASH_ACC_8BLOCK_EXTEND = prove
   REWRITE_TAC[GHASH_ACC_GROUP_EXTEND] THEN
   REWRITE_TAC[LIST_OF_SEQ_8] THEN
   CONV_TAC(DEPTH_CONV BETA_CONV) THEN REWRITE_TAC[ADD_CLAUSES]);;
+
+(* ------------------------------------------------------------------------- *)
+(* 6. Route-(b) tool: strengthen an ensures postcondition with a frame-       *)
+(*    PRESERVED fact, with NO re-simulation.  Pure ensures/eventually logic.  *)
+(*                                                                            *)
+(* This is the clean combinator for WBN_FRONT_BUF_EXT (and reusable in the    *)
+(* Phase-6 recompose): given `ensures step P Q C` and that the frame C, from  *)
+(* precondition P, preserves R (i.e. !s s'. P s /\ C s s' ==> R s'), we get   *)
+(* `ensures step P (\s. Q s /\ R s) C` for free.                              *)
+(*                                                                            *)
+(* Usage for WBN_FRONT_BUF_EXT: take R s = (the 3 loop-constants at s:         *)
+(*   read (memory :> bytes (in_p,16*nblk)) s = num_of_bytelist ibytes /\      *)
+(*   read (memory :> bytes128 key_p) s = k0 /\ htable_mem_dec h htbl_p s).     *)
+(* The preservation obligation !s s'. wb_front_pre_tm s /\ wb_front_frame_tm  *)
+(* s s' ==> R s' holds because none of in_p's input bytes, key_p, or htbl_p   *)
+(* memory is in wb_front_frame_tm's MAYCHANGE (only out_p/xi_p/ivec_p/stack + *)
+(* Q-regs are).  Discharge it by: STRIP the frame (MAYCHANGE ... ,, ...),     *)
+(* then for each read-conjunct use the nonoverlapping hyps + the fact the     *)
+(* frame's memory writes miss those regions (the standard READ_OVER_WRITE /   *)
+(* MAYCHANGE-preservation reasoning; htable_mem_dec unfolds to bytes128 reads *)
+(* off htbl_p that are likewise disjoint).                                    *)
+(* ------------------------------------------------------------------------- *)
+
+let ENSURES_ADD_PRESERVED = prove
+ (`!(step:A->A->bool) P Q R C.
+    ensures step P Q C /\ (!s s'. P s /\ C s s' ==> R s')
+    ==> ensures step P (\s. Q s /\ R s) C`,
+  REWRITE_TAC[ensures] THEN REPEAT GEN_TAC THEN STRIP_TAC THEN
+  X_GEN_TAC `s0:A` THEN DISCH_TAC THEN
+  SUBGOAL_THEN `!s':A. Q s' /\ C (s0:A) s' ==> (Q s' /\ R s') /\ C s0 s'`
+    (MP_TAC o MATCH_MP EVENTUALLY_MONO) THENL
+   [X_GEN_TAC `s1:A` THEN STRIP_TAC THEN ASM_REWRITE_TAC[] THEN
+    FIRST_X_ASSUM(fun th -> MP_TAC(SPECL [`s0:A`;`s1:A`] th)) THEN
+    ANTS_TAC THENL [ASM_REWRITE_TAC[]; DISCH_THEN ACCEPT_TAC];
+    DISCH_THEN(MP_TAC o SPECL [`step:A->A->bool`; `s0:A`]) THEN
+    DISCH_THEN MATCH_MP_TAC THEN ASM_SIMP_TAC[]]);;
