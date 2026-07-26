@@ -956,3 +956,159 @@ let WBN_INV_SPLIT = prove
         list_mk_comb(`wbn_loop_inv_core`, wbn_inv_args @ [`i:num`;`s:armstate`])])),
   REWRITE_TAC[wbn_loop_invariant; wbn_loop_inv_core] THEN
   CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN REWRITE_TAC[CONJ_ACI]);;
+
+(* ------------------------------------------------------------------------- *)
+(* 10. Phase 4: fire the ENSURES_WHILE skeleton -> WBN_MAIN_LOOP (session-006)*)
+(*                                                                            *)
+(* The back-edge of .L256_dec_main_loop is                                    *)
+(*   cmp x0,x5 @0x9e4 ; stp q6,q7,[x2],#32 @0x9e8 ; b.lt 0x4a0 @0x9ec         *)
+(* i.e. the SIGNED conditional branch b.lt is the LAST body instruction and   *)
+(* its flag-setting cmp is two instructions earlier -- BOTH inside the body.  *)
+(* That is the ENSURES_WHILE_UP2_TAC shape (branch folded into the body): the *)
+(* body postcondition PC is word(if i+1<k then pc1 else pc2), the flag never  *)
+(* crosses a frame boundary, and the exit lands at the fall-through pc2.       *)
+(* Count k = (nblk-9) DIV 8; pc1 = pc+0x4a0 (head); pc2 = pc+0x9f0 (exit).     *)
+(*                                                                            *)
+(* PROBLEM: ENSURES_WHILE_UP2_TAC's internal `C ,, C = C` conjunct is         *)
+(* discharged by MAYCHANGE_IDEMPOT_TAC, which THROWS ASSIGNS_SEQ_ABSORB_CONV  *)
+(* on this 4-memory-region frame (the MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_  *)
+(* ABI macro doesn't canonicalize into the ASSIGNS sequence ABSORB expects).  *)
+(* FIX: expand the ABI macro FIRST, then MAYCHANGE_IDEMPOT_TAC succeeds (~2s). *)
+(* up2_pth is a verbatim re-proof of ENSURES_WHILE_UP2_TAC's internal pth, and *)
+(* UP2_ABI_TAC is the closure at common/relational.ml:2137 with the ABI       *)
+(* expand spliced into the idempotence CONJ_TAC leg.                          *)
+(* ------------------------------------------------------------------------- *)
+
+(* the applied PC-free core, as a (num->armstate->bool) and as a \i s. abstr. *)
+let wbn_core_applied =
+  list_mk_comb(`wbn_loop_inv_core`,
+    [`pc:num`;`ctr0:int128`;`in_p:int64`;`out_p:int64`;`xi_p:int64`;`ivec_p:int64`;
+     `key_p:int64`;`htbl_p:int64`;`stackpointer:int64`;`nblk:num`;`ibytes:byte list`;
+     `xi:int128`;`h:int128`;`k0:int128`;`k1:int128`;`k2:int128`;`k3:int128`;`k4:int128`;
+     `k5:int128`;`k6:int128`;`k7:int128`;`k8:int128`;`k9:int128`;`k10:int128`;`k11:int128`;
+     `k12:int128`;`k13:int128`;`k14:int128`]);;
+
+let wbn_core_iv = list_mk_abs([`i:num`;`s:armstate`],
+  mk_comb(mk_comb(wbn_core_applied,`i:num`),`s:armstate`));;
+
+(* ENSURES_WHILE_UP2_TAC's internal `pth` (common/relational.ml:1974), re-proved
+   here so we can reach it with an ABI-aware idempotence discharge. *)
+let up2_pth = prove(
+  `forall k pc1 pc2 (loopinv:num->A->bool) C precond postcond
+      (pcounter:(A,(N)word)component) step pc.
+    C ,, C = C /\ ~(k = 0) /\
+    ensures step
+      (\s. program_decodes s /\ read pcounter s = word pc /\ precond s)
+      (\s. program_decodes s /\ read pcounter s = word pc1 /\ loopinv 0 s)
+      C /\
+    (forall i. i < k /\ ~(i = k) /\ ~(k = 0) /\ 0 < k
+      ==> ensures step
+        (\s. program_decodes s /\ read pcounter s = word pc1 /\ loopinv i s)
+        (\s. program_decodes s /\
+             read pcounter s = word (if i + 1 < k then pc1 else pc2) /\
+             loopinv (i + 1) s)
+        C) /\
+    ensures step
+        (\s. program_decodes s /\ read pcounter s = word pc2 /\ loopinv k s)
+        postcond C
+    ==>
+    ensures step
+      (\s. program_decodes s /\ read pcounter s = word pc /\ precond s)
+      postcond C`,
+  REPEAT GEN_TAC THEN
+  INTRO_TAC "HC HK HPRE HLOOP HPOST" THEN
+  MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
+  USE_THEN "HC" (fun th -> REWRITE_TAC[th]) THEN
+  META_EXISTS_TAC THEN CONJ_TAC THENL
+  [ALL_TAC; USE_THEN "HPOST" (UNIFY_ACCEPT_TAC [`Q:A->bool`])] THEN
+  REMOVE_THEN "HPOST" (K ALL_TAC) THEN
+  MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
+  USE_THEN "HC" (fun th -> REWRITE_TAC[th]) THEN
+  EXISTS_TAC `(\(s:A). program_decodes s /\
+                       read pcounter s = (word pc1:(N)word) /\
+                       loopinv (k - 1) s)` THEN
+  CONJ_TAC THENL [
+    ALL_TAC;
+    USE_THEN "HLOOP" (fun th -> MP_TAC (SPEC `(k-1)` th)) THEN
+    ANTS_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+    SUBGOAL_THEN `k - 1 + 1 = k` SUBST_ALL_TAC THENL [ASM_ARITH_TAC; ALL_TAC]
+    THEN REWRITE_TAC[LT_REFL]
+  ] THEN
+  SUBGOAL_THEN `k - 1 < k` MP_TAC THENL [ASM_ARITH_TAC;ALL_TAC] THEN
+  SPEC_TAC (`k - 1`,`j:num`) THEN INDUCT_TAC THENL [
+    ASM_REWRITE_TAC[] THEN NO_TAC;
+    FIRST_X_ASSUM (fun th -> DISCH_TAC THEN MP_TAC th) THEN
+    ANTS_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+    DISCH_THEN (LABEL_TAC "HPREVLOOP") THEN
+    MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
+    USE_THEN "HC" (fun th -> REWRITE_TAC[th]) THEN
+    META_EXISTS_TAC THEN CONJ_TAC THENL
+    [USE_THEN "HPREVLOOP" (UNIFY_ACCEPT_TAC [`Q:A->bool`]); ALL_TAC] THEN
+    USE_THEN "HLOOP" (fun th -> MP_TAC (SPEC `j:num` th)) THEN
+    ANTS_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+    ASM_REWRITE_TAC[GSYM ADD1] THEN NO_TAC
+  ]);;
+
+(* ENSURES_WHILE_UP2_TAC caller with ABI-aware idempotence discharge. *)
+let UP2_ABI_TAC k pc1 pc2 iv =
+  MATCH_MP_TAC up2_pth THEN
+  MAP_EVERY EXISTS_TAC [k; pc1; pc2; iv] THEN
+  BETA_TAC THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_IDEMPOT_TAC;
+    ALL_TAC];;
+
+(* the LOOP theorem: PC=0x4a0 /\ core 0  ==>  PC=0x9f0 /\ core k, over the front
+   MAYCHANGE frame.  Entry/exit are trivial reflexive ensures (pre=post at the
+   respective PC); count<>0 is DIVISION arithmetic (17<=nblk => (nblk-9)DIV8>=1).
+   Body = the Phase-4 step case, CHEAT_TAC for now (see the big TODO below). *)
+let wbn_main_loop_goal =
+  let kk = `(nblk - 9) DIV 8` in
+  let loop_pre = mk_abs(`s:armstate`,
+    list_mk_conj[
+      `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
+      `read PC s = word (pc + 0x4a0)`;
+      mk_comb(mk_comb(wbn_core_applied,`0`),`s:armstate`)]) in
+  let loop_post = mk_abs(`s:armstate`,
+    list_mk_conj[
+      `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
+      `read PC s = word (pc + 0x9f0)`;
+      mk_comb(mk_comb(wbn_core_applied,kk),`s:armstate`)]) in
+  let ens = list_mk_comb(`ensures arm`,[loop_pre; loop_post; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
+
+let WBN_MAIN_LOOP = prove(wbn_main_loop_goal,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  UP2_ABI_TAC `(nblk - 9) DIV 8` `pc + 0x4a0` `pc + 0x9f0` wbn_core_iv THEN
+  REPEAT CONJ_TAC THENL
+   [ (* 1. count <> 0 : 17<=nblk => (nblk-1) DIV 8 >= 2 > 0 *)
+    SUBGOAL_THEN `1 <= nblk - 1` MP_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+    MP_TAC(SPECL [`nblk - 1`; `8`] DIVISION) THEN ASM_ARITH_TAC;
+    (* 2. entry: PC=0x4a0 /\ core 0 -> same (0-step reflexive ensures) *)
+    ENSURES_INIT_TAC "s0" THEN ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+    REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+    REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC;
+    (* 3. ===================== PHASE 4 LOOP BODY (TODO) ===================== *)
+    (* Goal after `REPEAT STRIP_TAC THEN REWRITE_TAC[wbn_loop_inv_core] THEN   *)
+    (* CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN ENSURES_INIT_TAC "s0"`:         *)
+    (* state s0 at 0x4a0, iteration i, with (confirmed session-006, risk #2): *)
+    (*   X0=in_p+128(i+1) X2=out_p+128(i+1) X4=in_p+16nblk                     *)
+    (*   X5=128*((nblk-1)DIV8)+in_p X1=128nblk X9=16nblk X10=sp+64 X11=key_p   *)
+    (*   X3=xi_p X6=htbl_p X16=ivec_p X15=word 4294967296 SP=stackpointer      *)
+    (*   Q0..Q4 = gcm_ctr_add(8i+8..8i+12) ctr0   (store/counter stream ahead) *)
+    (*   Q5,Q6,Q7 = plaintext(8i+5,8i+6,8i+7)     (+8i keystream, CONFIRMED)   *)
+    (*   Q8..Q15 = raw ct blocks 8i+0..8i+7        (GHASH stream lags)         *)
+    (*   Q19 = ghash_polyval_acc over blocks 0..8i-1                           *)
+    (*   Q26=k12 Q27=k13 Q28=k14 Q31=word 79228162514264337593543950336        *)
+    (* Sim decodes cleanly (5 steps ~2.5s, session-006).  340 instrs, body     *)
+    (* 0x4a0..0x9ec.  Target: core(i+1) at PC=if i+1<k then 0x4a0 else 0x9f0.  *)
+    (* GHASH close via GHASH_ACC_8BLOCK_EXTEND (blk := \k. bytes_to_int128     *)
+    (* (SUB_LIST(16*k,16) ibytes)).  Counter algebra: GCM_CTR_ADD_COMPOSE /    *)
+    (* GCM_CTR_INC_ITER_ADD.  Signed back-edge b.lt @0x9ec resolved inside the *)
+    (* body by WB_PTRCMP_FLAGS (x0 vs x5).  Use per-step GCM_SIMD_SIMPLIFY_TAC *)
+    (* to control term growth (see WBN_FRONT_STEP_TAC pattern, Sec 3).         *)
+    CHEAT_TAC;
+    (* 4. exit: PC=0x9f0 /\ core k -> same (0-step reflexive ensures) *)
+    ENSURES_INIT_TAC "s0" THEN ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+    REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+    REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC]);;
