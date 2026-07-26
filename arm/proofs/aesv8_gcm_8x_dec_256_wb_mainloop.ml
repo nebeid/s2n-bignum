@@ -1506,6 +1506,14 @@ let DISCARD_OLDSTATE_KEEPGH_LATEST_TAC s =
 let ARM_STEPS_FOLD_KEEPGH_LATEST_TAC exec snums =
   MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN GCM_SIMD_SIMPLIFY_TAC THEN
               DISCARD_OLDSTATE_KEEPGH_LATEST_TAC s THEN CLARIFY_TAC) (statenames "s" snums);;
+(* NO-SIMPLIFY variant for the final GHASH reduce window (290..326): once Q16 is the
+   CONCRETE [sp+64] modulus (word 0xc2..00), GCM_SIMD_SIMPLIFY on the reduce pmulls
+   stack-overflows (session-014); step without it so the reduce stays symbolic and
+   read Q19 lands self-contained.  Q18 is abbreviated as `midacc` before this window
+   so the towers stay small. *)
+let ARM_STEPS_FOLD_KEEPGH_LATEST_NOSIMP_TAC exec snums =
+  MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN
+              DISCARD_OLDSTATE_KEEPGH_LATEST_TAC s THEN CLARIFY_TAC) (statenames "s" snums);;
 
 (* The htable H-power memory reads give  h_k = byteswap128 (polyval_dot ...)  (the ODD
    powers h3/h5/h7 and, after unfolding, h2), but BODY_Q19_CLOSE_ALGEBRA's antecedent wants
@@ -1641,8 +1649,40 @@ let WBN_MAIN_LOOP = prove(wbn_main_loop_goal,
     (* clean, PC lands at if i+1<(nblk-9)DIV8 then 0x4a0 else 0x9f0 exactly).    *)
     (* Only the postcondition MATCH (27 conjuncts: 8 AES-reconstruct, GHASH Q19  *)
     (* close, store-forall) remains -> inner CHEAT_TAC (Phase-4 sub-split).      *)
+    (* ===================================================================== *)
+    (* SESSION-016: the 340-instr body re-sim, VALIDATED end-to-end with the   *)
+    (* [sp+64]-carrying invariant (wb-dec-mainloop6).  Replaces the broken     *)
+    (* session-009 Q18LATEST body (which discarded every read Qn sK, n<>18,    *)
+    (* dropping the postcond facts — the s010 root cause).  Recipe:            *)
+    (*  - htable unfold+split @s0 (s013): the H-power ldrs resolve, so Q17/18/  *)
+    (*    19 stay self-contained.                                              *)
+    (*  - front 1-13 (counter rev32/add folds) verbatim.                       *)
+    (*  - Q18LATEST 14-212 (GHASH partial stays flat via keep-latest-Q18).     *)
+    (*  - KEEPGH_LATEST 213-289 (keeps Q16-Q19; Q16 auto-resolves to the       *)
+    (*    [sp+64] modulus word 13979173243358019584 the invariant now pins).   *)
+    (*  - NO-SIMPLIFY KEEPGH_LATEST 290-326 (GCM_SIMD_SIMPLIFY on the CONCRETE  *)
+    (*    Q16 pmull stack-overflows — s014); ABBREV midacc = read Q18 s301     *)
+    (*    (last eor3 v18) so the reduce steps stay small.  RESULT: read Q19    *)
+    (*    s326 is FULLY SELF-CONTAINED (len ~3786, no dangling reads) — the     *)
+    (*    first time the body's GHASH acc closes (s014 breakthrough).          *)
+    (*  - Then discard the DEAD reduce intermediates (Q16/Q17/Q29 + the giant  *)
+    (*    midacc SYM tree) and fold Q25 to gcm_ctr_add(8i+19): this removes     *)
+    (*    the concrete-modulus pmull that makes the store-window simplify hang. *)
+    (*  - RESUME simplify (KEEPGH_LATEST) 327-337 with the Q30/Q4 counter folds *)
+    (*    (fold Q30 at s335 for the skipped no-simplify add@317).              *)
+    (*  - back-edge 338-340: WB_PTRCMP_FLAGS standalone-rewrite + WBN_PC_BRIDGE.*)
+    (*    PC lands EXACTLY at if i+1<(nblk-9)DIV8 then pc+1184 else pc+2544.    *)
+    (* ===================================================================== *)
     REPEAT STRIP_TAC THEN REWRITE_TAC[wbn_loop_inv_core] THEN
     CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN ENSURES_INIT_TAC "s0" THEN
+    (* htable unfold+split @s0 (s013): resolve the 13 H-power memory cells *)
+    RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_dec]) THEN
+    RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV let_CONV)) THEN
+    FIRST_X_ASSUM(fun th ->
+      let c = concl th in
+      if can (find_term (fun t->match t with Const("byteswap128",_)->true|_->false)) c &&
+         can (find_term (fun t->match t with Const("karatsuba_mid",_)->true|_->false)) c
+      then STRIP_ASSUME_TAC th else NO_TAC) THEN
     (* --- counter setup 1..13 (rev32/add folds) --- *)
     ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (1--1) THEN
     REV32_FOLD_TAC "Q5" "s1" `word (8*i+13):32 word` THEN
@@ -1654,51 +1694,57 @@ let WBN_MAIN_LOOP = prove(wbn_main_loop_goal,
     CTR_INCR_NORM_TAC "s8" 14 THEN
     ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (9--13) THEN GCM_SIMD_SIMPLIFY_TAC THEN
     REV32_FOLD_TAC "Q7" "s13" `word (8*i+15):32 word` THEN
-    (* --- AES/GHASH bulk 14..211 (Q18-latest keeps the GHASH partial flat) --- *)
+    (* --- AES/GHASH bulk 14..212 (Q18-latest keeps the GHASH partial flat) --- *)
     ARM_STEPS_FOLD_Q18LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (14--60) THEN DISCARD_STALE_Q19_TAC THEN
     ARM_STEPS_FOLD_Q18LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (61--120) THEN DISCARD_STALE_Q19_TAC THEN
     ARM_STEPS_FOLD_Q18LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (121--180) THEN DISCARD_STALE_Q19_TAC THEN
     ARM_STEPS_FOLD_Q18LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (181--211) THEN DISCARD_STALE_Q19_TAC THEN
-    (* add v30 @212 (8i+15 -> 8i+16) *)
     ARM_STEPS_FOLD_Q18LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (212--212) THEN DISCARD_STALE_Q19_TAC THEN
     CTR_INCR_NORM_TAC "s212" 15 THEN
-    ARM_STEPS_FOLD_Q18LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (213--258) THEN
-    DISCARD_STALE_Q19_TAC THEN DISCARD_STALE_Q18_TAC THEN
-    (* rev32 v20 @259 (8i+16), add @261 (->8i+17) *)
-    ARM_STEPS_FOLD_Q18LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (259--259) THEN
+    (* --- KEEPGH_LATEST 213..289 (keeps Q16-Q19; Q16 reloaded @260 from [sp+64]) --- *)
+    ARM_STEPS_FOLD_KEEPGH_LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (213--258) THEN
+    ARM_STEPS_FOLD_KEEPGH_LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (259--259) THEN
     REV32_FOLD_TAC "Q20" "s259" `word (8*i+16):32 word` THEN
-    ARM_STEPS_FOLD_Q18LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (260--261) THEN
-    DISCARD_STALE_Q19_TAC THEN DISCARD_STALE_Q18_TAC THEN CTR_INCR_NORM_TAC "s261" 16 THEN
-    (* rev32 v22 @270 (8i+17), add @279 (->8i+18) *)
-    ARM_STEPS_FOLD_Q18LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (262--270) THEN
-    DISCARD_STALE_Q19_TAC THEN DISCARD_STALE_Q18_TAC THEN
+    ARM_STEPS_FOLD_KEEPGH_LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (260--261) THEN
+    CTR_INCR_NORM_TAC "s261" 16 THEN
+    ARM_STEPS_FOLD_KEEPGH_LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (262--270) THEN
     REV32_FOLD_TAC "Q22" "s270" `word (8*i+17):32 word` THEN
-    ARM_STEPS_FOLD_Q18LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (271--279) THEN
-    DISCARD_STALE_Q19_TAC THEN DISCARD_STALE_Q18_TAC THEN CTR_INCR_NORM_TAC "s279" 17 THEN
-    (* rev32 v23 @288 (8i+18), add @289 (->8i+19) *)
-    ARM_STEPS_FOLD_Q18LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (280--288) THEN
-    DISCARD_STALE_Q19_TAC THEN DISCARD_STALE_Q18_TAC THEN
+    ARM_STEPS_FOLD_KEEPGH_LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (271--279) THEN
+    CTR_INCR_NORM_TAC "s279" 17 THEN
+    ARM_STEPS_FOLD_KEEPGH_LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (280--288) THEN
     REV32_FOLD_TAC "Q23" "s288" `word (8*i+18):32 word` THEN
-    ARM_STEPS_FOLD_Q18LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (289--289) THEN
-    DISCARD_STALE_Q19_TAC THEN DISCARD_STALE_Q18_TAC THEN CTR_INCR_NORM_TAC "s289" 18 THEN
-    (* rev32 v25 @312 (8i+19), add @317 (->8i+20) *)
-    ARM_STEPS_FOLD_Q18LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (290--312) THEN
-    DISCARD_STALE_Q19_TAC THEN DISCARD_STALE_Q18_TAC THEN
-    REV32_FOLD_TAC "Q25" "s312" `word (8*i+19):32 word` THEN
-    ARM_STEPS_FOLD_Q18LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (313--317) THEN
-    DISCARD_STALE_Q19_TAC THEN DISCARD_STALE_Q18_TAC THEN CTR_INCR_NORM_TAC "s317" 19 THEN
-    (* --- store window 318..337 (Q18-latest; store read-backs self-propagate) --- *)
-    ARM_STEPS_FOLD_Q18LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (318--335) THEN
-    DISCARD_STALE_Q19_TAC THEN DISCARD_STALE_Q18_TAC THEN
-    ARM_STEPS_FOLD_Q18LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (336--336) THEN
+    ARM_STEPS_FOLD_KEEPGH_LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (289--289) THEN
+    CTR_INCR_NORM_TAC "s289" 18 THEN
+    (* --- NO-SIMPLIFY reduce window 290..326 (concrete Q16 in pmull @290/318) --- *)
+    ARM_STEPS_FOLD_KEEPGH_LATEST_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (290--301) THEN
+    ABBREV_TAC `midacc:int128 = read Q18 s301` THEN
+    FIRST_X_ASSUM(fun th ->
+      if (try lhs(concl th) = `midacc:int128` with _ -> false)
+      then ASSUME_TAC (SYM th) else NO_TAC) THEN
+    ARM_STEPS_FOLD_KEEPGH_LATEST_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (302--326) THEN
+    (* Q19 s326 now self-contained.  Drop the DEAD reduce intermediates so the
+       store window's GCM_SIMD_SIMPLIFY does not choke on the concrete-modulus
+       pmull (session-016: keeping them makes 327+ hang / stack-overflow). *)
+    DISCARD_ASSUMPTIONS_TAC(fun th ->
+      match concl th with
+        Comb(Comb(Const("=",_),lh),rh) ->
+          (match lh with Comb(Comb(Const("read",_),Const(("Q16"|"Q17"|"Q29"),_)),_) -> true | _ -> false)
+          || (rh = `midacc:int128` &&
+              (match lh with Comb(Comb(Const("word_xor",_),_),_) -> true | _ -> false))
+      | _ -> false) THEN
+    GCM_SIMD_SIMPLIFY_TAC THEN REV32_FOLD_TAC "Q25" "s326" `word (8*i+19):32 word` THEN
+    (* --- RESUME simplify (KEEPGH_LATEST) 327..337 --- *)
+    ARM_STEPS_FOLD_KEEPGH_LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (327--335) THEN
+    CTR_INCR_NORM_TAC "s335" 19 THEN
+    ARM_STEPS_FOLD_KEEPGH_LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (336--336) THEN
     REV32_FOLD_TAC "Q4" "s336" `word (8*i+20):32 word` THEN
-    ARM_STEPS_FOLD_Q18LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (337--337) THEN
-    DISCARD_STALE_Q19_TAC THEN DISCARD_STALE_Q18_TAC THEN CTR_INCR_NORM_TAC "s337" 20 THEN
+    ARM_STEPS_FOLD_KEEPGH_LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (337--337) THEN
+    CTR_INCR_NORM_TAC "s337" 20 THEN
     (* --- back-edge: normalize X0, cmp @338, resolve NF/VF, stp @339, b.lt @340 --- *)
     RULE_ASSUM_TAC(REWRITE_RULE[WORD_RULE
       `word_add (word_add in_p (word (128 * (i + 1)))) (word 128):int64 =
        word_add in_p (word (128*(i+2)))`]) THEN
-    ARM_STEPS_FOLD_Q18LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (338--338) THEN
+    ARM_STEPS_FOLD_KEEPGH_LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (338--338) THEN
     SUBGOAL_THEN `9 <= nblk` ASSUME_TAC THENL
      [MATCH_MP_TAC WBN_NBLK_GE_9 THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
     (* derive NF/VF flag equivalences as standalone theorems, rewrite into asms.
@@ -1711,7 +1757,7 @@ let WBN_MAIN_LOOP = prove(wbn_main_loop_goal,
        let flags = MATCH_MP (SPECL [`in_p:int64`; `128*(i+2)`; `128*((nblk-1) DIV 8)`]
                      WB_PTRCMP_FLAGS) prem in
        RULE_ASSUM_TAC(REWRITE_RULE[CONJUNCT1 flags; CONJUNCT2 flags]) (asl,w)) THEN
-    ARM_STEPS_FOLD_Q18LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (339--340) THEN
+    ARM_STEPS_FOLD_KEEPGH_LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (339--340) THEN
     FIRST_X_ASSUM(fun th -> if can (find_term (fun t -> t = `read PC s340`)) (concl th)
       then ASSUME_TAC(REWRITE_RULE[MATCH_MP WBN_PC_BRIDGE (ASSUME `9 <= nblk`)] th)
       else NO_TAC) THEN
@@ -1724,52 +1770,33 @@ let WBN_MAIN_LOOP = prove(wbn_main_loop_goal,
       ARITH_RULE `(8*i+8)+10 = 8*i+18`; ARITH_RULE `(8*i+8)+11 = 8*i+19`;
       ARITH_RULE `(8*i+8)+12 = 8*i+20`; ARITH_RULE `(8*i+8)+13 = 8*i+21`] THEN
     (* ===================================================================== *)
-    (* SESSION-010 FINDING (verified interactively; corrects the STATE.md      *)
-    (* premise "close ~20 conjuncts from facts in scope").  The pre-CHEAT      *)
-    (* goal has 19 leaf conjuncts (+MAYCHANGE).  Only 2 CLOSE from surviving   *)
-    (* asms (the two in_p/out_p pointer-advance eqs, pure WORD_RULE).  The     *)
-    (* other 17 are NEED-FACT: read Q5/Q6/Q7 (keystream), read Q8..Q15 (next   *)
-    (* raw-ct group), read Q19 (GHASH acc), read Q26/Q27/Q28 (=k12/k13/k14),   *)
-    (* the store-forall j<8i+16, and htable_mem_dec h htbl_p s340.  NONE of    *)
-    (* their read-facts are in the s340 assumption list.                       *)
-    (*                                                                          *)
-    (* ROOT CAUSE: the body bulk uses ARM_STEPS_FOLD_Q18LATEST_TAC, whose      *)
-    (* DISCARD_OLDSTATE_KEEPQ18_TAC discards every `read Qn sK`(n<>18,K<final)  *)
-    (* fact.  Only the LATE-refolded counter regs (Q0..Q4,Q20,Q22,Q23,Q25 =    *)
-    (* gcm_ctr_add, rewritten near s324..s340) and the X-regs survived — which  *)
-    (* is why ASM_REWRITE closed only the Q0..Q4 counters + pointers.  The      *)
-    (* session-009 CHEAT_TAC masked this: the sim reaches s340 but strips the   *)
-    (* facts the invariant(i+1) postcond needs.                                 *)
-    (*                                                                          *)
-    (* TWO-PART FIX (next session):                                             *)
-    (* (1) INVARIANT OVER-SPECIFICATION — remove read Q26/Q27/Q28 = k12/k13/k14 *)
-    (*     from wbn_loop_invariant (Sec 4).  VERIFIED DEAD live-ins: the loop   *)
-    (*     head 0x4a0 first executes `ldp q26,q27,[x11]` (idx 2) and the exit   *)
-    (*     seam 0x9f0 (prepretail) ALSO starts `ldp q26,q27,[x11]` + reloads    *)
-    (*     q28 from [x6/x11] BEFORE any aese v_,v26/27/28 (first v26 use 0x4d8 / *)
-    (*     0xa34).  So Q26/27/28 are overwritten before read at BOTH seams —     *)
-    (*     the 3 conjuncts are spurious (inherited from the front harvest).      *)
-    (*     Removing them makes ENTRY strictly easier and shrinks this postcond   *)
-    (*     by 3.  (Ripples: WBN_INV_SPLIT/wbn_loop_inv_core auto-track;          *)
-    (*     WBN_LOOP_INVARIANT_ENTRY + WBN_FRONT_BUF_EXT closers lose 3 goals;    *)
-    (*     re-validate via the session-008 alpha-shadow trick since the warm     *)
-    (*     ckpt bakes the old def.)                                             *)
-    (* (2) LIVE FACTS DISCARDED — Q5/Q6/Q7, Q8..Q15, Q19, the 8 new stores, and *)
-    (*     htable are genuinely live-in at the prepretail seam (0x9f0 first-     *)
-    (*     READs them: Q5@0x9f4 Q8@0xa0c Q12@0x9fc Q19@0xa14-ext ...).  They    *)
-    (*     MUST be preserved through the body sim.  Mirror the proven <=8 tail  *)
-    (*     WB_TAIL_8_TAC (wb.ml:2789): keep Q16-Q19 with ARM_STEPS_FOLD_KEEPGH_ *)
-    (*     TAC over the store window, ABBREV the GHASH midacc, SUBGOAL_THEN the *)
-    (*     Q19 8-block-extend close (GHASH_ACC_8BLOCK_EXTEND + GMULT8_FULL_     *)
-    (*     CORRECT_BA/LANE_FINISH), and re-assert read Q5..Q15/store facts at   *)
-    (*     their last-write states so they self-propagate to s340.  Then close  *)
-    (*     Q0..Q7 via GSYM AES256_XOR_ENCRYPT_RECONSTRUCT (needs raw keystream   *)
-    (*     read-facts in scope) and the store-forall by CASES j<8(i+1) (old,    *)
-    (*     from the invariant hyp) vs the 8 new stores.                          *)
-    (* This is a body-closer redesign, not a "close from survivors" pass;       *)
-    (* the CHEAT stays until the sim is re-run with fact preservation.          *)
+    (* SESSION-016 STATUS: the 340-instr body sim above is VALIDATED (Q19@s340 *)
+    (* self-contained, PC exact).  17 leaf conjuncts remain (ASM_REWRITE       *)
+    (* already closed Q0-Q4 counters, all X-regs, SP, [sp+64], Q31, PC):       *)
+    (*  [0-2]  Q5/Q6/Q7 : GSYM AES256_XOR_ENCRYPT_RECONSTRUCT + GCM_CTR_INC*    *)
+    (*         (need the +8i keystream read-facts; note the invariant Q5/6/7    *)
+    (*         are plaintext = ct XOR keystream at 8*(i+1)+5..7).               *)
+    (*  [3-10] Q8..Q15 raw ct : register reads discarded by KEEPGH.  Re-derive  *)
+    (*         via WBN_RAWCT_READ (memory read) + read-over-write reg=mem, OR   *)
+    (*         widen the keep-set to include Q8-Q15 from step 213.              *)
+    (*  [11]   Q19 GHASH acc : the machine byteform is FULLY self-contained     *)
+    (*         (8 byteswap128(polyval_dot..) H-powers inlined from the htable    *)
+    (*         reads, 9 word_pmul, incoming acc = the invariant's 8*i fold in a *)
+    (*         word_join).  Close = merge pipeline (ABBREV_INNER_PMULS/MERGE_*/ *)
+    (*         FOLD_MID_HPOW_KM[H6..H2]/WA_UNIFY_BB/LANE_FINISH, WB_TAIL_8_TAC   *)
+    (*         wb.ml:2789 template) THEN MATCH_MP_TAC BODY_Q19_CLOSE_ALGEBRA    *)
+    (*         THEN BSWAP_INVOL_MASSAGE_TAC (the htable gives                    *)
+    (*         h_k = byteswap128(polyval_dot..) but the algebra wants           *)
+    (*         byteswap128 h_k = polyval_dot.., reconciled by involution).      *)
+    (*  [12-13] pointer advances : CONV_TAC WORD_RULE.                          *)
+    (*  [14]   store-forall j<8i+16 : ASM_CASES j<8*(i+1) (old stores, asm 51,  *)
+    (*         preserved) vs 8 new stores (read-backs live at s340).            *)
+    (*  [15]   htable_mem_dec h htbl_p s340 : the 13 htable memory reads ARE    *)
+    (*         present at s340 (frame-preserved); REWRITE_TAC[htable_mem_dec]   *)
+    (*         + let_CONV + ASM_REWRITE.                                        *)
+    (* Single CHEAT remaining: the postcond MATCH (sim itself is CHEAT-free).   *)
     (* ===================================================================== *)
-    CHEAT_TAC;   (* SESSION-009/010: postcond MATCH — body sim discards live facts; see finding above *)
+    CHEAT_TAC;   (* SESSION-016: body SIM validated CHEAT-free; postcond MATCH pending (see above) *)
     (* 4. exit: PC=0x9f0 /\ core k -> same (0-step reflexive ensures) *)
     ENSURES_INIT_TAC "s0" THEN ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
     REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
