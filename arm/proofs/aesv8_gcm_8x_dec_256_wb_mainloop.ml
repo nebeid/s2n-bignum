@@ -905,3 +905,54 @@ let WBN_LOOP_INVARIANT_ENTRY = prove(wbn_entry_goal,
     CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN ASM_REWRITE_TAC[GCM_CTR_ADD_0];
     (* the ensures = WBN_FRONT_BUF_EXT *)
     MATCH_MP_TAC WBN_FRONT_BUF_EXT THEN ASM_REWRITE_TAC[]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* 9. Phase 4 launch: PC/decode-free CORE invariant + split (session-006).    *)
+(*                                                                            *)
+(* wbn_loop_invariant bakes in two conjuncts the ENSURES_WHILE tactics MUST   *)
+(* own themselves:                                                            *)
+(*   C1  aligned_bytes_loaded s (word pc) ...mc   (program_decodes)           *)
+(*   C2  read PC s = word (pc + 1184)             (the loop-head PC)          *)
+(* Every ENSURES_WHILE_* template threads `program_decodes` and `read PC =    *)
+(* word pcX` around its OWN `loopinv i s`, applying loopinv at BOTH pc1 (head)*)
+(* and pc2 (back-edge/exit).  A PC baked into the invariant is therefore      *)
+(* redundant at pc1 and *contradictory* at pc2 (it would force PC=0x4a0 in a  *)
+(* state whose PC is 0x9ec/0x9f0).  Standard s2n invariants (keccak,          *)
+(* emontredc) are PC/decode-free for exactly this reason.                     *)
+(*                                                                            *)
+(* wbn_loop_inv_core = wbn_loop_invariant with C1,C2 removed (built by        *)
+(* dropping the first two conjuncts, so it stays in sync with the frozen      *)
+(* definition automatically).  WBN_INV_SPLIT is the bridge                    *)
+(*   wbn_loop_invariant ... i s <=>                                           *)
+(*     aligned_bytes_loaded s (word pc) mc /\ read PC s = word (pc+1184) /\   *)
+(*     wbn_loop_inv_core ... i s                                              *)
+(* so the ENTRY theorem (which yields the LHS at i=0) feeds any tactic that   *)
+(* wants the RHS, and the loop body/exit can carry ONLY the core across the   *)
+(* frame while the tactic supplies decode+PC.                                 *)
+(* ------------------------------------------------------------------------- *)
+
+let wbn_loop_inv_core =
+  let eqn = snd(strip_forall(concl wbn_loop_invariant)) in
+  let lhs_full, rhs_full = dest_eq eqn in
+  let hd, params = strip_comb lhs_full in
+  let ivars, body = strip_abs rhs_full in
+  let cs = conjuncts body in
+  (* C1 = aligned_bytes_loaded, C2 = read PC = word(pc+1184); drop both *)
+  let core_body = list_mk_conj (List.tl (List.tl cs)) in
+  let core_rhs = list_mk_abs(ivars, core_body) in
+  let newhead = mk_var("wbn_loop_inv_core", type_of hd) in
+  new_definition (mk_eq(list_mk_comb(newhead, params), core_rhs));;
+
+let wbn_inv_args =
+  snd(strip_comb(fst(dest_eq(snd(strip_forall(concl wbn_loop_invariant))))));;
+
+let WBN_INV_SPLIT = prove
+ (list_mk_forall(wbn_inv_args @ [`i:num`;`s:armstate`],
+    mk_eq(
+      list_mk_comb(`wbn_loop_invariant`, wbn_inv_args @ [`i:num`;`s:armstate`]),
+      list_mk_conj[
+        `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
+        `read PC s = word (pc + 1184)`;
+        list_mk_comb(`wbn_loop_inv_core`, wbn_inv_args @ [`i:num`;`s:armstate`])])),
+  REWRITE_TAC[wbn_loop_invariant; wbn_loop_inv_core] THEN
+  CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN REWRITE_TAC[CONJ_ACI]);;
