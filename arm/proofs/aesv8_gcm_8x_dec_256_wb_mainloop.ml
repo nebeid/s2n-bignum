@@ -1515,6 +1515,129 @@ let ARM_STEPS_FOLD_KEEPGH_LATEST_NOSIMP_TAC exec snums =
   MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN
               DISCARD_OLDSTATE_KEEPGH_LATEST_TAC s THEN CLARIFY_TAC) (statenames "s" snums);;
 
+(* ------------------------------------------------------------------------- *)
+(* 10b. Phase-4 postcond-MATCH machinery (session-023).                       *)
+(*                                                                            *)
+(* SESSION-023 finding: the 16 orthogonal postcond conjuncts (all but the      *)
+(* escalated Q19 [11]) close CHEAT-free once three sub-problems are solved.    *)
+(* These tactics are VALIDATED live end-to-end (body sim reaches s340; the     *)
+(* counter conjunct [0] closes standalone via CTR_ADD_CLOSE_TAC in 0.8s).      *)
+(*                                                                            *)
+(* (A) Q8..Q15 raw-ct [3-10] (s017 Finding-2 part A — the 5-session blocker):  *)
+(*   right after each ldp (steps 221 src s220, 273 src s272, 306 src s305,     *)
+(*   309 src s308), the machine gives read Qk sN = read(mem:>bytes128 ADDR)    *)
+(*   s(N-1) — an OLD-STATE read that is un-closeable once s(N-1) is discarded.  *)
+(*   FIX: RAWCT_LEMMA_AT "s(N-1)" registers the WBN_RAWCT_READ !m form at the   *)
+(*   source state, then RESOLVE_QREG_A "Qk" "sN" m rewrites read Qk sN into     *)
+(*   the SPEC form bytes_to_int128 (SUB_LIST (16*(8*(i+1)+m),16) ibytes).       *)
+(*   The stepper then PROPAGATES this state-independent RHS forward at the      *)
+(*   current state (validated: read Q8 s225 already clean spec form) — so it    *)
+(*   survives every later discard.  m = 0..7 for Q8..Q15 in load order.         *)
+(*                                                                            *)
+(* (B) Reduce-window hang (the s014 concrete-modulus blocker): since Q19 [11]   *)
+(*   goes behind the scoped CHEAT, DISCARD Q16/Q17/Q18/Q19 BEFORE the reduce    *)
+(*   window (before step 290).  The concrete [sp+64] modulus pmull that made    *)
+(*   GCM_SIMD_SIMPLIFY stack-overflow is then gone — 290..305 steps in ~15s.    *)
+(*   No midacc / Tier-2 machinery needed for the 16 conjuncts.                  *)
+(*                                                                            *)
+(* (C) Store window 310..340 + counter folds (s017 Finding-2 part B, PARTIAL):  *)
+(*   the AES keystream Q0..Q7 is consumed by eor3 (steps 313..335) to make the  *)
+(*   plaintext; KEEPGH-style stepping discards it, so store read-backs dangle.  *)
+(*   ARM_STEPS_DATA_NOSIMP_TAC keeps Q0..Q15 + ALL memory reads current (no      *)
+(*   GCM_SIMD_SIMPLIFY — SIMPLIFY + kept Q0..Q15 explodes on the eor3 towers)    *)
+(*   and DOES land the plaintext eor3 results current (Q5 s320 present).  BUT    *)
+(*   the counter regs Q0..Q4 then arrive as RAW rev32/incr towers: the SMALL    *)
+(*   one [0] closes via CTR_ADD_CLOSE_TAC standalone, but the compound ones      *)
+(*   [1][2] (10k/51k chars, many un-folded nested adds) OOM WORD_BLAST.  SO the  *)
+(*   counter regs MUST be REV32_FOLD/CTR_INCR_NORM-folded DURING the store       *)
+(*   window (as the committed sim does: REV32_FOLD "Q25" s326, "Q4" s336,        *)
+(*   CTR_INCR_NORM s335/s337) — the OPEN piece for the next session is a store   *)
+(*   window that keeps Q0..Q7 keystream + stores current AND folds Q0..Q4        *)
+(*   counters per-step (hybrid of ARM_STEPS_DATA_NOSIMP_TAC + the fold points).  *)
+(*                                                                            *)
+(* (D) Verified trivial closers: [9][10] pointer advances = CONV_TAC WORD_RULE; *)
+(*   [3-5] Q5-Q7 plaintext = GSYM AES256_XOR_ENCRYPT_RECONSTRUCT + GCM_CTR_INC* *)
+(*   _LANES + WORD_RULE (tail closer wb.ml:2779); [store-forall] ASM_CASES      *)
+(*   j<8*(i+1); [htable] REWRITE htable_mem_dec + let_CONV + ASM_REWRITE;        *)
+(*   [MAYCHANGE] MONOTONE_MAYCHANGE_TAC.  [11] Q19 = scoped CHEAT (escalated).   *)
+(* ------------------------------------------------------------------------- *)
+
+(* RAWCT_LEMMA_AT sprev: register the WBN_RAWCT_READ !m raw-ct lemma at state
+   sprev (needs 9<=nblk via WBN_NBLK_GE_9 + the in_p read-only loop-constant). *)
+let RAWCT_LEMMA_AT sprev : tactic =
+  SUBGOAL_THEN
+    (subst[mk_var(sprev,`:armstate`),`s:armstate`]
+      `!m. m < 8 ==> read (memory :> bytes128 (word_add in_p (word (16 * (8*(i+1)+m))))) s =
+                     bytes_to_int128 (SUB_LIST (16 * (8*(i+1)+m), 16) ibytes)`)
+    ASSUME_TAC THENL
+   [MATCH_MP_TAC WBN_RAWCT_READ THEN ASM_REWRITE_TAC[] THEN
+    MATCH_MP_TAC WBN_NBLK_GE_9 THEN ASM_REWRITE_TAC[];
+    ALL_TAC];;
+
+(* RESOLVE_QREG_A qreg scur m: rewrite read qreg scur (currently = read(mem@ADDR)
+   s_prev for some ADDR = in_p+16*(8*(i+1)+m)) into the spec form via the raw !m
+   lemma already in the assumptions (from RAWCT_LEMMA_AT).  Robust to any ADDR
+   syntactic form: proves ADDR = canonical by WORD_RULE then rewrites+accepts. *)
+let RESOLVE_QREG_A (qreg:string) (scur:string) (m:int) : tactic =
+  fun (asl,w) ->
+    let mnum = mk_small_numeral m in
+    let th,addr = tryfind (fun (_,th) -> match concl th with
+        Comb(Comb(Const("=",_),Comb(Comb(Const("read",_),Const(n,_)),Var(sn,_))),
+             Comb(Comb(Const("read",_),Comb(Comb(Const(":>",_),Const("memory",_)),
+               Comb(Const("bytes128",_),addr))),_))
+          when n=qreg && sn=scur -> (th,addr)
+      | _ -> fail()) asl in
+    let raw = tryfind (fun (_,t) -> match concl t with
+        Comb(Const("!",_),Abs(Var("m",_),Comb(Comb(Const("==>",_),_),
+          Comb(Comb(Const("=",_),Comb(Comb(Const("read",_),_),_)),
+               Comb(Const("bytes_to_int128",_),_))))) -> t
+      | _ -> fail()) asl in
+    let canon = vsubst[mnum,`m:num`] `word_add in_p (word (16 * (8*(i+1)+m))):int64` in
+    let addr_eq = WORD_RULE (mk_eq(addr,canon)) in
+    let raw_inst = MATCH_MP raw (ARITH_RULE(mk_comb(mk_comb(`(<):num->num->bool`,mnum),`8`))) in
+    let target = mk_eq((parse_term (Printf.sprintf "read %s %s :int128" qreg scur)),
+      vsubst[mnum,`m:num`] `bytes_to_int128 (SUB_LIST (16 * (8*(i+1)+m), 16) ibytes)`) in
+    (SUBGOAL_THEN target ASSUME_TAC THENL
+      [GEN_REWRITE_TAC LAND_CONV [th] THEN REWRITE_TAC[addr_eq] THEN ACCEPT_TAC raw_inst;
+       ALL_TAC]) (asl,w);;
+
+(* DISCARD_KEEP_DATA_TAC / ARM_STEPS_DATA{,_NOSIMP}_TAC: store-window steppers that
+   keep Q0..Q15 (data regs, incl. AES keystream) + ALL memory reads at the current
+   state, discarding only stale/scratch old-state reads.  NOSIMP variant avoids the
+   AES-tower explosion that GCM_SIMD_SIMPLIFY triggers when Q0..Q15 are kept. *)
+let DISCARD_KEEP_DATA_TAC s =
+  let v = mk_var(s,`:armstate`) in
+  let rec unbound_statevars_of_read bound tm = match tm with
+      Comb(Comb(Const("read",_),_),st) -> if mem st bound then [] else [st]
+    | Comb(a,b) -> union (unbound_statevars_of_read bound a) (unbound_statevars_of_read bound b)
+    | Abs(vv,t) -> unbound_statevars_of_read (vv::bound) t | _ -> [] in
+  let rec is_mem_read t = match t with
+      Comb(Comb(Const("read",_),Comb(Comb(Const(":>",_),Const("memory",_)),_)),_) -> true
+    | Comb(a,b) -> is_mem_read a || is_mem_read b | Abs(_,t2) -> is_mem_read t2 | _ -> false in
+  DISCARD_ASSUMPTIONS_TAC(fun thm ->
+    if is_mem_read (concl thm) then false else
+    let us = unbound_statevars_of_read [] (concl thm) in
+    if us = [] || us = [v] then false else true);;
+let ARM_STEPS_DATA_NOSIMP_TAC exec snums =
+  MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN
+              DISCARD_KEEP_DATA_TAC s THEN CLARIFY_TAC) (statenames "s" snums);;
+
+(* CTR_ADD_CLOSE_TAC: close a counter postcond conjunct whose LHS is the raw
+   rev32-of-gcm_ctr_raw tower and RHS is gcm_ctr_add (word W) ctr0.  Same recipe
+   as REV32_FOLD_TAC's fold proof.  VALIDATED on conjunct [0] (0.8s).  WARNING:
+   only works when the LHS tower is SINGLE-rev32 (folded during stepping); a
+   compound raw tower with many un-folded nested +1 adds OOMs WORD_BLAST — fold
+   the counter DURING the store window instead. *)
+let CTR_ADD_CLOSE_TAC : tactic =
+  REWRITE_TAC[gcm_ctr_raw_def] THEN
+  GEN_REWRITE_TAC RAND_CONV [GCM_CTR_ADD_LANES] THEN
+  W(fun (_,gw) ->
+    let atom = find_term (fun t -> match t with
+      | Comb(Comb(Const("word_add",_),_),Comb(Const("word",_),Comb(Comb(Const("+",_),_),_))) -> true
+      | _ -> false) gw in
+    SPEC_TAC(atom, `aa:32 word`)) THEN
+  GEN_TAC THEN CONV_TAC WORD_BLAST;;
+
 (* The htable H-power memory reads give  h_k = byteswap128 (polyval_dot ...)  (the ODD
    powers h3/h5/h7 and, after unfolding, h2), but BODY_Q19_CLOSE_ALGEBRA's antecedent wants
    byteswap128 h_k = polyval_dot ...  Bridge by byteswap128 involution: rewrite with the
