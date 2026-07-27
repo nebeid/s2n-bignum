@@ -1515,6 +1515,14 @@ let ARM_STEPS_FOLD_KEEPGH_LATEST_NOSIMP_TAC exec snums =
   MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN
               DISCARD_OLDSTATE_KEEPGH_LATEST_TAC s THEN CLARIFY_TAC) (statenames "s" snums);;
 
+(* WBN_NBLK_GE_9: moved here (session-024) from below the back-edge cluster so
+   RAWCT_LEMMA_AT (Sec 10b) can reference it — the cold-load regression the
+   e2386b15 commit introduced (Unbound value at the RAWCT_LEMMA_AT let). Depends
+   only on DIVISION + ARITH_TAC, so it is safe to hoist. *)
+let WBN_NBLK_GE_9 = prove
+ (`0 < (nblk - 9) DIV 8 ==> 9 <= nblk`,
+  MP_TAC(SPECL [`nblk - 9`; `8`] DIVISION) THEN ARITH_TAC);;
+
 (* ------------------------------------------------------------------------- *)
 (* 10b. Phase-4 postcond-MATCH machinery (session-023).                       *)
 (*                                                                            *)
@@ -1664,9 +1672,7 @@ let WBN_PC_BRIDGE = prove
    ==> ((128 * (i + 2) < 128 * (nblk - 1) DIV 8) <=> (i + 1 < (nblk - 9) DIV 8))`,
   DISCH_TAC THEN ASM_SIMP_TAC[WBN_DIV_SHIFT] THEN ARITH_TAC);;
 
-let WBN_NBLK_GE_9 = prove
- (`0 < (nblk - 9) DIV 8 ==> 9 <= nblk`,
-  MP_TAC(SPECL [`nblk - 9`; `8`] DIVISION) THEN ARITH_TAC);;
+(* WBN_NBLK_GE_9 moved above Sec 10b (session-024 load-order fix). *)
 
 (* premises of WB_PTRCMP_FLAGS at the back-edge: X0=in_p+128*(i+2) (a),
    X5=128*((nblk-1)DIV8)+in_p (d); both offsets < 2^63 from val in_p+16*nblk. *)
