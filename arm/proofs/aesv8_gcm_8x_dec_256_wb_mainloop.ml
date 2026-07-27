@@ -649,6 +649,20 @@ let wbn_loop_invariant = new_definition
               k10 k11 k12 k13)) k14) /\
     read (memory :> bytes (in_p,16 * nblk)) s = num_of_bytelist ibytes /\
     read (memory :> bytes128 key_p) s = k0 /\
+    read (memory :> bytes128 (word_add key_p (word 16))) s = k1 /\
+    read (memory :> bytes128 (word_add key_p (word 32))) s = k2 /\
+    read (memory :> bytes128 (word_add key_p (word 48))) s = k3 /\
+    read (memory :> bytes128 (word_add key_p (word 64))) s = k4 /\
+    read (memory :> bytes128 (word_add key_p (word 80))) s = k5 /\
+    read (memory :> bytes128 (word_add key_p (word 96))) s = k6 /\
+    read (memory :> bytes128 (word_add key_p (word 112))) s = k7 /\
+    read (memory :> bytes128 (word_add key_p (word 128))) s = k8 /\
+    read (memory :> bytes128 (word_add key_p (word 144))) s = k9 /\
+    read (memory :> bytes128 (word_add key_p (word 160))) s = k10 /\
+    read (memory :> bytes128 (word_add key_p (word 176))) s = k11 /\
+    read (memory :> bytes128 (word_add key_p (word 192))) s = k12 /\
+    read (memory :> bytes128 (word_add key_p (word 208))) s = k13 /\
+    read (memory :> bytes128 (word_add key_p (word 224))) s = k14 /\
     htable_mem_dec h htbl_p s`;;
 
 (* ---- Entry-subgoal recipe (validated interactively, session-003) ----------
@@ -980,6 +994,20 @@ let wbn_front_R_tm =
   mk_abs(sv, list_mk_conj
     [`read (memory :> bytes (in_p:int64,16 * nblk)) s = num_of_bytelist ibytes`;
      `read (memory :> bytes128 (key_p:int64)) s = (k0:int128)`;
+     `read (memory :> bytes128 (word_add key_p (word 16))) s = (k1:int128)`;
+     `read (memory :> bytes128 (word_add key_p (word 32))) s = (k2:int128)`;
+     `read (memory :> bytes128 (word_add key_p (word 48))) s = (k3:int128)`;
+     `read (memory :> bytes128 (word_add key_p (word 64))) s = (k4:int128)`;
+     `read (memory :> bytes128 (word_add key_p (word 80))) s = (k5:int128)`;
+     `read (memory :> bytes128 (word_add key_p (word 96))) s = (k6:int128)`;
+     `read (memory :> bytes128 (word_add key_p (word 112))) s = (k7:int128)`;
+     `read (memory :> bytes128 (word_add key_p (word 128))) s = (k8:int128)`;
+     `read (memory :> bytes128 (word_add key_p (word 144))) s = (k9:int128)`;
+     `read (memory :> bytes128 (word_add key_p (word 160))) s = (k10:int128)`;
+     `read (memory :> bytes128 (word_add key_p (word 176))) s = (k11:int128)`;
+     `read (memory :> bytes128 (word_add key_p (word 192))) s = (k12:int128)`;
+     `read (memory :> bytes128 (word_add key_p (word 208))) s = (k13:int128)`;
+     `read (memory :> bytes128 (word_add key_p (word 224))) s = (k14:int128)`;
      `htable_mem_dec h (htbl_p:int64) s`]);;
 
 (* EXT goal: wide hyps ==> ensures arm P (\s. Q0 s /\ R s) C *)
