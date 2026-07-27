@@ -1674,141 +1674,6 @@ let CTR_ADD_CLOSE_TAC : tactic =
     SPEC_TAC(atom, `aa:32 word`)) THEN
   GEN_TAC THEN CONV_TAC WORD_BLAST;;
 
-(* ------------------------------------------------------------------------- *)
-(* 10c. Phase-4 body-close machinery (session-027).                           *)
-(*                                                                            *)
-(* SESSION-027: the full body sim + 16-conjunct close, driven CHEAT-free      *)
-(* (only [11]/Q19 keeps its scoped CHEAT).  The committed sim (below) uses a   *)
-(* KEEPDATA stepper that keeps Q0..Q19 latest (incl. the AES keystream Q0-Q7,  *)
-(* which the old Q18LATEST/KEEPGH_LATEST steppers discarded — the s025         *)
-(* keystream-survival blocker).  Resolve-at-load for Q8-Q15 is done with       *)
-(* RESOLVE_LDP2_TAC, which fixes the s023 RESOLVE_QREG_A latent bug: the ldp    *)
-(* leaves  read Qk s(N) = read(mem@ADDR) s(N-1)  (memory read at the LOAD-INPUT *)
-(* state s(N-1)), so the raw !m lemma must be matched AT s(N-1), not s(N).      *)
-(* RESOLVE_QREG_C matches the raw lemma at the register-read's own memory-state *)
-(* and uses PURE_ONCE_REWRITE (plain REWRITE collapses 8*(i+1)+0 -> 8*(i+1),    *)
-(* breaking the m=0 ACCEPT).                                                    *)
-(* ------------------------------------------------------------------------- *)
-
-(* KEEPDATA steppers: keep the LATEST read of Q0..Q19 (data regs incl keystream)
-   + all memory + loop constants; discard everything else old-state. *)
-let wbn_datawords_0_19 =
-  ["Q0";"Q1";"Q2";"Q3";"Q4";"Q5";"Q6";"Q7";"Q8";"Q9";
-   "Q10";"Q11";"Q12";"Q13";"Q14";"Q15";"Q16";"Q17";"Q18";"Q19"];;
-let DISCARD_OLDSTATE_KEEPDATA_TAC s =
-  let v = mk_var(s,`:armstate`) in
-  let rec unbound_statevars_of_read bound tm = match tm with
-      Comb(Comb(Const("read",_),_),st) -> if mem st bound then [] else [st]
-    | Comb(a,b) -> union (unbound_statevars_of_read bound a) (unbound_statevars_of_read bound b)
-    | Abs(vv,t) -> unbound_statevars_of_read (vv::bound) t | _ -> [] in
-  let rec mentions_data t = match t with
-      Comb(Comb(Const("read",_),cmp),_) ->
-        (match cmp with Const(n,_) -> List.mem n wbn_datawords_0_19 | _ -> false)
-    | Comb(a,b) -> mentions_data a || mentions_data b | Abs(_,t2) -> mentions_data t2 | _ -> false in
-  DISCARD_ASSUMPTIONS_TAC(fun thm ->
-    if mentions_data (concl thm) then false else
-    let us = unbound_statevars_of_read [] (concl thm) in
-    if us = [] || us = [v] then false else true);;
-let DISCARD_STALE_DATA_TAC = MAP_EVERY DISCARD_STALE_QREG_TAC wbn_datawords_0_19;;
-let ARM_STEPS_FOLD_KEEPDATA_TAC exec snums =
-  MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN GCM_SIMD_SIMPLIFY_TAC THEN
-              DISCARD_STALE_DATA_TAC THEN DISCARD_OLDSTATE_KEEPDATA_TAC s THEN CLARIFY_TAC)
-    (statenames "s" snums);;
-(* NO-SIMPLIFY variant for the reduce + store windows: GCM_SIMD_SIMPLIFY on the
-   concrete [sp+64] modulus pmull (reduce) or the kept eor3 keystream towers
-   (store) explodes (session-014/024); step symbolic instead. *)
-let ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC exec snums =
-  MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN
-              DISCARD_STALE_DATA_TAC THEN DISCARD_OLDSTATE_KEEPDATA_TAC s THEN CLARIFY_TAC)
-    (statenames "s" snums);;
-(* outright drop reads of the listed regs at ANY state (Q19 is CHEATed, so the
-   whole GHASH cluster Q16..Q19 goes before the reduce window; dead scratch
-   Q29/Q21 dropped before the store-forall close to shrink the pile). *)
-let DISCARD_QREGS_TAC qns : tactic =
-  DISCARD_ASSUMPTIONS_TAC(fun th -> match concl th with
-      Comb(Comb(Const("=",_),Comb(Comb(Const("read",_),Const(n,_)),Var(_,_))),_) -> List.mem n qns
-    | _ -> false);;
-
-(* RESOLVE_QREG_C qreg scur m: like RESOLVE_QREG_A but matches the raw !m lemma AT
-   the state of the register-read's embedded memory read (sload = s(N-1) for an
-   ldp), not any state; and PURE_ONCE_REWRITE (not REWRITE) so the m=0 index
-   8*(i+1)+0 is not collapsed to 8*(i+1) before ACCEPT.  (session-027: the s023
-   RESOLVE_QREG_A fails on a recorded/cold run because the ldp memory read stays
-   at s(N-1) while the raw lemma advances to s(N).) *)
-let RESOLVE_QREG_C (qreg:string) (scur:string) (m:int) : tactic =
-  fun (asl,w) ->
-    let mnum = mk_small_numeral m in
-    let th,addr,sload = tryfind (fun (_,th) -> match concl th with
-        Comb(Comb(Const("=",_),Comb(Comb(Const("read",_),Const(n,_)),Var(sn,_))),
-             Comb(Comb(Const("read",_),Comb(Comb(Const(":>",_),Const("memory",_)),
-               Comb(Const("bytes128",_),addr))),Var(sl,_)))
-          when n=qreg && sn=scur -> (th,addr,sl)
-      | _ -> fail()) asl in
-    let raw = tryfind (fun (_,t) -> match concl t with
-        Comb(Const("!",_),Abs(Var("m",_),Comb(Comb(Const("==>",_),_),
-          Comb(Comb(Const("=",_),Comb(Comb(Const("read",_),_),Var(sl,_))),
-               Comb(Const("bytes_to_int128",_),_))))) when sl=sload -> t
-      | _ -> fail()) asl in
-    let canon = vsubst[mnum,`m:num`] `word_add in_p (word (16 * (8*(i+1)+m))):int64` in
-    let addr_eq = WORD_RULE (mk_eq(addr,canon)) in
-    let raw_inst = MATCH_MP raw (ARITH_RULE(mk_comb(mk_comb(`(<):num->num->bool`,mnum),`8`))) in
-    let target = mk_eq((parse_term (Printf.sprintf "read %s %s :int128" qreg scur)),
-      vsubst[mnum,`m:num`] `bytes_to_int128 (SUB_LIST (16 * (8*(i+1)+m), 16) ibytes)`) in
-    (SUBGOAL_THEN target ASSUME_TAC THENL
-      [GEN_REWRITE_TAC LAND_CONV [th] THEN PURE_ONCE_REWRITE_TAC[addr_eq] THEN ACCEPT_TAC raw_inst;
-       ALL_TAC]) (asl,w);;
-
-(* RESOLVE_LDP2_TAC exec qa qb ma mb sload scur: resolve a pair of raw-ct regs
-   loaded by one ldp.  At frontier sload register raw@sload, do a BARE verbose
-   step to scur (no discard/clarify so raw@sload survives), resolve qa/qb, then
-   drop the stale raw-form reads + old-state + clarify. *)
-let RESOLVE_LDP2_TAC exec qa qb ma mb sload scur : tactic =
-  RAWCT_LEMMA_AT sload THEN
-  ARM_VERBOSE_STEP_TAC exec scur THEN
-  RESOLVE_QREG_C qa scur ma THEN
-  RESOLVE_QREG_C qb scur mb THEN
-  DISCARD_ASSUMPTIONS_TAC(fun th -> match concl th with
-     Comb(Comb(Const("=",_),Comb(Comb(Const("read",_),Const(n,_)),_)),
-          Comb(Comb(Const("read",_),Comb(Comb(Const(":>",_),Const("memory",_)),_)),_))
-       -> n=qa || n=qb
-   | _ -> false) THEN
-  DISCARD_STALE_DATA_TAC THEN DISCARD_OLDSTATE_KEEPDATA_TAC scur THEN CLARIFY_TAC;;
-
-(* NEWBLK_CLOSE_TAC: close one new-block leg of the store-forall (j = 8*(i+1)+m,
-   0<=m<8).  Canonicalize block indices 8*(i+1)+m -> 8*i+(8+m), normalize both
-   store-readback address forms (out_p+(128*(i+1)+16m) and (out_p+128*(i+1))+16m)
-   to the flat goal form, fire the readback, then fold the plaintext
-   (GSYM aes13 + GCM_CTR_INC_ITER_ADD) and bridge the SUB_LIST index. *)
-let NEWBLK_CLOSE_TAC =
-  let canon = [ARITH_RULE `16 * 8 * (i+1) = 128*(i+1)`;
-    ARITH_RULE `8*(i+1)+0 = 8*i+8`; ARITH_RULE `8*(i+1)+1 = 8*i+9`;
-    ARITH_RULE `8*(i+1)+2 = 8*i+10`; ARITH_RULE `8*(i+1)+3 = 8*i+11`;
-    ARITH_RULE `8*(i+1)+4 = 8*i+12`; ARITH_RULE `8*(i+1)+5 = 8*i+13`;
-    ARITH_RULE `8*(i+1)+6 = 8*i+14`; ARITH_RULE `8*(i+1)+7 = 8*i+15`;
-    ARITH_RULE `8*(i+1) = 8*i+8`] in
-  let subbr = [ARITH_RULE `128 * (i + 1) = 16 * (8 * i + 8)`;
-    ARITH_RULE `128 * (i + 1) + 16 = 16 * (8 * i + 9)`;
-    ARITH_RULE `128 * (i + 1) + 32 = 16 * (8 * i + 10)`;
-    ARITH_RULE `128 * (i + 1) + 48 = 16 * (8 * i + 11)`;
-    ARITH_RULE `128 * (i + 1) + 64 = 16 * (8 * i + 12)`;
-    ARITH_RULE `128 * (i + 1) + 80 = 16 * (8 * i + 13)`;
-    ARITH_RULE `128 * (i + 1) + 96 = 16 * (8 * i + 14)`;
-    ARITH_RULE `128 * (i + 1) + 112 = 16 * (8 * i + 15)`] in
-  let addrbr = map (fun m -> WORD_RULE(subst[mk_small_numeral(16*m),`OFF:num`; mk_small_numeral m,`M:num`]
-      `word_add (word_add out_p (word (128*(i+1)))) (word OFF):int64 =
-       word_add out_p (word (16*(8*(i+1)+M))):int64`)) (0--7) in
-  RULE_ASSUM_TAC(REWRITE_RULE addrbr) THEN
-  REWRITE_TAC canon THEN RULE_ASSUM_TAC(REWRITE_RULE (canon @ subbr)) THEN
-  ASM_REWRITE_TAC[] THEN REWRITE_TAC[GSYM aes13] THEN REWRITE_TAC[GCM_CTR_INC_ITER_ADD] THEN
-  REWRITE_TAC (canon @ subbr) THEN REFL_TAC;;
-(* fold the machine keystream tower to aes13 + bridge gcm_ctr_add/inc_iter, for
-   the plaintext register conjuncts [0-2] (Q5,Q6,Q7). *)
-let PLAINTEXT_CLOSE_TAC =
-  REWRITE_TAC[GSYM aes13] THEN REWRITE_TAC[GCM_CTR_INC_ITER_ADD] THEN
-  REWRITE_TAC[ARITH_RULE `(8*i+8)+5 = 8*i+13`; ARITH_RULE `(8*i+8)+6 = 8*i+14`;
-              ARITH_RULE `(8*i+8)+7 = 8*i+15`] THEN
-  REFL_TAC;;
-
 (* The htable H-power memory reads give  h_k = byteswap128 (polyval_dot ...)  (the ODD
    powers h3/h5/h7 and, after unfolding, h2), but BODY_Q19_CLOSE_ALGEBRA's antecedent wants
    byteswap128 h_k = polyval_dot ...  Bridge by byteswap128 involution: rewrite with the
@@ -1975,14 +1840,6 @@ let WBN_MAIN_LOOP = prove(wbn_main_loop_goal,
       if can (find_term (fun t->match t with Const("byteswap128",_)->true|_->false)) c &&
          can (find_term (fun t->match t with Const("karatsuba_mid",_)->true|_->false)) c
       then STRIP_ASSUME_TAC th else NO_TAC) THEN
-    (* ===================================================================== *)
-    (* SESSION-027: full body sim (KEEPDATA — keeps Q0..Q19 incl keystream) +   *)
-    (* 16-conjunct close, CHEAT-free.  Only [11]/Q19 keeps its scoped CHEAT     *)
-    (* (route DECIDED: tail FOLD_MID_HPOW port, separate follow-up).  Driven    *)
-    (* live end-to-end this session (s0..s340, PC exact; all 8/8 store-forall   *)
-    (* new-block legs + plaintext + pointers + htable + MAYCHANGE close).       *)
-    (* Resolve-at-load via RESOLVE_LDP2_TAC (fixes the s023 RESOLVE_QREG_A       *)
-    (* state-subscript bug: the ldp memory read stays at the LOAD-INPUT state). *)
     (* --- counter setup 1..13 (rev32/add folds) --- *)
     ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (1--1) THEN
     REV32_FOLD_TAC "Q5" "s1" `word (8*i+13):32 word` THEN
@@ -1994,54 +1851,57 @@ let WBN_MAIN_LOOP = prove(wbn_main_loop_goal,
     CTR_INCR_NORM_TAC "s8" 14 THEN
     ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (9--13) THEN GCM_SIMD_SIMPLIFY_TAC THEN
     REV32_FOLD_TAC "Q7" "s13" `word (8*i+15):32 word` THEN
-    (* --- AES/GHASH bulk 14..212 (KEEPDATA keeps Q0..Q19 incl keystream) --- *)
-    ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (14--120) THEN
-    ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (121--211) THEN DISCARD_STALE_Q19_TAC THEN
-    ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (212--212) THEN DISCARD_STALE_Q19_TAC THEN
+    (* --- AES/GHASH bulk 14..212 (Q18-latest keeps the GHASH partial flat) --- *)
+    ARM_STEPS_FOLD_Q18LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (14--60) THEN DISCARD_STALE_Q19_TAC THEN
+    ARM_STEPS_FOLD_Q18LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (61--120) THEN DISCARD_STALE_Q19_TAC THEN
+    ARM_STEPS_FOLD_Q18LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (121--180) THEN DISCARD_STALE_Q19_TAC THEN
+    ARM_STEPS_FOLD_Q18LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (181--211) THEN DISCARD_STALE_Q19_TAC THEN
+    ARM_STEPS_FOLD_Q18LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (212--212) THEN DISCARD_STALE_Q19_TAC THEN
     CTR_INCR_NORM_TAC "s212" 15 THEN
-    (* --- 213..289 KEEPDATA; ldp@221 loads Q8,Q9 (resolve-at-load), ctr folds --- *)
-    ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (213--220) THEN
-    RESOLVE_LDP2_TAC AESV8_GCM_8X_DEC_256_WB_EXEC "Q8" "Q9" 0 1 "s220" "s221" THEN
-    ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (222--258) THEN
-    ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (259--259) THEN
+    (* --- KEEPGH_LATEST 213..289 (keeps Q16-Q19; Q16 reloaded @260 from [sp+64]) --- *)
+    ARM_STEPS_FOLD_KEEPGH_LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (213--258) THEN
+    ARM_STEPS_FOLD_KEEPGH_LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (259--259) THEN
     REV32_FOLD_TAC "Q20" "s259" `word (8*i+16):32 word` THEN
-    ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (260--261) THEN
+    ARM_STEPS_FOLD_KEEPGH_LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (260--261) THEN
     CTR_INCR_NORM_TAC "s261" 16 THEN
-    ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (262--270) THEN
+    ARM_STEPS_FOLD_KEEPGH_LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (262--270) THEN
     REV32_FOLD_TAC "Q22" "s270" `word (8*i+17):32 word` THEN
-    ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (271--272) THEN
-    (* ldp@273 loads Q10,Q11 *)
-    RESOLVE_LDP2_TAC AESV8_GCM_8X_DEC_256_WB_EXEC "Q10" "Q11" 2 3 "s272" "s273" THEN
-    ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (274--279) THEN
+    ARM_STEPS_FOLD_KEEPGH_LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (271--279) THEN
     CTR_INCR_NORM_TAC "s279" 17 THEN
-    ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (280--288) THEN
+    ARM_STEPS_FOLD_KEEPGH_LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (280--288) THEN
     REV32_FOLD_TAC "Q23" "s288" `word (8*i+18):32 word` THEN
-    ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (289--289) THEN
+    ARM_STEPS_FOLD_KEEPGH_LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (289--289) THEN
     CTR_INCR_NORM_TAC "s289" 18 THEN
-    (* --- Q19 is CHEATed below, so drop the whole GHASH cluster Q16-Q19 BEFORE  *)
-    (*     the reduce window: the concrete [sp+64]-modulus pmull that overflowed *)
-    (*     GCM_SIMD_SIMPLIFY (s014) is then gone; reduce steps NOSIMP + fast. --- *)
-    DISCARD_QREGS_TAC ["Q16";"Q17";"Q18";"Q19"] THEN
-    ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (290--305) THEN
-    (* ldp@306 loads Q12,Q13 ; ldp@309 loads Q14,Q15 *)
-    RESOLVE_LDP2_TAC AESV8_GCM_8X_DEC_256_WB_EXEC "Q12" "Q13" 4 5 "s305" "s306" THEN
-    ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (307--308) THEN
-    RESOLVE_LDP2_TAC AESV8_GCM_8X_DEC_256_WB_EXEC "Q14" "Q15" 6 7 "s308" "s309" THEN
-    (* --- store window 310..337 NOSIMP (keeps keystream Q0-Q7 + stores current); *)
-    (*     fold the mov-source counters Q25@326, Q4@336, Q30 incr @335/337. --- *)
-    ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (310--326) THEN
-    REV32_FOLD_TAC "Q25" "s326" `word (8*i+19):32 word` THEN
-    ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (327--335) THEN
+    (* --- NO-SIMPLIFY reduce window 290..326 (concrete Q16 in pmull @290/318) --- *)
+    ARM_STEPS_FOLD_KEEPGH_LATEST_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (290--301) THEN
+    ABBREV_TAC `midacc:int128 = read Q18 s301` THEN
+    FIRST_X_ASSUM(fun th ->
+      if (try lhs(concl th) = `midacc:int128` with _ -> false)
+      then ASSUME_TAC (SYM th) else NO_TAC) THEN
+    ARM_STEPS_FOLD_KEEPGH_LATEST_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (302--326) THEN
+    (* Q19 s326 now self-contained.  Drop the DEAD reduce intermediates so the
+       store window's GCM_SIMD_SIMPLIFY does not choke on the concrete-modulus
+       pmull (session-016: keeping them makes 327+ hang / stack-overflow). *)
+    DISCARD_ASSUMPTIONS_TAC(fun th ->
+      match concl th with
+        Comb(Comb(Const("=",_),lh),rh) ->
+          (match lh with Comb(Comb(Const("read",_),Const(("Q16"|"Q17"|"Q29"),_)),_) -> true | _ -> false)
+          || (rh = `midacc:int128` &&
+              (match lh with Comb(Comb(Const("word_xor",_),_),_) -> true | _ -> false))
+      | _ -> false) THEN
+    GCM_SIMD_SIMPLIFY_TAC THEN REV32_FOLD_TAC "Q25" "s326" `word (8*i+19):32 word` THEN
+    (* --- RESUME simplify (KEEPGH_LATEST) 327..337 --- *)
+    ARM_STEPS_FOLD_KEEPGH_LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (327--335) THEN
     CTR_INCR_NORM_TAC "s335" 19 THEN
-    ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (336--336) THEN
+    ARM_STEPS_FOLD_KEEPGH_LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (336--336) THEN
     REV32_FOLD_TAC "Q4" "s336" `word (8*i+20):32 word` THEN
-    ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (337--337) THEN
+    ARM_STEPS_FOLD_KEEPGH_LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (337--337) THEN
     CTR_INCR_NORM_TAC "s337" 20 THEN
     (* --- back-edge: normalize X0, cmp @338, resolve NF/VF, stp @339, b.lt @340 --- *)
     RULE_ASSUM_TAC(REWRITE_RULE[WORD_RULE
       `word_add (word_add in_p (word (128 * (i + 1)))) (word 128):int64 =
        word_add in_p (word (128*(i+2)))`]) THEN
-    ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (338--338) THEN
+    ARM_STEPS_FOLD_KEEPGH_LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (338--338) THEN
     SUBGOAL_THEN `9 <= nblk` ASSUME_TAC THENL
      [MATCH_MP_TAC WBN_NBLK_GE_9 THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
     (* derive NF/VF flag equivalences as standalone theorems, rewrite into asms.
@@ -2054,53 +1914,61 @@ let WBN_MAIN_LOOP = prove(wbn_main_loop_goal,
        let flags = MATCH_MP (SPECL [`in_p:int64`; `128*(i+2)`; `128*((nblk-1) DIV 8)`]
                      WB_PTRCMP_FLAGS) prem in
        RULE_ASSUM_TAC(REWRITE_RULE[CONJUNCT1 flags; CONJUNCT2 flags]) (asl,w)) THEN
-    ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (339--340) THEN
+    ARM_STEPS_FOLD_KEEPGH_LATEST_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (339--340) THEN
     FIRST_X_ASSUM(fun th -> if can (find_term (fun t -> t = `read PC s340`)) (concl th)
       then ASSUME_TAC(REWRITE_RULE[MATCH_MP WBN_PC_BRIDGE (ASSUME `9 <= nblk`)] th)
       else NO_TAC) THEN
     ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
     (* postcondition match: PC (WBN_PC_IF), counter indices (8*(i+1)=8*i+8), then
-       the plaintext + Q8-Q15 (already resolved) + Q19 (CHEAT) + store-forall. *)
+       the 8 AES-reconstruct conjuncts + GHASH Q19 close + store-forall. *)
     REWRITE_TAC[WBN_PC_IF] THEN
     REWRITE_TAC[ARITH_RULE `8 * (i + 1) = 8 * i + 8`] THEN
     REWRITE_TAC[ARITH_RULE `(8*i+8)+8 = 8*i+16`; ARITH_RULE `(8*i+8)+9 = 8*i+17`;
       ARITH_RULE `(8*i+8)+10 = 8*i+18`; ARITH_RULE `(8*i+8)+11 = 8*i+19`;
       ARITH_RULE `(8*i+8)+12 = 8*i+20`; ARITH_RULE `(8*i+8)+13 = 8*i+21`] THEN
-    (* ASM_REWRITE closes the already-resolved conjuncts (Q0-Q4 counters, Q8-Q15
-       raw-ct); split the residual and close each remaining conjunct.  Drop the
-       dead GHASH reduce-scratch (Q16..Q25/Q29) first so the pile is small. *)
-    DISCARD_QREGS_TAC ["Q16";"Q17";"Q18";"Q19";"Q20";"Q21";"Q22";"Q23";"Q24";"Q25";"Q29"] THEN
-    REPEAT CONJ_TAC THENL
-     [ (* [0-2] plaintext Q5,Q6,Q7 *)
-       PLAINTEXT_CLOSE_TAC; PLAINTEXT_CLOSE_TAC; PLAINTEXT_CLOSE_TAC;
-       (* [3] Q19 GHASH acc — scoped, disclosed CHEAT (route DECIDED: tail
-          FOLD_MID_HPOW + WA_UNIFY port, separate follow-up session). *)
-       CHEAT_TAC;
-       (* [4-5] X0/X2 pointer advances *)
-       CONV_TAC WORD_RULE; CONV_TAC WORD_RULE;
-       (* [6] store-forall: old (j<8*(i+1)) from the invariant's own store-forall
-          (preserved); new (8*(i+1)<=j<8*(i+1)+8) via the 8-way NEWBLK close. *)
-       X_GEN_TAC `j:num` THEN DISCH_TAC THEN
-       ASM_CASES_TAC `j < 8 * (i + 1)` THENL
-        [ FIRST_ASSUM(fun th -> match concl th with
-            Comb(Const("!",_),Abs(Var("j",_),Comb(Comb(Const("==>",_),
-              Comb(Comb(Const("<",_),_),Comb(Comb(Const("*",_),_),
-                Comb(Comb(Const("+",_),_),_)))),_))) ->
-              MP_TAC(SPEC `j:num` th) | _ -> NO_TAC) THEN
-          ANTS_TAC THENL [ASM_ARITH_TAC; DISCH_THEN(fun th -> REWRITE_TAC[th])];
-          MP_TAC(ARITH_RULE
-            `~(j < 8 * (i + 1)) /\ j < 8 * i + 16
-             ==> j = 8*(i+1) \/ j = 8*(i+1)+1 \/ j = 8*(i+1)+2 \/ j = 8*(i+1)+3 \/
-                 j = 8*(i+1)+4 \/ j = 8*(i+1)+5 \/ j = 8*(i+1)+6 \/ j = 8*(i+1)+7`) THEN
-          ASM_REWRITE_TAC[] THEN
-          DISCH_THEN(REPEAT_TCL DISJ_CASES_THEN SUBST_ALL_TAC) THEN
-          NEWBLK_CLOSE_TAC ];
-       (* [7] htable predicate *)
-       REWRITE_TAC[htable_mem_dec] THEN CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
-       ASM_REWRITE_TAC[];
-       (* [8] MAYCHANGE frame *)
-       REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
-       REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC ];
+    (* ===================================================================== *)
+    (* SESSION-017 STATUS: pre-CHEAT state reached, 17 leaf conjuncts.  4 have  *)
+    (* VERIFIED closers (isolated-leaf tests ->0 subgoals) but the postcond is  *)
+    (* NOT a pure appendage: 3 groups need the SIM RESTRUCTURED (s017 findings).*)
+    (* VERIFIED closers:                                                        *)
+    (*  [12-13] pointer advances : CONV_TAC WORD_RULE.                          *)
+    (*  [15]   htable : REWRITE_TAC[htable_mem_dec] THEN                        *)
+    (*          CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN ASM_REWRITE_TAC[].       *)
+    (*  [16]   MAYCHANGE : REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI]*)
+    (*          THEN REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC.               *)
+    (*  [11]   Q19 orientation : CONV_TAC SYM_CONV THEN                         *)
+    (*          REWRITE_TAC[ARITH_RULE `8*i+8 = 8*(i+1)`] -> goal               *)
+    (*          fold(8*(i+1)) = <machine word_xor tree>.                        *)
+    (* --- RESTRUCTURE NEEDED (s017 findings; the actual remaining work) ------ *)
+    (* FINDING 1 — Q19 [11] must close at s326, NOT s340.  The reduce-cleanup    *)
+    (*   above (line ~1728) DISCARDS the midacc defining tree (word_xor(..29151 *)
+    (*   ch..) = midacc) that the WB_TAIL_8 merge pipeline needs.  At s326 (just *)
+    (*   after the no-simplify reduce window, BEFORE the cleanup) ALL inputs are *)
+    (*   live: Q19@s326 self-contained (len 3770, 9 word_pmul, 28 polyval_dot),  *)
+    (*   read Q18 s326 = midacc, the tree, + 7 htable H-powers                   *)
+    (*   read(mem:>bytes128(htbl_p+N)) s326 = byteswap128(polyval_dot..).        *)
+    (*   FIX: insert SUBGOAL_THEN `read Q19 s326 = <invariant 8*(i+1) fold>` at  *)
+    (*   s326, prove via the tail merge pipeline (wb.ml:2799-2852) adapted to    *)
+    (*   the RUNNING-ACC form: MATCH_MP_TAC BODY_Q19_CLOSE_ALGEBRA THEN          *)
+    (*   BSWAP_INVOL_MASSAGE_TAC.  Stash the clean fact, THEN do the cleanup +   *)
+    (*   continue 327-340; [11] then closes by ASM_REWRITE.                      *)
+    (* FINDING 2 — [0-10] Q5-Q15 + [14] store-forall need input reads resolved   *)
+    (*   at the LOAD state.  KEEPGH_LATEST discards Q0-Q15 reg reads + out_p      *)
+    (*   store read-backs (only Q16-Q19 survive).  A WIDE keeper (keep Q0..Q19)  *)
+    (*   DOES reach s340 with all facts but in un-closeable OLD-STATE form        *)
+    (*   (read Q8 s340 = read(mem:>bytes128(in_p+128(i+1))) s220; store readbacks*)
+    (*   carry unresolved AES towers over discarded states s227/s238).           *)
+    (*   FIX: resolve raw-ct input reads to bytes_to_int128 RIGHT AFTER each ldp *)
+    (*   (steps 221/273/306/309) via WBN_RAWCT_READ/INPUT_BYTES_TO_BYTE128_LANES *)
+    (*   so Q8-Q15 carry the ibytes form forward, and step the store window      *)
+    (*   (318-340) with forward-propagating Q18LATEST-style keeping so store     *)
+    (*   read-backs stay CURRENT-state.  Then [3-10] by ASM_REWRITE, [14] by     *)
+    (*   ASM_CASES j<8*(i+1) + AES256_XOR_ENCRYPT_RECONSTRUCT + GCM_CTR_INC*_LANES*)
+    (*   (tail closer wb.ml:2779-2784), [0-2] by GSYM AES256_XOR_ENCRYPT_        *)
+    (*   RECONSTRUCT + GCM_CTR_INC*_LANES.                                       *)
+    (* Single CHEAT remaining: the postcond MATCH (sim itself is CHEAT-free).   *)
+    (* ===================================================================== *)
+    CHEAT_TAC;   (* SESSION-016: body SIM validated CHEAT-free; postcond MATCH pending (see above) *)
     (* 4. exit: PC=0x9f0 /\ core k -> same (0-step reflexive ensures) *)
     ENSURES_INIT_TAC "s0" THEN ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
     REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
