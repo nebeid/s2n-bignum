@@ -2197,6 +2197,20 @@ let WBN_MAIN_LOOP = prove(wbn_main_loop_goal,
 (* Phase-6 recompose can use it.                                                *)
 (* ========================================================================= *)
 
+(* Counter-shift identity (session-034 GO/NO-GO, re-proved s035): the prepretail
+   produces AES keystreams Q0..Q7 at absolute block indices 8*(k+1)+i (i=0..7),
+   i.e. gcm_ctr_add(word(8*k+8+i))ctr0.  The shifted-front tail seam expects
+   Q0..Q7 = aes13(gcm_ctr_inc^i ctr0') k0..k13 with ctr0' = gcm_ctr_add(8*(k+1))ctr0.
+   This bridges the two forms so the recompose consumes wb_front_postcond verbatim. *)
+let WBN_CTR_SHIFT = prove
+ (`!(k:num) (i:num) (ctr0:int128).
+     gcm_ctr_add (word (8*k+8+i)) ctr0 =
+     gcm_ctr_inc_iter i (gcm_ctr_add (word (8*(k+1))) ctr0)`,
+  REPEAT GEN_TAC THEN
+  REWRITE_TAC[GCM_CTR_INC_ITER_ADD; GCM_CTR_ADD_COMPOSE; WORD_ADD] THEN
+  AP_THM_TAC THEN AP_TERM_TAC THEN REWRITE_TAC[GSYM WORD_ADD] THEN
+  AP_TERM_TAC THEN ARITH_TAC);;
+
 let wbn_prepretail_goal =
   let kk = `(nblk - 9) DIV 8` in
   let pre = mk_abs(`s:armstate`,
