@@ -2211,7 +2211,13 @@ let WBN_CTR_SHIFT = prove
   AP_THM_TAC THEN AP_TERM_TAC THEN REWRITE_TAC[GSYM WORD_ADD] THEN
   AP_TERM_TAC THEN ARITH_TAC);;
 
-let wbn_prepretail_post = parse_term {|\(s:armstate).
+(* SESSION-036 SOUNDNESS FIX: this raw harvested literal states Q16/Q19 at a FRESH
+   unconstrained xi' (read Q19 s = word_bytereverse xi', Q16 = its staging).  As written
+   that is FALSE (word_bytereverse is a bijection + the ARM model is deterministic, so
+   `!xi'. hyps ==> ensures ... Q19 = word_bytereverse xi'` cannot hold) -- flagged by the
+   s035 review.  It is kept verbatim as `_raw` only as the substitution source; the SOUND
+   post `wbn_prepretail_post` below pins xi' to the real caught-up accumulator. *)
+let wbn_prepretail_post_raw = parse_term {|\(s:armstate).
     (aligned_bytes_loaded:armstate->(64)word->((8)word)list->bool)
     (s:armstate)
     ((word:num->(64)word) (pc:num))
@@ -2927,6 +2933,28 @@ let wbn_prepretail_post = parse_term {|\(s:armstate).
     ((word:num->(64)word) (128 * (((nblk:num) - 9) DIV 8 + 1))))
     ((word:num->(64)word) 16)|};;
 
+(* SESSION-036 SOUNDNESS FIX (reviewer-specified recipe).  The caught-up GHASH tag: the
+   loop invariant's Q19 shape (Sec 4, :623) at index i := k+1 = (nblk-9)DIV8 + 1, i.e. the
+   fold over ALL 8*(k+1) processed blocks.  This IS the true machine value of Q19 at the
+   prepretail seam (the loop exits with the GHASH stream lagging 8 blocks; the prepretail
+   folds the final in-flight 8-block group, catching it up to 8*(k+1)).  It is a FUNCTION of
+   the pinned inputs (xi/h/ibytes/nblk from wb_front_vars), NOT a fresh unconstrained var, so
+   the Q16/Q19 conjuncts below become the SAME true-but-unproven RINNER=LINNER identity as
+   [11] (:2085) -- masked by the same scoped disclosed CHEAT, not a falsehood. *)
+let wbn_caught_up = `ghash_polyval_acc (byteswap128 (h:int128)) (word_bytereverse (xi:int128))
+    (MAP word_bytereverse
+    (list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16) (ibytes:byte list)))
+                 (8 * (((nblk:num) - 9) DIV 8 + 1))))`;;
+
+(* Replace the raw literal's fresh `word_bytereverse xi'` (which occurs ONLY in the Q16
+   staging and Q19 conjuncts -- verified s036) with the caught-up accumulator.  This drops
+   xi' entirely (so the post's frees are exactly wb_front_vars) and turns:
+     Q19 = word_bytereverse xi'  -->  Q19 = wbn_caught_up   (matches the i:=k+1 invariant shape)
+     Q16 = word_subword(word_join (word_bytereverse xi')(word_bytereverse xi'))(64,128)
+        -->  Q16 = word_subword(word_join wbn_caught_up wbn_caught_up)(64,128)  (staging of Q19) *)
+let wbn_prepretail_post =
+  subst [wbn_caught_up, `word_bytereverse (xi':int128)`] wbn_prepretail_post_raw;;
+
 (* SESSION-035: the shifted-front prepretail postcondition (VALIDATED end-to-end).
    Built by harvesting the s313 state after the 313-instr sim + wb_front_fold_tac,
    with the two loop-un-tracked memory cells DROPPED (sound; see below) and the two
@@ -2946,8 +2974,11 @@ let wbn_prepretail_post = parse_term {|\(s:armstate).
       Also DROPPED Q9 = <first tail block> (tail reloads it).  Phase 6 re-proves the tail
       leg (WB_TAIL_r) from this weaker post -- WB_TAIL_r_TAC never consumes the dropped
       facts (verified: no xi_p/ivec_p reads, and it re-loads Q9).
-    - Q16/Q19 use a FRESH var xi' for the caught-up tag so the post = wb_front_postcond
-      [xi:=xi', shifts, drops]; Q19 = word_bytereverse xi', Q16 = its staging.  These two
+    - Q16/Q19 caught-up tag: SESSION-036 pins it to `wbn_caught_up` (the i:=k+1 invariant
+      Q19 shape, a function of the pinned inputs) -- NOT a fresh xi'.  The s035-committed
+      form used a fresh unconstrained xi' (Q19 = word_bytereverse xi'), which the s035 review
+      found FALSE-as-written (bijection + determinism); s036 corrected it (see the SOUNDNESS
+      FIX note above `wbn_caught_up`).  Q19 = wbn_caught_up, Q16 = its staging.  These two
       close behind the scoped disclosed CHEAT below (= the [11] RINNER=LINNER identity at
       :2085; the prepretail's own final in-flight GHASH fold is the SAME identity). *)
 
@@ -2959,7 +2990,10 @@ let wbn_prepretail_goal =
       `read PC s = word (pc + 0x9f0)`;
       mk_comb(mk_comb(wbn_core_applied,kk),`s:armstate`)]) in
   let ens = list_mk_comb(`ensures arm`,[pre; wbn_prepretail_post; wbn_front_C_tm]) in
-  list_mk_forall(`xi':int128`::wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
+  (* SESSION-036: quantify over wb_front_vars ONLY (xi' dropped -- the caught-up tag is now a
+     function of the pinned inputs, not a fresh var).  wbn_prepretail_post is closed over
+     wb_front_vars, so the goal is closed. *)
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
 
 (* index bound for the first tail block lane (8*k+8 < nblk when nblk>=17). *)
 let WBN_Q9_INDEX_LT = prove
@@ -3009,10 +3043,14 @@ let WBN_PREPRETAIL = prove
   ENSURES_FINAL_STATE_TAC THEN
   REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
   REPEAT CONJ_TAC THEN
-  (* Q16/Q19 caught-up GHASH (on xi') = the [11] RINNER=LINNER identity: scoped disclosed
-     CHEAT (same as :2085; closes when the human's Q19 route lands). Everything else is a
-     verbatim harvested assumption (ASM_REWRITE) or the MAYCHANGE frame (MONOTONE). *)
+  (* Q16/Q19 caught-up GHASH = the [11] RINNER=LINNER identity: scoped disclosed CHEAT (same
+     as :2085; closes when the human's Q19 route lands).  The sim DISCARDS Q16-Q19 before the
+     [sp+64] reduce, so these two conjuncts have no supporting assumption -- they are the ONLY
+     goals mentioning `ghash_polyval_acc` (verified s036: it occurs nowhere else in the post),
+     so keying the guard on it fires on exactly Q16 and Q19.  Everything else is a verbatim
+     harvested assumption (ASM_REWRITE) or the MAYCHANGE frame (MONOTONE). *)
   TRY(W(fun (asl,w) ->
-        if can (find_term (fun t -> t = `xi':int128`)) w then CHEAT_TAC else NO_TAC)) THEN
+        if can (find_term (fun t -> is_const t && fst(dest_const t) = "ghash_polyval_acc")) w
+        then CHEAT_TAC else NO_TAC)) THEN
   TRY MONOTONE_MAYCHANGE_TAC THEN
   TRY (ASM_REWRITE_TAC[]));;
