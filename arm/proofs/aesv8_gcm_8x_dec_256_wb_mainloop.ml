@@ -3054,3 +3054,39 @@ let WBN_PREPRETAIL = prove
         then CHEAT_TAC else NO_TAC)) THEN
   TRY MONOTONE_MAYCHANGE_TAC THEN
   TRY (ASM_REWRITE_TAC[]));;
+
+(* ------------------------------------------------------------------------- *)
+(* Section 12. PHASE 6 -- recompose the nblk>8 chain.                         *)
+(* ------------------------------------------------------------------------- *)
+
+(* WBN_LOOP_PREP: LOOP ; PREPRETAIL, i.e. pc+0x4a0 (loop head, core 0) ->      *)
+(* pc+3796 (tail entry, wbn_prepretail_post), over the shared front frame.     *)
+(* Both legs share the SAME quantifier prefix (wb_front_vars), hyps            *)
+(* (wbn_front_hyps_wide_tm) and frame (wbn_front_C_tm); WBN_MAIN_LOOP.post is  *)
+(* aconv WBN_PREPRETAIL.pre (both = decodes /\ PC=pc+0x9f0 /\ wbn_core_applied  *)
+(* k), so the two chain by ENSURES_TRANS_SIMPLE with no re-sim and no new       *)
+(* CHEAT (the scoped Q19 CHEAT is sealed inside WBN_PREPRETAIL).  The           *)
+(* C ,, C = C obligation is the same 4-region-frame idempotence UP2_ABI_TAC    *)
+(* discharges (ABI expand THEN MAYCHANGE_IDEMPOT_TAC).  Validated hyps=0        *)
+(* (session-037).                                                              *)
+let wbn_loop_prep_goal =
+  let loop_pre = mk_abs(`s:armstate`,
+    list_mk_conj[
+      `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
+      `read PC s = word (pc + 0x4a0)`;
+      mk_comb(mk_comb(wbn_core_applied,`0`),`s:armstate`)]) in
+  let ens = list_mk_comb(`ensures arm`,[loop_pre; wbn_prepretail_post; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
+
+let WBN_LOOP_PREP = prove(wbn_loop_prep_goal,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
+  EXISTS_TAC (rand(rator(snd(dest_imp(snd(strip_forall(concl WBN_MAIN_LOOP))))))) THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_IDEMPOT_TAC;
+    ALL_TAC] THEN
+  CONJ_TAC THENL
+   [MP_TAC(SPECL wb_front_vars WBN_MAIN_LOOP) THEN
+    ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC];
+    MP_TAC(SPECL wb_front_vars WBN_PREPRETAIL) THEN
+    ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC]]);;
