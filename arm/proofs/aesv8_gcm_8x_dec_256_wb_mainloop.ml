@@ -3090,3 +3090,37 @@ let WBN_LOOP_PREP = prove(wbn_loop_prep_goal,
     ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC];
     MP_TAC(SPECL wb_front_vars WBN_PREPRETAIL) THEN
     ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC]]);;
+
+(* WBN_FRONT_TO_PREP: FRONT ; (LOOP ; PREPRETAIL), i.e. the full nblk>8 straight *)
+(* chain from function entry (pc+0x20) through the loop and prepretail to the    *)
+(* tail entry (pc+3796).  Chains WBN_LOOP_INVARIANT_ENTRY (pc+0x20 -> pc+0x4a0,  *)
+(* establishes wbn_loop_invariant...0) with WBN_LOOP_PREP by ENSURES_TRANS_      *)
+(* SIMPLE at the intermediate wbn_entry_post.  The entry post carries the FULL   *)
+(* wbn_loop_invariant...0 (PC+decode baked in) whereas WBN_LOOP_PREP's pre uses  *)
+(* the PC-free wbn_loop_inv_core...0; ENSURES_PRECONDITION_THM bridges them via  *)
+(* WBN_INV_SPLIT (the C1/C2 decode+PC conjuncts are duplicated, collapsed by     *)
+(* TAUT after the pc+0x4a0 = pc+1184 numeral rewrite).  Validated hyps=0          *)
+(* (session-037).  No new CHEAT (scoped Q19/Q16 stays sealed in WBN_PREPRETAIL). *)
+let wbn_front_to_prep_goal =
+  let ens = list_mk_comb(`ensures arm`,
+    [wbn_front_P_tm; wbn_prepretail_post; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
+
+let WBN_FRONT_TO_PREP = prove(wbn_front_to_prep_goal,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
+  EXISTS_TAC wbn_entry_post THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_IDEMPOT_TAC;
+    ALL_TAC] THEN
+  CONJ_TAC THENL
+   [MP_TAC(SPECL wb_front_vars WBN_LOOP_INVARIANT_ENTRY) THEN
+    ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC];
+    MATCH_MP_TAC ENSURES_PRECONDITION_THM THEN
+    EXISTS_TAC (rand(rator(snd(dest_imp(snd(strip_forall(concl WBN_LOOP_PREP))))))) THEN
+    CONJ_TAC THENL
+     [GEN_TAC THEN REWRITE_TAC[WBN_INV_SPLIT] THEN
+      CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN
+      REWRITE_TAC[ARITH_RULE `pc + 0x4a0 = pc + 1184`] THEN CONV_TAC TAUT;
+      MP_TAC(SPECL wb_front_vars WBN_LOOP_PREP) THEN
+      ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC]]]);;
