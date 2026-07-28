@@ -3117,7 +3117,11 @@ let WBN_FRONT_TO_PREP = prove(wbn_front_to_prep_goal,
    [MP_TAC(SPECL wb_front_vars WBN_LOOP_INVARIANT_ENTRY) THEN
     ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC];
     MATCH_MP_TAC ENSURES_PRECONDITION_THM THEN
-    EXISTS_TAC (rand(rator(snd(dest_imp(snd(strip_forall(concl WBN_LOOP_PREP))))))) THEN
+    (* ENSURES_PRECONDITION_THM needs the PRE (loop_pre = PC-free core at 0)   *)
+    (* of WBN_LOOP_PREP, not its post; peel rator TWICE (s039 cold-load fix:    *)
+    (* the committed single-rator picked the post, making the implication leg   *)
+    (* entry_post ==> prepretail_post which is not a TAUT).                      *)
+    EXISTS_TAC (rand(rator(rator(snd(dest_imp(snd(strip_forall(concl WBN_LOOP_PREP)))))))) THEN
     CONJ_TAC THENL
      [GEN_TAC THEN REWRITE_TAC[WBN_INV_SPLIT] THEN
       CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN
