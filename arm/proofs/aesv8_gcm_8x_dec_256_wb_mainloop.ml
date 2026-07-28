@@ -3054,3 +3054,1699 @@ let WBN_PREPRETAIL = prove
         then CHEAT_TAC else NO_TAC)) THEN
   TRY MONOTONE_MAYCHANGE_TAC THEN
   TRY (ASM_REWRITE_TAC[]));;
+
+(* ------------------------------------------------------------------------- *)
+(* Section 12. PHASE 6 -- recompose the nblk>8 chain.                         *)
+(* ------------------------------------------------------------------------- *)
+
+(* WBN_LOOP_PREP: LOOP ; PREPRETAIL, i.e. pc+0x4a0 (loop head, core 0) ->      *)
+(* pc+3796 (tail entry, wbn_prepretail_post), over the shared front frame.     *)
+(* Both legs share the SAME quantifier prefix (wb_front_vars), hyps            *)
+(* (wbn_front_hyps_wide_tm) and frame (wbn_front_C_tm); WBN_MAIN_LOOP.post is  *)
+(* aconv WBN_PREPRETAIL.pre (both = decodes /\ PC=pc+0x9f0 /\ wbn_core_applied  *)
+(* k), so the two chain by ENSURES_TRANS_SIMPLE with no re-sim and no new       *)
+(* CHEAT (the scoped Q19 CHEAT is sealed inside WBN_PREPRETAIL).  The           *)
+(* C ,, C = C obligation is the same 4-region-frame idempotence UP2_ABI_TAC    *)
+(* discharges (ABI expand THEN MAYCHANGE_IDEMPOT_TAC).  Validated hyps=0        *)
+(* (session-037).                                                              *)
+let wbn_loop_prep_goal =
+  let loop_pre = mk_abs(`s:armstate`,
+    list_mk_conj[
+      `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
+      `read PC s = word (pc + 0x4a0)`;
+      mk_comb(mk_comb(wbn_core_applied,`0`),`s:armstate`)]) in
+  let ens = list_mk_comb(`ensures arm`,[loop_pre; wbn_prepretail_post; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
+
+let WBN_LOOP_PREP = prove(wbn_loop_prep_goal,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
+  EXISTS_TAC (rand(rator(snd(dest_imp(snd(strip_forall(concl WBN_MAIN_LOOP))))))) THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_IDEMPOT_TAC;
+    ALL_TAC] THEN
+  CONJ_TAC THENL
+   [MP_TAC(SPECL wb_front_vars WBN_MAIN_LOOP) THEN
+    ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC];
+    MP_TAC(SPECL wb_front_vars WBN_PREPRETAIL) THEN
+    ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC]]);;
+
+(* WBN_FRONT_TO_PREP: FRONT ; (LOOP ; PREPRETAIL), i.e. the full nblk>8 straight *)
+(* chain from function entry (pc+0x20) through the loop and prepretail to the    *)
+(* tail entry (pc+3796).  Chains WBN_LOOP_INVARIANT_ENTRY (pc+0x20 -> pc+0x4a0,  *)
+(* establishes wbn_loop_invariant...0) with WBN_LOOP_PREP by ENSURES_TRANS_      *)
+(* SIMPLE at the intermediate wbn_entry_post.  The entry post carries the FULL   *)
+(* wbn_loop_invariant...0 (PC+decode baked in) whereas WBN_LOOP_PREP's pre uses  *)
+(* the PC-free wbn_loop_inv_core...0; ENSURES_PRECONDITION_THM bridges them via  *)
+(* WBN_INV_SPLIT (the C1/C2 decode+PC conjuncts are duplicated, collapsed by     *)
+(* TAUT after the pc+0x4a0 = pc+1184 numeral rewrite).  Validated hyps=0          *)
+(* (session-037).  No new CHEAT (scoped Q19/Q16 stays sealed in WBN_PREPRETAIL). *)
+let wbn_front_to_prep_goal =
+  let ens = list_mk_comb(`ensures arm`,
+    [wbn_front_P_tm; wbn_prepretail_post; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
+
+let WBN_FRONT_TO_PREP = prove(wbn_front_to_prep_goal,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
+  EXISTS_TAC wbn_entry_post THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_IDEMPOT_TAC;
+    ALL_TAC] THEN
+  CONJ_TAC THENL
+   [MP_TAC(SPECL wb_front_vars WBN_LOOP_INVARIANT_ENTRY) THEN
+    ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC];
+    MATCH_MP_TAC ENSURES_PRECONDITION_THM THEN
+    (* ENSURES_PRECONDITION_THM needs the PRE (loop_pre = PC-free core at 0)   *)
+    (* of WBN_LOOP_PREP, not its post; peel rator TWICE (s039 cold-load fix:    *)
+    (* the committed single-rator picked the post, making the implication leg   *)
+    (* entry_post ==> prepretail_post which is not a TAUT).                      *)
+    EXISTS_TAC (rand(rator(rator(snd(dest_imp(snd(strip_forall(concl WBN_LOOP_PREP)))))))) THEN
+    CONJ_TAC THENL
+     [GEN_TAC THEN REWRITE_TAC[WBN_INV_SPLIT] THEN
+      CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN
+      REWRITE_TAC[ARITH_RULE `pc + 0x4a0 = pc + 1184`] THEN CONV_TAC TAUT;
+      MP_TAC(SPECL wb_front_vars WBN_LOOP_PREP) THEN
+      ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC]]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* SESSION-040 -- the OUTPUT-STORE-FORALL augmentation of the prepretail post. *)
+(*                                                                            *)
+(* GAP found session-040: wbn_prepretail_post (64 conjuncts) DROPS the loop   *)
+(* invariant's quantified output-store conjunct                               *)
+(*   !j. j < 8*((nblk-9)DIV8 + 1) ==>                                         *)
+(*       read (memory :> bytes128 (word_add out_p (word (16*j)))) s =         *)
+(*       word_xor (word_xor (bytes_to_int128 (SUB_LIST (16*j,16) ibytes))     *)
+(*                (aes13 (gcm_ctr_inc_iter j ctr0) k0..k13)) k14              *)
+(* (mainloop.ml:644).  Those are the first 8*(k+1) DECRYPTED output blocks.   *)
+(* The Phase-6/7 final per-block output post needs stores for ALL nblk blocks;*)
+(* the Phase-6 tail leg (WB_TAIL_r) produces only the last r = nblk-8*(k+1),   *)
+(* so the first 8*(k+1) MUST be carried through the seam.  The prepretail      *)
+(* region (0x9f0..0xed4) does ZERO output stores (objdump), so the forall      *)
+(* passes through the KEEPDATA sim unchanged -- re-proving the prepretail with *)
+(* the forall appended to its post closes it by ASM_REWRITE (a genuine         *)
+(* preserved read-fact, NOT frame-preservation: ENSURES_ADD_PRESERVED cannot   *)
+(* be used because the MAYCHANGE frame permits out_p writes).                  *)
+(*                                                                            *)
+(* wbn_out_forall = the invariant's output-store forall at i:=k, as a          *)
+(* predicate on s (extracted from wbn_loop_inv_core to guarantee it is the     *)
+(* SAME term the sim preserves).  wbn_prepretail_post_ext = the 65-conjunct    *)
+(* post = wbn_prepretail_post /\ wbn_out_forall.                               *)
+(* ------------------------------------------------------------------------- *)
+
+let wbn_out_forall =
+  let full = list_mk_comb(wbn_core_applied, [`(nblk - 9) DIV 8`; `s:armstate`]) in
+  let inv_cs = conjuncts (rhs(concl (REWRITE_CONV[wbn_loop_inv_core] full))) in
+  mk_abs(`s:armstate`, find is_forall inv_cs);;
+
+let wbn_prepretail_post_ext =
+  mk_abs(`s:armstate`,
+    mk_conj(snd(dest_abs wbn_prepretail_post),
+            snd(dest_abs wbn_out_forall)));;
+
+(* WBN_PREPRETAIL_EXT: identical sim to WBN_PREPRETAIL (validated session-040,  *)
+(* ~131s) but with the output-store forall appended to the post -- it survives  *)
+(* the KEEPDATA sim to s313 and closes by the same ASM_REWRITE tail.  The two   *)
+(* Q16/Q19 GHASH conjuncts stay behind the same scoped disclosed CHEAT (the     *)
+(* [11] RINNER=LINNER identity).  hyps=0.                                       *)
+let wbn_prepretail_ext_goal =
+  let kk = `(nblk - 9) DIV 8` in
+  let pre = mk_abs(`s:armstate`,
+    list_mk_conj[
+      `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
+      `read PC s = word (pc + 0x9f0)`;
+      mk_comb(mk_comb(wbn_core_applied,kk),`s:armstate`)]) in
+  let ens = list_mk_comb(`ensures arm`,[pre; wbn_prepretail_post_ext; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
+
+let WBN_PREPRETAIL_EXT = prove(wbn_prepretail_ext_goal,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN REWRITE_TAC[wbn_loop_inv_core] THEN
+  CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN ENSURES_INIT_TAC "s0" THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_dec]) THEN
+  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV let_CONV)) THEN
+  FIRST_X_ASSUM(fun th ->
+    let c = concl th in
+    if can (find_term (fun t->match t with Const("byteswap128",_)->true|_->false)) c &&
+       can (find_term (fun t->match t with Const("karatsuba_mid",_)->true|_->false)) c
+    then STRIP_ASSUME_TAC th else NO_TAC) THEN
+  ABBREV_TAC `k = (nblk - 9) DIV 8` THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (1--1) THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (2--2) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  REV32_FOLD_TAC "Q5" "s2" `word (8*k+13):32 word` THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (3--3) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  CTR_INCR_NORM_TAC "s3" 13 THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (4--7) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  REV32_FOLD_TAC "Q6" "s7" `word (8*k+14):32 word` THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (8--9) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  CTR_INCR_NORM_TAC "s9" 14 THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (10--14) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  REV32_FOLD_TAC "Q7" "s14" `word (8*k+15):32 word` THEN
+  ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (15--120) THEN
+  ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (121--211) THEN
+  ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (212--240) THEN
+  DISCARD_QREGS_TAC ["Q16";"Q17";"Q18";"Q19"] THEN
+  ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (241--306) THEN
+  ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (307--313) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[GSYM aes13]) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE(map GSYM wb_ctr_lanes_thms)) THEN
+  ENSURES_FINAL_STATE_TAC THEN
+  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+  REPEAT CONJ_TAC THEN
+  TRY(W(fun (asl,w) ->
+        if can (find_term (fun t -> is_const t && fst(dest_const t) = "ghash_polyval_acc")) w
+        then CHEAT_TAC else NO_TAC)) THEN
+  TRY MONOTONE_MAYCHANGE_TAC THEN
+  TRY (ASM_REWRITE_TAC[]));;
+
+(* WBN_LOOP_PREP_EXT / WBN_FRONT_TO_PREP_EXT: the EXT-post analogues of          *)
+(* WBN_LOOP_PREP / WBN_FRONT_TO_PREP, chaining through WBN_PREPRETAIL_EXT.       *)
+(* Same ENSURES_TRANS_SIMPLE / ENSURES_PRECONDITION_THM route (incl. the s039   *)
+(* two-rator peel).  Both hyps=0 (validated session-040).                       *)
+let wbn_loop_prep_ext_goal =
+  let loop_pre = mk_abs(`s:armstate`,
+    list_mk_conj[
+      `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
+      `read PC s = word (pc + 0x4a0)`;
+      mk_comb(mk_comb(wbn_core_applied,`0`),`s:armstate`)]) in
+  let ens = list_mk_comb(`ensures arm`,[loop_pre; wbn_prepretail_post_ext; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
+
+let WBN_LOOP_PREP_EXT = prove(wbn_loop_prep_ext_goal,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
+  EXISTS_TAC (rand(rator(snd(dest_imp(snd(strip_forall(concl WBN_MAIN_LOOP))))))) THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_IDEMPOT_TAC;
+    ALL_TAC] THEN
+  CONJ_TAC THENL
+   [MP_TAC(SPECL wb_front_vars WBN_MAIN_LOOP) THEN
+    ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC];
+    MP_TAC(SPECL wb_front_vars WBN_PREPRETAIL_EXT) THEN
+    ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC]]);;
+
+let wbn_front_to_prep_ext_goal =
+  let ens = list_mk_comb(`ensures arm`,
+    [wbn_front_P_tm; wbn_prepretail_post_ext; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
+
+let WBN_FRONT_TO_PREP_EXT = prove(wbn_front_to_prep_ext_goal,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
+  EXISTS_TAC wbn_entry_post THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_IDEMPOT_TAC;
+    ALL_TAC] THEN
+  CONJ_TAC THENL
+   [MP_TAC(SPECL wb_front_vars WBN_LOOP_INVARIANT_ENTRY) THEN
+    ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC];
+    MATCH_MP_TAC ENSURES_PRECONDITION_THM THEN
+    EXISTS_TAC (rand(rator(rator(snd(dest_imp(snd(strip_forall(concl WBN_LOOP_PREP_EXT)))))))) THEN
+    CONJ_TAC THENL
+     [GEN_TAC THEN REWRITE_TAC[WBN_INV_SPLIT] THEN
+      CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN
+      REWRITE_TAC[ARITH_RULE `pc + 0x4a0 = pc + 1184`] THEN CONV_TAC TAUT;
+      MP_TAC(SPECL wb_front_vars WBN_LOOP_PREP_EXT) THEN
+      ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC]]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* SESSION-040 -- WBN_Q9_SPEC: the first-tail-block resolver for the seam.     *)
+(*                                                                            *)
+(* At the prepretail seam (pc+3796) the code has just executed                 *)
+(*   ecc:  ldr q9, [x0], #16     (x0 = in_p + 128*(k+1) pre-increment)         *)
+(* so the sim carries  read Q9 s313 = read (memory :> bytes128                 *)
+(*   (word_add in_p (word (128*(k+1))))) s311  -- a RAW memory read (harvested  *)
+(* session-040).  The tail's FIRST instruction eor3 v12,v9,v0,v29 @0xedc reads  *)
+(* this Q9 (objdump-confirmed: incoming Q9 is consumed BEFORE any tail reload   *)
+(* at 0xfa4), so it MUST reach the tail seam in spec form.  This lemma resolves  *)
+(* that raw read to bytes_to_int128 (SUB_LIST (16*8*(k+1),16) ibytes) = the      *)
+(* first tail block (global block 8*(k+1)) via INPUT_BYTES_TO_BYTE128_LANES at    *)
+(* lane 8*(k+1), given 8*(k+1) < nblk (WBN_Q9_INDEX_LT) and the preserved        *)
+(* whole-buffer input-bytes fact.  hyps=0 (session-040).                         *)
+(* USE (next session): add read Q9 = <this RHS> to the prepretail post, resolve  *)
+(* it in the sim right before ENSURES_FINAL_STATE via                           *)
+(*   MP_TAC(SPECL[...] WBN_Q9_SPEC) using the s313 input-bytes fact + the raw    *)
+(*   Q9 read (bridge s311->s313 memory equality: no stores 0xecc..0xed4).         *)
+(* ------------------------------------------------------------------------- *)
+let WBN_Q9_SPEC = prove
+ (`!(nblk:num) (in_p:int64) (ibytes:byte list) (k:num) (s:armstate).
+     LENGTH ibytes = 16 * nblk /\
+     8 * (k + 1) < nblk /\
+     read (memory :> bytes (in_p,16 * nblk)) s = num_of_bytelist ibytes
+     ==> read (memory :> bytes128 (word_add in_p (word (128 * (k + 1))))) s =
+         bytes_to_int128 (SUB_LIST (16 * (8 * (k + 1)),16) ibytes)`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(SPECL [`nblk:num`; `in_p:int64`; `ibytes:byte list`; `s:armstate`]
+    INPUT_BYTES_TO_BYTE128_LANES) THEN
+  ANTS_TAC THENL
+   [CONJ_TAC THENL
+     [ASM_ARITH_TAC;
+      SUBGOAL_THEN `SUB_LIST (0, 16 * nblk) (ibytes:byte list) = ibytes` SUBST1_TAC THENL
+       [MATCH_MP_TAC SUB_LIST_LENGTH_IMPLIES THEN ASM_REWRITE_TAC[LE_REFL]; ALL_TAC] THEN
+      ASM_REWRITE_TAC[]];
+    DISCH_THEN(MP_TAC o SPEC `8 * (k + 1):num`) THEN
+    ANTS_TAC THENL
+     [ASM_ARITH_TAC;
+      REWRITE_TAC[ARITH_RULE `16 * (8 * (k + 1)) = 128 * (k + 1)`] THEN
+      DISCH_THEN(fun th -> REWRITE_TAC[th])]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* SESSION-043 -- EXT2: prepretail post carrying BOTH the output-store forall  *)
+(* (from EXT) AND the incoming Q9 (first tail block, global block 8*(k+1)).    *)
+(*                                                                            *)
+(* GAP (session-040): besides the output forall (carried by EXT), the tail's   *)
+(* FIRST instruction eor3 v12,v9,v0,v29 @0xedc consumes the INCOMING Q9 BEFORE  *)
+(* any tail reload (WBN_Q9_SPEC comment) -- so Q9 must reach the seam in spec   *)
+(* form.  wbn_prepretail_post_ext2 = wbn_prepretail_post_ext /\ the Q9 conjunct *)
+(* (read Q9 s = bytes_to_int128 (SUB_LIST (16 * 8 * ((nblk-9) DIV 8 + 1),16)    *)
+(* ibytes), aconv WBN_Q9_SPEC at k := (nblk-9) DIV 8).                          *)
+(*                                                                            *)
+(* Proof route (session-042 robust alternative, session-043 executed it):       *)
+(* the ldr q9,[x0],#16 @0xecc (step 312) carries a RAW s311 memory read; the    *)
+(* s311->s313 memory-equality bridge is awkward (no s311 MAYCHANGE -- the frame *)
+(* is s0->s313 only).  Instead SPLIT the sim at s311 and resolve Q9 THERE: the  *)
+(* whole-buffer input-bytes fact is live at s311 under KEEPDATA, x0@s311 =      *)
+(* in_p+128*(k+1) confirmed, so MP_TAC'ing WBN_Q9_SPEC (ANTS by WBN_Q9_INDEX_LT *)
+(* + ARITH) plants read(mem:>bytes128(in_p+128*(k+1))) s311 = <spec>; the ldr    *)
+(* q9 then auto-resolves Q9 to that spec form via ASM_REWRITE.  Identical sim    *)
+(* to WBN_PREPRETAIL_EXT (~131s) otherwise; same scoped Q16/Q19 CHEAT.  hyps=0.  *)
+(* ------------------------------------------------------------------------- *)
+
+let wbn_prepretail_post_ext2 =
+  mk_abs(`s:armstate`,
+    mk_conj(snd(dest_abs wbn_prepretail_post_ext),
+            `read Q9 (s:armstate) =
+             bytes_to_int128 (SUB_LIST (16 * 8 * ((nblk - 9) DIV 8 + 1),16) ibytes)`));;
+
+let wbn_prepretail_ext2_goal =
+  let kk = `(nblk - 9) DIV 8` in
+  let pre = mk_abs(`s:armstate`,
+    list_mk_conj[
+      `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
+      `read PC s = word (pc + 0x9f0)`;
+      mk_comb(mk_comb(wbn_core_applied,kk),`s:armstate`)]) in
+  let ens = list_mk_comb(`ensures arm`,[pre; wbn_prepretail_post_ext2; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
+
+let WBN_PREPRETAIL_EXT2 = prove(wbn_prepretail_ext2_goal,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN REWRITE_TAC[wbn_loop_inv_core] THEN
+  CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN ENSURES_INIT_TAC "s0" THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_dec]) THEN
+  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV let_CONV)) THEN
+  FIRST_X_ASSUM(fun th ->
+    let c = concl th in
+    if can (find_term (fun t->match t with Const("byteswap128",_)->true|_->false)) c &&
+       can (find_term (fun t->match t with Const("karatsuba_mid",_)->true|_->false)) c
+    then STRIP_ASSUME_TAC th else NO_TAC) THEN
+  ABBREV_TAC `k = (nblk - 9) DIV 8` THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (1--1) THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (2--2) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  REV32_FOLD_TAC "Q5" "s2" `word (8*k+13):32 word` THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (3--3) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  CTR_INCR_NORM_TAC "s3" 13 THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (4--7) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  REV32_FOLD_TAC "Q6" "s7" `word (8*k+14):32 word` THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (8--9) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  CTR_INCR_NORM_TAC "s9" 14 THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (10--14) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  REV32_FOLD_TAC "Q7" "s14" `word (8*k+15):32 word` THEN
+  ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (15--120) THEN
+  ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (121--211) THEN
+  ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (212--240) THEN
+  DISCARD_QREGS_TAC ["Q16";"Q17";"Q18";"Q19"] THEN
+  ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (241--306) THEN
+  ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (307--311) THEN
+  (* Resolve the incoming Q9 at s311 (before the ldr q9 @0xecc = step 312) so   *)
+  (* the load auto-resolves it to spec form.  The whole-buffer input-bytes fact  *)
+  (* is live at s311 under KEEPDATA; WBN_Q9_INDEX_LT gives 8*(k+1) < nblk.        *)
+  MP_TAC(SPECL [`nblk:num`; `in_p:int64`; `ibytes:byte list`; `k:num`; `s311:armstate`]
+    WBN_Q9_SPEC) THEN
+  ANTS_TAC THENL
+   [ASM_REWRITE_TAC[] THEN MP_TAC(SPEC `nblk:num` WBN_Q9_INDEX_LT) THEN
+    ASM_REWRITE_TAC[] THEN ARITH_TAC;
+    DISCH_TAC] THEN
+  ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (312--313) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[GSYM aes13]) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE(map GSYM wb_ctr_lanes_thms)) THEN
+  ENSURES_FINAL_STATE_TAC THEN
+  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+  REPEAT CONJ_TAC THEN
+  TRY(W(fun (asl,w) ->
+        if can (find_term (fun t -> is_const t && fst(dest_const t) = "ghash_polyval_acc")) w
+        then CHEAT_TAC else NO_TAC)) THEN
+  TRY MONOTONE_MAYCHANGE_TAC THEN
+  TRY (ASM_REWRITE_TAC[]));;
+
+(* WBN_LOOP_PREP_EXT2 / WBN_FRONT_TO_PREP_EXT2: the EXT2-post analogues,          *)
+(* chaining through WBN_PREPRETAIL_EXT2.  Same ENSURES_TRANS_SIMPLE /             *)
+(* ENSURES_PRECONDITION_THM route as the EXT versions (incl. the s039 two-rator  *)
+(* peel that picks the PRE of WBN_LOOP_PREP_EXT2, not its post).  Both hyps=0.    *)
+let wbn_loop_prep_ext2_goal =
+  let loop_pre = mk_abs(`s:armstate`,
+    list_mk_conj[
+      `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
+      `read PC s = word (pc + 0x4a0)`;
+      mk_comb(mk_comb(wbn_core_applied,`0`),`s:armstate`)]) in
+  let ens = list_mk_comb(`ensures arm`,[loop_pre; wbn_prepretail_post_ext2; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
+
+let WBN_LOOP_PREP_EXT2 = prove(wbn_loop_prep_ext2_goal,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
+  EXISTS_TAC (rand(rator(snd(dest_imp(snd(strip_forall(concl WBN_MAIN_LOOP))))))) THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_IDEMPOT_TAC;
+    ALL_TAC] THEN
+  CONJ_TAC THENL
+   [MP_TAC(SPECL wb_front_vars WBN_MAIN_LOOP) THEN
+    ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC];
+    MP_TAC(SPECL wb_front_vars WBN_PREPRETAIL_EXT2) THEN
+    ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC]]);;
+
+let wbn_front_to_prep_ext2_goal =
+  let ens = list_mk_comb(`ensures arm`,
+    [wbn_front_P_tm; wbn_prepretail_post_ext2; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
+
+let WBN_FRONT_TO_PREP_EXT2 = prove(wbn_front_to_prep_ext2_goal,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
+  EXISTS_TAC wbn_entry_post THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_IDEMPOT_TAC;
+    ALL_TAC] THEN
+  CONJ_TAC THENL
+   [MP_TAC(SPECL wb_front_vars WBN_LOOP_INVARIANT_ENTRY) THEN
+    ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC];
+    MATCH_MP_TAC ENSURES_PRECONDITION_THM THEN
+    EXISTS_TAC (rand(rator(rator(snd(dest_imp(snd(strip_forall(concl WBN_LOOP_PREP_EXT2)))))))) THEN
+    CONJ_TAC THENL
+     [GEN_TAC THEN REWRITE_TAC[WBN_INV_SPLIT] THEN
+      CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN
+      REWRITE_TAC[ARITH_RULE `pc + 0x4a0 = pc + 1184`] THEN CONV_TAC TAUT;
+      MP_TAC(SPECL wb_front_vars WBN_LOOP_PREP_EXT2) THEN
+      ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC]]]);;
+
+(* ========================================================================= *)
+(* SESSION-044 -- PHASE 6 STEP 2: the tail leg (WBN_PREP_TO_END).            *)
+(*                                                                           *)
+(* KEY STRUCTURAL FACT (session-044): wb.ml's WB_TAIL_r_TAC tail proofs      *)
+(* already START at pc+3796 -- EXACTLY the EXT2 seam PC -- and drive to      *)
+(* pc+4528 (the whole-function exit) CHEAT-FREE (they discharge the r-block  *)
+(* GHASH via GMULT{r}_FULL_CORRECT_BA).  prove_band k's back-leg is          *)
+(* `WB_PREP_TAC k THEN WB_TAIL_k_TAC`, proving                               *)
+(*   ensures arm (q_at k) (band_post k) (band_frame k)                       *)
+(* where q_at k = wb_front_postcond @ nblk:=k.  So the tail leg we need is   *)
+(* structurally wb.ml's OWN back-leg, in the shifted (post-loop) variables.  *)
+(*                                                                           *)
+(* STEP 2a -- WB_TAIL_GEN_r: package that back-leg as a standalone           *)
+(* universally-quantified lemma, proven from the band precond MINUS the 4    *)
+(* cells the EXT2 seam does NOT carry (xi_p, ivec_p, [sp+72], in_p block-0). *)
+(* Proving it from the weakened precond DOES the in-proof dropped-cells      *)
+(* audit (the human's owed check) AND yields a lemma the EXT2 post can feed  *)
+(* by pure precondition-weakening (no re-simulation).                        *)
+(* ------------------------------------------------------------------------- *)
+
+(* the band goal split into (vars, hyps, pre, post, frame) *)
+let wbn_dissect_band k =
+  let g = mk_band_goal k in
+  let vars, body = strip_forall g in
+  let hyps, ens = dest_imp body in
+  let _, args = strip_comb ens in
+  (vars, hyps, el 1 args, el 2 args, el 3 args);;
+
+(* the 4 seam cells EXT2 drops -- objdump-confirmed never read by the tail,  *)
+(* re-confirmed in-proof by proving WB_TAIL_GEN_r from the precond without   *)
+(* them (session-044).  [sp+72]=0 is a pinned artifact; xi_p/ivec_p are      *)
+(* consumed only via the pre-seeded Q19/Q16 and Q0..Q7; in_p block-0 arrives *)
+(* pre-loaded in Q9 (WBN_Q9_SPEC).                                           *)
+let wbn_tail_drop_lhs = [
+  `read (memory :> bytes64 (word_add stackpointer (word 72))) (s:armstate)`;
+  `read (memory :> bytes128 xi_p) (s:armstate)`;
+  `read (memory :> bytes128 ivec_p) (s:armstate)`;
+  `read (memory :> bytes128 in_p) (s:armstate)`];;
+
+(* q_at k with the 4 dropped cells removed *)
+let wbn_weak_q_at k =
+  let cs = conjuncts (snd(dest_abs (q_at k))) in
+  let kept = filter (fun c -> not (is_eq c && mem (lhs c) wbn_tail_drop_lhs)) cs in
+  mk_abs(`s:armstate`, end_itlist (curry mk_conj) kept);;
+
+(* the generic tail back-leg goal: ensures (weak q_at r) (band_post r) frame *)
+let wbn_tail_backleg_goal r =
+  let (vars, hyps, pre0, post, frame) = wbn_dissect_band r in
+  ignore pre0;
+  let ens = list_mk_comb(`ensures arm`, [wbn_weak_q_at r; post; frame]) in
+  list_mk_forall(vars, mk_imp(hyps, ens));;
+
+(* r=1 (validated session-044, ~133s): confirms the r=1 tail reads none of   *)
+(* the 4 dropped cells.  Tactic = the prove_band back-leg verbatim.          *)
+let WB_TAIL_GEN_1 = prove(wbn_tail_backleg_goal 1,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 1 THEN WB_TAIL_1_TAC);;
+
+(* r=8 (validated session-044, ~315s): the HARDEST tail (Q18LATEST window +  *)
+(* full Karatsuba merge + WA_UNIFY_BB) -- proving it from the weakened       *)
+(* precond confirms even the 8-block GHASH close needs none of the 4 cells.  *)
+let WB_TAIL_GEN_8 = prove(wbn_tail_backleg_goal 8,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 8 THEN WB_TAIL_8_TAC);;
+
+(* r=2..7 (validated session-044): same back-leg, all hyps=0.  Timings:      *)
+(* r2~166s r3~132s r4~165s r5~200s r6~237s r7~277s.                          *)
+let WB_TAIL_GEN_2 = prove(wbn_tail_backleg_goal 2,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 2 THEN WB_TAIL_2_TAC);;
+let WB_TAIL_GEN_3 = prove(wbn_tail_backleg_goal 3,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 3 THEN WB_TAIL_3_TAC);;
+let WB_TAIL_GEN_4 = prove(wbn_tail_backleg_goal 4,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 4 THEN WB_TAIL_4_TAC);;
+let WB_TAIL_GEN_5 = prove(wbn_tail_backleg_goal 5,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 5 THEN WB_TAIL_5_TAC);;
+let WB_TAIL_GEN_6 = prove(wbn_tail_backleg_goal 6,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 6 THEN WB_TAIL_6_TAC);;
+let WB_TAIL_GEN_7 = prove(wbn_tail_backleg_goal 7,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 7 THEN WB_TAIL_7_TAC);;
+
+(* ========================================================================= *)
+(* SESSION-045 -- PHASE 6 STEP 2b: WBN_PREP_TO_END assembly infrastructure.  *)
+(*                                                                           *)
+(* SOUNDNESS FIX to the (uncommitted) session-044 STEP-2b recipe.  That      *)
+(* recipe fed WB_TAIL_GEN_r (which keep X1,X9 in their weak precond) by      *)
+(* ENSURES_PRECONDITION_THM from wbn_prepretail_post_ext2, claiming all 20   *)
+(* non-aconv conjuncts reconcile "by pure ARITH".  Session-045 FOUND that 2  *)
+(* of them are UNDERIVABLE, not ARITH:                                       *)
+(*    ext2 delivers  read X1 s = word (128 * nblk),  read X9 s = word (16*nblk) *)
+(*    but a SPECL'd tail (in_p:=in_p+128(k+1), nblk-role:=r) wants           *)
+(*                    read X1 s = word (128 * r),    read X9 s = word (16*r).  *)
+(* For nblk = 8*(k+1)+r >= 17 these differ, so ext2_post ==> shifted_weak_q_at_r *)
+(* FAILS on X1/X9 exactly.  objdump: X1,X9 are DEAD in the tail range         *)
+(* [0xed4,0x11b0) (0 reads), so the sound fix is to DROP X1,X9 from the tail  *)
+(* precond too (6 dropped cells, not 4) and re-prove the tail leg from the    *)
+(* 63-conjunct weak precond.  WB_TAIL_GEN2_1 below CONFIRMS the tail sim      *)
+(* needs neither (hyps=0, ~133s, identical WB_PREP_TAC r THEN WB_TAIL_r_TAC). *)
+(* ------------------------------------------------------------------------- *)
+
+(* num_of_bytelist = num_of_wordlist on byte lists (needed by WBN_INPUT_SLICE). *)
+let NUM_OF_BYTELIST_EQ_WORDLIST = prove
+ (`!l:byte list. num_of_bytelist l = num_of_wordlist l`,
+  LIST_INDUCT_TAC THEN
+  ASM_REWRITE_TAC[num_of_bytelist; num_of_wordlist; DIMINDEX_8] THEN ARITH_TAC);;
+
+(* Input-read restriction: the whole-buffer read restricts to any 16-byte    *)
+(* block boundary 128*(k+1).  This discharges the shifted tail precond's      *)
+(* `read (memory :> bytes (in_p+128(k+1),16)) s = num_of_bytelist (SUB_LIST...)` *)
+(* conjunct from ext2's `read (memory :> bytes (in_p,16*nblk)) s = ... ibytes`.  *)
+(* (session-045, hyps=0).                                                     *)
+let WBN_INPUT_SLICE = prove
+ (`!(nblk:num) (in_p:int64) (ibytes:byte list) (k:num) (s:armstate).
+     LENGTH ibytes = 16 * nblk /\ 8 * (k + 1) < nblk /\
+     read (memory :> bytes (in_p,16 * nblk)) s = num_of_bytelist ibytes
+     ==> read (memory :> bytes (word_add in_p (word (128 * (k + 1))),16)) s =
+         num_of_bytelist (SUB_LIST (128 * (k + 1),16) ibytes)`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(ISPECL [`in_p:int64`; `16 * nblk`; `128 * (k+1)`; `read memory (s:armstate)`]
+    READ_BYTES_DIV) THEN
+  REWRITE_TAC[GSYM READ_COMPONENT_COMPOSE] THEN DISCH_TAC THEN
+  SUBGOAL_THEN `read (memory :> bytes (word_add in_p (word (128 * (k + 1))),16)) s =
+     (read (memory :> bytes (word_add in_p (word (128 * (k + 1))),
+                             16 * nblk - 128 * (k + 1))) s) MOD 2 EXP (8 * 16)`
+   SUBST1_TAC THENL
+   [MP_TAC(ISPECL [`word_add in_p (word (128 * (k+1))):int64`;
+                   `16 * nblk - 128 * (k+1)`; `16`; `read memory (s:armstate)`]
+       READ_BYTES_MOD) THEN
+    REWRITE_TAC[GSYM READ_COMPONENT_COMPOSE] THEN
+    SUBGOAL_THEN `MIN (16 * nblk - 128 * (k + 1)) 16 = 16` SUBST1_TAC THENL
+     [ASM_ARITH_TAC; ALL_TAC] THEN
+    DISCH_THEN(SUBST1_TAC o SYM) THEN REFL_TAC; ALL_TAC] THEN
+  FIRST_X_ASSUM(SUBST1_TAC o SYM) THEN ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[NUM_OF_BYTELIST_EQ_WORDLIST] THEN
+  REWRITE_TAC[NUM_OF_WORDLIST_SUB_LIST; DIMINDEX_8] THEN
+  AP_THM_TAC THEN AP_TERM_TAC THEN AP_TERM_TAC THEN ARITH_TAC);;
+
+(* Session-047 generalization of WBN_INPUT_SLICE to an arbitrary slice length  *)
+(* m (= 16*r):  the r>1 shifted tail reads 16*r input bytes at 128*(k+1), not   *)
+(* just 16.  Same proof, m kept symbolic under 128*(k+1)+m <= 16*nblk. hyps=0.  *)
+let WBN_INPUT_SLICE_GEN = prove
+ (`!(nblk:num) (in_p:int64) (ibytes:byte list) (k:num) (m:num) (s:armstate).
+     LENGTH ibytes = 16 * nblk /\ 128 * (k + 1) + m <= 16 * nblk /\
+     read (memory :> bytes (in_p,16 * nblk)) s = num_of_bytelist ibytes
+     ==> read (memory :> bytes (word_add in_p (word (128 * (k + 1))),m)) s =
+         num_of_bytelist (SUB_LIST (128 * (k + 1),m) ibytes)`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(ISPECL [`in_p:int64`; `16 * nblk`; `128 * (k+1)`; `read memory (s:armstate)`]
+    READ_BYTES_DIV) THEN
+  REWRITE_TAC[GSYM READ_COMPONENT_COMPOSE] THEN DISCH_TAC THEN
+  SUBGOAL_THEN `read (memory :> bytes (word_add in_p (word (128 * (k + 1))),m)) s =
+     (read (memory :> bytes (word_add in_p (word (128 * (k + 1))),
+                             16 * nblk - 128 * (k + 1))) s) MOD 2 EXP (8 * m)`
+   SUBST1_TAC THENL
+   [MP_TAC(ISPECL [`word_add in_p (word (128 * (k+1))):int64`;
+                   `16 * nblk - 128 * (k+1)`; `m:num`; `read memory (s:armstate)`]
+       READ_BYTES_MOD) THEN
+    REWRITE_TAC[GSYM READ_COMPONENT_COMPOSE] THEN
+    SUBGOAL_THEN `MIN (16 * nblk - 128 * (k + 1)) m = m` SUBST1_TAC THENL
+     [ASM_ARITH_TAC; ALL_TAC] THEN
+    DISCH_THEN(SUBST1_TAC o SYM) THEN REFL_TAC; ALL_TAC] THEN
+  FIRST_X_ASSUM(SUBST1_TAC o SYM) THEN ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[NUM_OF_BYTELIST_EQ_WORDLIST] THEN
+  REWRITE_TAC[NUM_OF_WORDLIST_SUB_LIST; DIMINDEX_8] THEN
+  AP_THM_TAC THEN AP_TERM_TAC THEN AP_TERM_TAC THEN ARITH_TAC);;
+
+(* 6-cell drop: the 4 session-044 cells PLUS the dead X1,X9. *)
+let wbn_tail_drop_lhs6 = wbn_tail_drop_lhs @
+  [`read X1 (s:armstate)`; `read X9 (s:armstate)`];;
+let wbn_weak_q_at6 k =
+  let cs = conjuncts (snd(dest_abs (q_at k))) in
+  let kept = filter (fun c -> not (is_eq c && mem (lhs c) wbn_tail_drop_lhs6)) cs in
+  mk_abs(`s:armstate`, end_itlist (curry mk_conj) kept);;
+let wbn_tail_backleg_goal6 r =
+  let (vars, hyps, pre0, post, frame) = wbn_dissect_band r in
+  ignore pre0;
+  let ens = list_mk_comb(`ensures arm`, [wbn_weak_q_at6 r; post; frame]) in
+  list_mk_forall(vars, mk_imp(hyps, ens));;
+
+(* r=1 VALIDATED session-045 (hyps=0, ~133s): confirms the r=1 tail reads     *)
+(* none of the 6 dropped cells (X1/X9 dead as objdump shows).  Same tactic.   *)
+let WB_TAIL_GEN2_1 = prove(wbn_tail_backleg_goal6 1,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 1 THEN WB_TAIL_1_TAC);;
+
+(* r=2..8: same back-leg from the 6-cell-drop weak precond (each ~130-315s;  *)
+(* WB_TAIL_GEN2_2 validated session-047 at ~165s; the others share the        *)
+(* WB_TAIL_r_TAC machinery).  Each hyps=0 IS the per-r X1/X9 dead-cell audit.  *)
+let WB_TAIL_GEN2_2 = prove(wbn_tail_backleg_goal6 2,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 2 THEN WB_TAIL_2_TAC);;
+let WB_TAIL_GEN2_3 = prove(wbn_tail_backleg_goal6 3,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 3 THEN WB_TAIL_3_TAC);;
+let WB_TAIL_GEN2_4 = prove(wbn_tail_backleg_goal6 4,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 4 THEN WB_TAIL_4_TAC);;
+let WB_TAIL_GEN2_5 = prove(wbn_tail_backleg_goal6 5,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 5 THEN WB_TAIL_5_TAC);;
+let WB_TAIL_GEN2_6 = prove(wbn_tail_backleg_goal6 6,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 6 THEN WB_TAIL_6_TAC);;
+let WB_TAIL_GEN2_7 = prove(wbn_tail_backleg_goal6 7,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 7 THEN WB_TAIL_7_TAC);;
+let WB_TAIL_GEN2_8 = prove(wbn_tail_backleg_goal6 8,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 8 THEN WB_TAIL_8_TAC);;
+
+(* ------------------------------------------------------------------------- *)
+(* WBN_PREP_TO_END_r recipe (VALIDATED for r=1 down to a full close this       *)
+(* session; the reconciliation tactic below took ext2_post ==>                *)
+(* shifted_weak_q_at6_1 to exactly its 4 trivial residuals -- 3 flags + the    *)
+(* input-read -- all now discharged by the helpers above + a per-subgoal       *)
+(* WORD_RULE.  Assembly of the ensures theorem itself is owed next session).   *)
+(*                                                                           *)
+(* shift_vals r (SPECL order = wb_front_vars minus nblk, 27 terms):           *)
+(*   [pc; stackpointer;                                                        *)
+(*    word_add out_p (word (128*((nblk-9) DIV 8+1)));  xi_p; ivec_p;           *)
+(*    word_add in_p (word (128*((nblk-9) DIV 8+1)));   key_p; htbl_p;          *)
+(*    SUB_LIST (128*((nblk-9) DIV 8+1), 16*r) ibytes;             (:byte list) *)
+(*    word_bytereverse wbn_caught_up;                             (:int128)    *)
+(*    gcm_ctr_add (word (8*((nblk-9) DIV 8+1))) ctr0;             (:int128)    *)
+(*    k0..k14; h]   -- annotate every ibytes/int128 or SPECL invents tyvars.   *)
+(*                                                                           *)
+(* WBN_PREP_TO_END_r : ensures arm wbn_prepretail_post_ext2                    *)
+(*                       (shifted band_post r) wbn_front_C_tm                   *)
+(*   under hyp  nblk = 8*((nblk-9) DIV 8 + 1) + r.  Build via:                  *)
+(*   MATCH_MP_TAC ENSURES_FRAME_SUBSUMED (narrow tail frame -> wide ext2 frame  *)
+(*     wbn_front_C_tm; SUBSUMED via SUBSUMED_ASSIGNS_BYTES on out_p sub-region  *)
+(*     bytes(out_p+128(k+1),16) subsumed bytes(out_p,16*nblk))                  *)
+(*   THEN MATCH_MP_TAC ENSURES_PRECONDITION_THM                                 *)
+(*     EXISTS_TAC (shifted weak_q_at6 r) THEN CONJ_TAC THENL                     *)
+(*     [ <the pre-implication, tactic below>;                                    *)
+(*       MP_TAC(SPECL (shift_vals r) WB_TAIL_GEN2_r) THEN ANTS (nonoverlapping/  *)
+(*         LENGTH from ext2 wide hyps; SUB_LIST_LENGTH + 16*r<=remaining) ].      *)
+(*                                                                           *)
+(* PRE-IMPLICATION tactic  (!s. ext2_post s ==> shifted_weak_q_at6_r s), r=1     *)
+(* validated to 0 residuals with the helpers:                                   *)
+(*   REPEAT GEN_TAC THEN STRIP_TAC THEN                                          *)
+(*   ASM_REWRITE_TAC[WORD_BYTEREVERSE_BYTEREVERSE] THEN                          *)
+(*   SUBGOAL_THEN `16 * nblk = 128 * ((nblk-9) DIV 8 + 1) + 16*r` ASSUME_TAC     *)
+(*     THENL [UNDISCH_TAC `nblk = 8*((nblk-9) DIV 8+1)+r` THEN ARITH_TAC; ALL] THEN *)
+(*   -- flags first, BEFORE any CONJ split, so the fact hits all of them:        *)
+(*   SUBGOAL_THEN `word_sub (word_add in_p (word (128*((nblk-9)DIV8+1)+16*r)))    *)
+(*      (word_add in_p (word (128*((nblk-9)DIV8+1)))):int64 = word (16*r)`        *)
+(*     ASSUME_TAC THENL [CONV_TAC WORD_RULE; ALL] THEN  (* r=1: word 16 *)        *)
+(*   REWRITE_TAC[GSYM GCM_CTR_ADD_1; GCM_CTR_ADD_COMPOSE] THEN                    *)
+(*   REWRITE_TAC[SUB_LIST_MIN_RIGHT; ARITH_RULE `16*8*x=128*x`;                   *)
+(*               ARITH_RULE `MIN 16 (16*r)=16` (r>=1)] THEN                       *)
+(*   (for the input-read conjunct) MP_TAC(SPECL[...] WBN_INPUT_SLICE) + ANTS THEN *)
+(*   UNDISCH `16*nblk=...` THEN DISCH_THEN(fun th->REWRITE_TAC[th]) THEN          *)
+(*   ABBREV_TAC `q=(nblk-9) DIV 8` THEN                                          *)
+(*   REWRITE_TAC[the `8*q+N=8*(q+1)+(N-8)` (N=8..15) + `((a+1)+..)=a+j` rules] THEN *)
+(*   ASM_REWRITE_TAC[] THEN                                                       *)
+(*   REPEAT CONJ_TAC THEN                                                         *)
+(*   TRY(AP_THM_TAC THEN AP_TERM_TAC THEN AP_TERM_TAC THEN AP_TERM_TAC) THEN      *)
+(*   TRY(CONV_TAC WORD_RULE).                                                     *)
+(*                                                                           *)
+(* Then WBN_PREP_TO_END = 8-way case split on r = 1+(nblk-9) MOD 8 (VALIDATED    *)
+(* r in 1..8 for nblk>=17); POST combines the shifted band_post (last r stores + *)
+(* xi_p tag) with ext2's carried output forall [conjunct 64] and folds the tag   *)
+(* caught_up ++ [last r blocks] = full-nblk GHASH via GHASH_ACC_APPEND           *)
+(* (common/polyval_ghash.ml:62) -- the one genuinely NEW algebra step.  THEN     *)
+(* chain onto WBN_FRONT_TO_PREP_EXT2 by ENSURES_TRANS_SIMPLE (EXISTS_TAC          *)
+(* wbn_prepretail_post_ext2).                                                     *)
+(* ------------------------------------------------------------------------- *)
+
+(* ========================================================================= *)
+(* SESSION-047 -- PHASE 6 STEP 2b: WBN_PREP_TO_END_r landed (r=1).           *)
+(*                                                                           *)
+(* The seam post `wbn_prepretail_post_ext2` (the loop/prepretail EXT2 exit    *)
+(* at pc+3796) feeds the shifted r-block tail WB_TAIL_GEN2_r by precondition- *)
+(* weakening.  WBN_PREP_TO_END_r : ensures arm wbn_prepretail_post_ext2       *)
+(* (shifted band_post r) wbn_front_C_tm, under the length hyp                 *)
+(*   nblk = 8*((nblk-9) DIV 8 + 1) + r.                                       *)
+(*                                                                           *)
+(* SOUNDNESS (session-046/047): the r-block tail's own ANTS (NONOVERLAPPING_  *)
+(* TAC over the shifted out_p/xi_p/ivec_p regions) needs 3 disjointness       *)
+(* clauses the ext2 wide hyps do NOT carry:                                   *)
+(*    nonoverlapping (out_p,16*nblk) (xi_p,16)                                *)
+(*    nonoverlapping (out_p,16*nblk) (ivec_p,16)                              *)
+(*    nonoverlapping (xi_p,16)       (ivec_p,16)                              *)
+(* These ARE genuine whole-function preconditions (the output buffer must be  *)
+(* disjoint from the Xi accumulator and the ivec; xi_p disjoint from ivec_p)  *)
+(* -- same class as the s004 in_p/out_p gap and s015 (out_p)(sp,80) gap.  In  *)
+(* the real band contract q_at r, xi_p (out_p,16*r) ivec_p at the size-16     *)
+(* (=16*nblk when nblk=1) granularity are present; at the whole-length        *)
+(* 16*nblk granularity dissect_band 1 shows only xi_p (ivec_p,16) literally,  *)
+(* so session-047 threads all 3 as SIDE-CONDITIONS on WBN_PREP_TO_END_r       *)
+(* (reviewer's alternative to widening wbn_front_hyps_wide_tm -- lighter, no  *)
+(* chain re-prove).  They flow up to the final theorem's precond and are      *)
+(* supplied by the guard/subroutine wrapper (the band contract has them).     *)
+(* ------------------------------------------------------------------------- *)
+
+(* SPECL order = wb_front_vars minus nblk, 27 terms; splices the OCaml value  *)
+(* wbn_caught_up (NOT a backtick literal -- that would introduce a free var). *)
+let shift_vals r =
+  let rt = mk_small_numeral r in
+  let slice = subst [rt, `r_:num`]
+                `SUB_LIST (128 * ((nblk - 9) DIV 8 + 1), 16 * r_) (ibytes:byte list)` in
+  let xi_shifted = mk_comb(`word_bytereverse:int128->int128`, wbn_caught_up) in
+  [ `pc:num`; `stackpointer:int64`;
+    `word_add out_p (word (128 * ((nblk - 9) DIV 8 + 1))):int64`;
+    `xi_p:int64`; `ivec_p:int64`;
+    `word_add in_p (word (128 * ((nblk - 9) DIV 8 + 1))):int64`;
+    `key_p:int64`; `htbl_p:int64`;
+    slice; xi_shifted;
+    `gcm_ctr_add (word (8 * ((nblk - 9) DIV 8 + 1))) ctr0:int128`;
+    `k0:int128`;`k1:int128`;`k2:int128`;`k3:int128`;`k4:int128`;`k5:int128`;`k6:int128`;`k7:int128`;
+    `k8:int128`;`k9:int128`;`k10:int128`;`k11:int128`;`k12:int128`;`k13:int128`;`k14:int128`;`h:int128`];;
+
+(* the 3 side-condition clauses (whole-length granularity). *)
+let wbn_prep_to_end_extra_clauses =
+  [`nonoverlapping (out_p:int64,16 * nblk) (xi_p:int64,16)`;
+   `nonoverlapping (out_p:int64,16 * nblk) (ivec_p:int64,16)`;
+   `nonoverlapping (xi_p:int64,16) (ivec_p:int64,16)`];;
+
+(* WBN_PREP_TO_END_r goal: ext2 seam post -> shifted band_post r, under the   *)
+(* length hyp + the 3 side conditions.  tail_r = the WB_TAIL_GEN2_r theorem.  *)
+let wbn_prep_to_end_goal r tail_r =
+  let tail = SPECL (shift_vals r) tail_r in
+  let _,targs = strip_comb (snd(dest_imp(concl tail))) in
+  let shifted_post = el 2 targs in
+  let nblk_eq = subst[mk_small_numeral r,`r_:num`]
+                  `nblk = 8 * ((nblk - 9) DIV 8 + 1) + r_` in
+  let hyps = end_itlist (curry mk_conj)
+    (wbn_front_hyps_wide_tm :: nblk_eq :: wbn_prep_to_end_extra_clauses) in
+  let ens = list_mk_comb(`ensures arm`,
+    [wbn_prepretail_post_ext2; shifted_post; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(hyps, ens));;
+
+(* Parametric reconciliation tactic (session-047, validated r=1..2 live, then  *)
+(* r=3..8 by the same shape).  The r>1 cases read 16*r input bytes so use       *)
+(* WBN_INPUT_SLICE_GEN (m=16*r) both for the SUB_LIST fold (Q9) and the direct  *)
+(* input-read residual; the flags/X4/X5 close after SUBST word_sub=word(16*r);   *)
+(* the counter reads fold via GCM_CTR_ADD_1/COMPOSE + a 14-deep AP peel.  Every  *)
+(* pre-implication conjunct is closed order-independently by a per-goal FIRST    *)
+(* [REFL; WORD_RULE; counter-peel; slice] so leaf count/order never matters.     *)
+let WBN_PREP_TO_END_r_TAC r tail_r =
+  let rt = mk_small_numeral r in
+  let m16r = mk_binop `( * ):num->num->num` `16` rt in
+  let mnum = mk_small_numeral (16 * r) in
+  let sv = shift_vals r in
+  let tail = SPECL sv tail_r in
+  let _,targs = strip_comb (snd(dest_imp(concl tail))) in
+  let tail_frame = el 3 targs and tail_pre = el 1 targs in
+  let slice_close =
+    MP_TAC(SPECL [`nblk:num`;`in_p:int64`;`ibytes:byte list`;`q:num`;mnum;`x:armstate`]
+             WBN_INPUT_SLICE_GEN) THEN
+    ANTS_TAC THENL
+     [ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
+      REWRITE_TAC[ARITH_RULE(mk_eq(m16r,mnum))] THEN DISCH_THEN ACCEPT_TAC] in
+  let counter_close =
+    REPLICATE_TAC 14 AP_THM_TAC THEN AP_TERM_TAC THEN AP_THM_TAC THEN AP_TERM_TAC THEN
+    CONV_TAC WORD_RULE in
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC ENSURES_FRAME_SUBSUMED THEN EXISTS_TAC tail_frame THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN SUBSUMED_MAYCHANGE_TAC;
+    ALL_TAC] THEN
+  MATCH_MP_TAC ENSURES_PRECONDITION_THM THEN EXISTS_TAC tail_pre THEN
+  CONJ_TAC THENL
+   [GEN_TAC THEN REWRITE_TAC[] THEN STRIP_TAC THEN
+    ASM_REWRITE_TAC[WORD_BYTEREVERSE_BYTEREVERSE] THEN
+    ABBREV_TAC `q = (nblk - 9) DIV 8` THEN
+    SUBGOAL_THEN (subst[rt,`r_:num`] `16 * nblk = 128 * (q + 1) + 16 * r_`)
+      ASSUME_TAC THENL
+     [UNDISCH_TAC (subst[rt,`r_:num`] `nblk = 8 * (q + 1) + r_`) THEN ARITH_TAC;
+      ALL_TAC] THEN
+    REWRITE_TAC[GSYM GCM_CTR_ADD_1; GCM_CTR_ADD_COMPOSE] THEN
+    MP_TAC(SPECL [`nblk:num`;`in_p:int64`;`ibytes:byte list`;`q:num`;m16r;`x:armstate`]
+      WBN_INPUT_SLICE_GEN) THEN
+    ANTS_TAC THENL
+     [ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
+      DISCH_THEN(fun th -> REWRITE_TAC[th])] THEN
+    REWRITE_TAC[SUB_LIST_MIN_RIGHT; ARITH_RULE(subst[rt,`r_:num`] `MIN 16 (16 * r_) = 16`);
+                ARITH_RULE `16 * 8 * (q + 1) = 128 * (q + 1)`] THEN
+    ASM_REWRITE_TAC[] THEN
+    SUBGOAL_THEN (subst[rt,`r_:num`]
+      `word_sub (word_add in_p (word (128 * (q + 1) + 16 * r_)))
+                (word_add in_p (word (128 * (q + 1)))):int64 = word (16 * r_)`)
+      SUBST_ALL_TAC THENL [CONV_TAC WORD_RULE; ALL_TAC] THEN
+    REPEAT CONJ_TAC THEN
+    FIRST [REFL_TAC; CONV_TAC WORD_RULE; counter_close; slice_close];
+    MP_TAC tail THEN ANTS_TAC THENL
+     [CONJ_TAC THENL
+        [REWRITE_TAC[LENGTH_SUB_LIST] THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
+         ALL_TAC] THEN
+      REPEAT CONJ_TAC THEN (FIRST_ASSUM ACCEPT_TAC ORELSE NONOVERLAPPING_TAC);
+      DISCH_THEN ACCEPT_TAC]];;
+
+let WBN_PREP_TO_END_1 = prove(wbn_prep_to_end_goal 1 WB_TAIL_GEN2_1,
+  WBN_PREP_TO_END_r_TAC 1 WB_TAIL_GEN2_1);;
+let WBN_PREP_TO_END_2 = prove(wbn_prep_to_end_goal 2 WB_TAIL_GEN2_2,
+  WBN_PREP_TO_END_r_TAC 2 WB_TAIL_GEN2_2);;
+let WBN_PREP_TO_END_3 = prove(wbn_prep_to_end_goal 3 WB_TAIL_GEN2_3,
+  WBN_PREP_TO_END_r_TAC 3 WB_TAIL_GEN2_3);;
+let WBN_PREP_TO_END_4 = prove(wbn_prep_to_end_goal 4 WB_TAIL_GEN2_4,
+  WBN_PREP_TO_END_r_TAC 4 WB_TAIL_GEN2_4);;
+let WBN_PREP_TO_END_5 = prove(wbn_prep_to_end_goal 5 WB_TAIL_GEN2_5,
+  WBN_PREP_TO_END_r_TAC 5 WB_TAIL_GEN2_5);;
+let WBN_PREP_TO_END_6 = prove(wbn_prep_to_end_goal 6 WB_TAIL_GEN2_6,
+  WBN_PREP_TO_END_r_TAC 6 WB_TAIL_GEN2_6);;
+let WBN_PREP_TO_END_7 = prove(wbn_prep_to_end_goal 7 WB_TAIL_GEN2_7,
+  WBN_PREP_TO_END_r_TAC 7 WB_TAIL_GEN2_7);;
+let WBN_PREP_TO_END_8 = prove(wbn_prep_to_end_goal 8 WB_TAIL_GEN2_8,
+  WBN_PREP_TO_END_r_TAC 8 WB_TAIL_GEN2_8);;
+
+(* ========================================================================= *)
+(* SESSION-048 -- PHASE 6 STEP 2b: tag-fold + output-forall algebra.         *)
+(*                                                                           *)
+(* The per-r seam lemmas WBN_PREP_TO_END_r land a SHIFTED-band post:          *)
+(*   - PC = pc+4528 (whole-function exit)                                     *)
+(*   - the LAST r output stores at out_p + 128*(k+1) + 16*i (i<r)             *)
+(*   - the tag at xi_p = word_bytereverse (ghash_polyval_acc bh (brev xi)     *)
+(*       (MAP brev (list_of_seq cph (8*(k+1)))))  APPENDED with the r new     *)
+(*       blocks (double-brev'd running acc + r cph blocks).                    *)
+(* They DROP the first 8*(k+1) output stores (the ext2 seam post carries them *)
+(* as its conjunct [64] forall).  To get the full-nblk contract we must       *)
+(*   (a) carry the ext2 output forall through the r-block tail (its narrow    *)
+(*       output frame writes only bytes(out_p+128(k+1),16*r), disjoint from   *)
+(*       the first 128*(k+1) bytes -> ENSURES_ADD_PRESERVED, sound), and      *)
+(*   (b) fold the tag: caught_up ++ [r new blocks] = list_of_seq cph nblk     *)
+(*       via GHASH_ACC_APPEND (the one genuinely NEW algebra step).           *)
+(* These helper lemmas do the sim-free list/tag algebra for (b).             *)
+(* ------------------------------------------------------------------------- *)
+
+(* list_of_seq splits at any point into a prefix + a shifted suffix. *)
+let LIST_OF_SEQ_ADD = prove
+ (`!m (f:num->A) n. list_of_seq f (m + n) =
+        APPEND (list_of_seq f m) (list_of_seq (\i. f (m + i)) n)`,
+  INDUCT_TAC THEN REPEAT GEN_TAC THENL
+   [REWRITE_TAC[ADD_CLAUSES; LIST_OF_SEQ; APPEND; ETA_AX];
+    REWRITE_TAC[ADD_CLAUSES; LIST_OF_SEQ; APPEND] THEN
+    AP_TERM_TAC THEN ASM_REWRITE_TAC[o_DEF]]);;
+
+(* LIST_OF_SEQ_CLAUSES (in the base) only covers n=0..4; the r-block tag fold      *)
+(* needs the explicit expansion up to n=8.  Each proved from the SUC recursion     *)
+(* (num_CONV on the count down to a CLAUSES-known value, then APPEND).             *)
+let LIST_OF_SEQ_CLAUSES_5_8 =
+  let expand_los n =
+    let suc_convs = map (fun k -> num_CONV (mk_small_numeral k)) (rev (5--n)) in
+    prove(mk_forall(`f:num->A`,
+       mk_eq(list_mk_comb(`list_of_seq:(num->A)->num->(A)list`,[`f:num->A`; mk_small_numeral n]),
+             mk_list(map (fun i -> mk_comb(`f:num->A`, mk_small_numeral i)) (0--(n-1)), `:A`))),
+      GEN_TAC THEN
+      GEN_REWRITE_TAC TOP_DEPTH_CONV suc_convs THEN
+      REWRITE_TAC[list_of_seq] THEN
+      CONV_TAC(DEPTH_CONV NUM_SUC_CONV) THEN
+      REWRITE_TAC[LIST_OF_SEQ_CLAUSES] THEN REWRITE_TAC[APPEND]) in
+  end_itlist CONJ (map expand_los [5;6;7;8]);;
+
+(* fold one gcm_ctr_inc into the running gcm_ctr_add offset (for the r>1 tail    *)
+(* stores' inc^i towers in WBN_PREP_TO_END_FULL_r).                             *)
+let GCM_CTR_INC_FOLD = prove
+ (`!w x. gcm_ctr_inc (gcm_ctr_add w x) = gcm_ctr_add (word_add w (word 1)) x`,
+  REWRITE_TAC[GSYM GCM_CTR_ADD_1; GCM_CTR_ADD_COMPOSE]);;
+
+(* nesting: the shifted band's i-th cph block = the global (8*(k+1)+i)-th. *)
+let WBN_SUBLIST_SHIFT = prove
+ (`!(ibytes:byte list) k i r. i < r
+   ==> SUB_LIST (16 * i,16) (SUB_LIST (128 * (k + 1),16 * r) ibytes) =
+       SUB_LIST (16 * (8 * (k + 1) + i),16) ibytes`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[SUB_LIST_MIN_GENERAL] THEN
+  SUBGOAL_THEN `MIN 16 (16 * r - 16 * i) = 16` SUBST1_TAC THENL
+   [ASM_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `128 * (k + 1) + 16 * i = 16 * (8 * (k + 1) + i)` SUBST1_TAC THENL
+   [ARITH_TAC; REFL_TAC]);;
+
+(* ------------------------------------------------------------------------- *)
+(* WBN_PREP_TO_END_FULL_r : the seam post fed to the shifted tail, delivering  *)
+(* the FULL-nblk output/tag contract (not the r-block band_post).  Post =      *)
+(* wbn_end_post: PC=pc+4528, the nblk-uniform output forall (aes13 XOR k14      *)
+(* vocabulary, matching the ext2 seam's carried forall), the tag folded to      *)
+(* list_of_seq cph nblk via GHASH_ACC_APPEND.                                   *)
+(*                                                                             *)
+(* Route (session-048): FRAME_SUBSUMED (narrow tail out-frame -> wide           *)
+(* wbn_front_C_tm), THEN ENSURES_POSTCONDITION_THM with the intermediate        *)
+(*   inter_post_r = \s. (shifted band_post r) s /\ (ext2 first-8(k+1) forall) s  *)
+(* splitting into: (1) inter_post_r ==> wbn_end_post [the tag-fold + store       *)
+(* re-index math], and (2) ensures ext2post inter_post_r narrow_frame, closed    *)
+(* by ENSURES_ADD_PRESERVED [narrow tail leg via INNER_TAIL_FEED_TAC + the       *)
+(* first-blocks forall carried by read-over-write through the narrow frame,      *)
+(* sound because the tail writes only bytes(out_p+128(k+1),16*r), disjoint       *)
+(* from the first 128(k+1) output bytes].                                        *)
+(* ------------------------------------------------------------------------- *)
+
+(* the nblk-uniform end post (PC + output forall over nblk + folded tag). *)
+let wbn_end_post =
+  let end_forall = `forall j. j < nblk
+    ==> read (memory :> bytes128 (word_add out_p (word (16 * j)))) s =
+        word_xor (word_xor (bytes_to_int128 (SUB_LIST (16 * j,16) ibytes))
+        (aes13 (gcm_ctr_inc_iter j ctr0) k0 k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13)) k14` in
+  let tag = `read (memory :> bytes128 xi_p) s =
+    word_bytereverse (ghash_polyval_acc (byteswap128 h) (word_bytereverse xi)
+      (MAP word_bytereverse
+        (list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16) ibytes)) nblk)))` in
+  mk_abs(`s:armstate`,
+    list_mk_conj [`read PC s = word (pc + 4528)`; end_forall; tag]);;
+
+(* full-post goal for a given r *)
+let wbn_prep_to_end_full_goal r =
+  let nblk_eq = subst[mk_small_numeral r,`r_:num`]
+                  `nblk = 8 * ((nblk - 9) DIV 8 + 1) + r_` in
+  let hyps = end_itlist (curry mk_conj)
+    (wbn_front_hyps_wide_tm :: nblk_eq :: wbn_prep_to_end_extra_clauses) in
+  let ens = list_mk_comb(`ensures arm`,
+    [wbn_prepretail_post_ext2; wbn_end_post; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(hyps, ens));;
+
+(* the narrow tail out-frame (writes only the last r output blocks) for shift r. *)
+let wbn_tail_gen2 r =
+  if r=1 then WB_TAIL_GEN2_1 else if r=2 then WB_TAIL_GEN2_2
+  else if r=3 then WB_TAIL_GEN2_3 else if r=4 then WB_TAIL_GEN2_4
+  else if r=5 then WB_TAIL_GEN2_5 else if r=6 then WB_TAIL_GEN2_6
+  else if r=7 then WB_TAIL_GEN2_7 else WB_TAIL_GEN2_8;;
+let wbn_narrow_frame r =
+  el 3 (snd(strip_comb(snd(dest_imp(concl(SPECL (shift_vals r) (wbn_tail_gen2 r)))))));;
+
+(* INNER_TAIL_FEED_TAC r tail_r: the post-FRAME_SUBSUMED inner half of           *)
+(* WBN_PREP_TO_END_r_TAC (PRECONDITION_THM + feed the shifted tail); proves      *)
+(* `ensures ext2post (shifted band_post r) narrow_frame` on its own.            *)
+let INNER_TAIL_FEED_TAC r tail_r =
+  let rt = mk_small_numeral r in
+  let m16r = mk_binop `( * ):num->num->num` `16` rt in
+  let mnum = mk_small_numeral (16 * r) in
+  let sv = shift_vals r in
+  let tail = SPECL sv tail_r in
+  let _,targs = strip_comb (snd(dest_imp(concl tail))) in
+  let tail_pre = el 1 targs in
+  let slice_close =
+    MP_TAC(SPECL [`nblk:num`;`in_p:int64`;`ibytes:byte list`;`q:num`;mnum;`x:armstate`]
+             WBN_INPUT_SLICE_GEN) THEN
+    ANTS_TAC THENL
+     [ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
+      REWRITE_TAC[ARITH_RULE(mk_eq(m16r,mnum))] THEN DISCH_THEN ACCEPT_TAC] in
+  let counter_close =
+    REPLICATE_TAC 14 AP_THM_TAC THEN AP_TERM_TAC THEN AP_THM_TAC THEN AP_TERM_TAC THEN
+    CONV_TAC WORD_RULE in
+  MATCH_MP_TAC ENSURES_PRECONDITION_THM THEN EXISTS_TAC tail_pre THEN
+  CONJ_TAC THENL
+   [GEN_TAC THEN REWRITE_TAC[] THEN STRIP_TAC THEN
+    ASM_REWRITE_TAC[WORD_BYTEREVERSE_BYTEREVERSE] THEN
+    ABBREV_TAC `q = (nblk - 9) DIV 8` THEN
+    SUBGOAL_THEN (subst[rt,`r_:num`] `16 * nblk = 128 * (q + 1) + 16 * r_`)
+      ASSUME_TAC THENL
+     [UNDISCH_TAC (subst[rt,`r_:num`] `nblk = 8 * (q + 1) + r_`) THEN ARITH_TAC;
+      ALL_TAC] THEN
+    REWRITE_TAC[GSYM GCM_CTR_ADD_1; GCM_CTR_ADD_COMPOSE] THEN
+    MP_TAC(SPECL [`nblk:num`;`in_p:int64`;`ibytes:byte list`;`q:num`;m16r;`x:armstate`]
+      WBN_INPUT_SLICE_GEN) THEN
+    ANTS_TAC THENL
+     [ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
+      DISCH_THEN(fun th -> REWRITE_TAC[th])] THEN
+    REWRITE_TAC[SUB_LIST_MIN_RIGHT; ARITH_RULE(subst[rt,`r_:num`] `MIN 16 (16 * r_) = 16`);
+                ARITH_RULE `16 * 8 * (q + 1) = 128 * (q + 1)`] THEN
+    ASM_REWRITE_TAC[] THEN
+    SUBGOAL_THEN (subst[rt,`r_:num`]
+      `word_sub (word_add in_p (word (128 * (q + 1) + 16 * r_)))
+                (word_add in_p (word (128 * (q + 1)))):int64 = word (16 * r_)`)
+      SUBST_ALL_TAC THENL [CONV_TAC WORD_RULE; ALL_TAC] THEN
+    REPEAT CONJ_TAC THEN
+    FIRST [REFL_TAC; CONV_TAC WORD_RULE; counter_close; slice_close];
+    MP_TAC tail THEN ANTS_TAC THENL
+     [CONJ_TAC THENL
+        [REWRITE_TAC[LENGTH_SUB_LIST] THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
+         ALL_TAC] THEN
+      REPEAT CONJ_TAC THEN (FIRST_ASSUM ACCEPT_TAC ORELSE NONOVERLAPPING_TAC);
+      DISCH_THEN ACCEPT_TAC]];;
+
+(* r=1 full-post: validated end-to-end interactively (session-048). *)
+let WBN_PREP_TO_END_FULL_1 = prove(wbn_prep_to_end_full_goal 1,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC ENSURES_FRAME_SUBSUMED THEN
+  EXISTS_TAC (wbn_narrow_frame 1) THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN SUBSUMED_MAYCHANGE_TAC;
+    ALL_TAC] THEN
+  MATCH_MP_TAC ENSURES_POSTCONDITION_THM THEN
+  EXISTS_TAC (mk_abs(`s:armstate`,
+    mk_conj(snd(dest_abs(el 2 (snd(strip_comb(snd(dest_imp(concl(SPECL (shift_vals 1) WB_TAIL_GEN2_1)))))))),
+            el 64 (conjuncts (snd(dest_abs wbn_prepretail_post_ext2)))))) THEN
+  CONJ_TAC THENL
+   [X_GEN_TAC `s:armstate` THEN REWRITE_TAC[] THEN STRIP_TAC THEN
+    ASM_REWRITE_TAC[] THEN ABBREV_TAC `q = (nblk - 9) DIV 8` THEN
+    CONJ_TAC THENL
+     [X_GEN_TAC `j:num` THEN DISCH_TAC THEN
+      ASM_CASES_TAC `j < 8 * (q + 1)` THENL
+       [FIRST_X_ASSUM MATCH_MP_TAC THEN FIRST_X_ASSUM ACCEPT_TAC;
+        SUBGOAL_THEN `j = 8 * (q + 1)` SUBST_ALL_TAC THENL
+         [ASM_ARITH_TAC; ALL_TAC] THEN
+        REWRITE_TAC[ARITH_RULE `16 * 8 * (q + 1) = 128 * (q + 1)`; GCM_CTR_INC_ITER_ADD] THEN
+        FIRST_X_ASSUM(fun th -> if is_eq(concl th) &&
+          (match lhs(concl th) with Comb(Comb(Const("read",_),_),_) ->
+             (can (find_term (fun t -> t = `aes256_encrypt`)) (concl th)) | _ -> false)
+          then SUBST1_TAC th else NO_TAC) THEN
+        SUBGOAL_THEN `SUB_LIST (0,16) (SUB_LIST (128 * (q + 1),16 * 1) (ibytes:byte list)) =
+                      SUB_LIST (128 * (q + 1),16) ibytes` SUBST1_TAC THENL
+         [REWRITE_TAC[SUB_LIST_MIN_RIGHT] THEN AP_THM_TAC THEN AP_TERM_TAC THEN
+          AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN
+        GEN_REWRITE_TAC LAND_CONV [GSYM AES256_XOR_ENCRYPT_RECONSTRUCT] THEN
+        CONV_TAC WORD_RULE];
+      REWRITE_TAC[WORD_BYTEREVERSE_BYTEREVERSE] THEN AP_TERM_TAC THEN
+      SUBGOAL_THEN
+        `list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16) (ibytes:byte list))) nblk =
+         list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16) ibytes)) (8 * (q + 1) + 1)`
+        SUBST1_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
+      REWRITE_TAC[LIST_OF_SEQ_ADD; MAP_APPEND; GHASH_ACC_APPEND] THEN AP_TERM_TAC THEN
+      REWRITE_TAC[LIST_OF_SEQ_CLAUSES; MAP; MULT_CLAUSES; ADD_CLAUSES] THEN
+      REWRITE_TAC[SUB_LIST_MIN_RIGHT; ARITH_RULE `MIN 16 16 = 16`;
+                  ARITH_RULE `16 * 8 * (q + 1) = 128 * (q + 1)`]];
+    MATCH_MP_TAC ENSURES_ADD_PRESERVED THEN CONJ_TAC THENL
+     [INNER_TAIL_FEED_TAC 1 WB_TAIL_GEN2_1;
+      REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; MAYCHANGE; SEQ_ID] THEN
+      REWRITE_TAC[GSYM SEQ_ASSOC] THEN PURE_REWRITE_TAC[ASSIGNS_SEQ] THEN
+      CONV_TAC(REDEPTH_CONV BETA_CONV) THEN REWRITE_TAC[ASSIGNS_THM] THEN
+      CONV_TAC(REDEPTH_CONV BETA_CONV) THEN REWRITE_TAC[LEFT_IMP_EXISTS_THM] THEN
+      REPEAT GEN_TAC THEN STRIP_TAC THEN
+      X_GEN_TAC `j:num` THEN DISCH_TAC THEN
+      FIRST_X_ASSUM(SUBST_ALL_TAC o SYM o check (fun th -> is_eq(concl th) &&
+        (match rhs(concl th) with Var("s'",_) -> true | _ -> false))) THEN
+      SUBGOAL_THEN `nonoverlapping (word_add out_p (word (16 * j)):int64,16)
+         (word_add out_p (word (128 * ((nblk - 9) DIV 8 + 1))),16)` ASSUME_TAC THENL
+       [NONOVERLAPPING_TAC; ALL_TAC] THEN
+      WBN_PUSH_LHS_READ_TAC THEN
+      FIRST_ASSUM(fun th -> if is_forall(concl th) then MATCH_MP_TAC th else NO_TAC) THEN
+      FIRST_X_ASSUM ACCEPT_TAC]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* SESSION-049 -- r>1 generalization of WBN_PREP_TO_END_FULL_1, MECHANIZED.    *)
+(*                                                                             *)
+(* WBN_PREP_TO_END_FULL_r for r=2..8 has the IDENTICAL skeleton as FULL_1;     *)
+(* the r-dependent hand-parts are packaged as OCaml `int -> tactic` closures   *)
+(* below and driven by WBN_PREP_TO_END_FULL_r_TAC.  Validated r=2..8 hyps=0.   *)
+(*                                                                             *)
+(* KEY per-block algebra: for output block j = 8*(q+1)+i (0<=i<r), the         *)
+(* seam-carried full-post value equals the r-block band store.  block_bridge   *)
+(* proves that value identity STANDALONE (goal-form word_xor(word_xor cph      *)
+(* aes13)k14 = store-form word_xor cph (aes256_encrypt ...)), reconciling:     *)
+(*   - counter: gcm_ctr_inc_iter(8(q+1)+i) = gcm_ctr_add(word(8(q+1)+i)) =     *)
+(*              gcm_ctr_inc^i (gcm_ctr_add(word 8(q+1)))  [GCM_CTR_INC_FOLD]    *)
+(*   - cph slice: SUB_LIST(16*(8(q+1)+i),16) ibytes =                          *)
+(*              SUB_LIST(16*i,16)(SUB_LIST(128(q+1),16*r) ibytes) [WBN_SUBLIST_SHIFT] *)
+(*   - AES: GSYM AES256_XOR_ENCRYPT_RECONSTRUCT + WORD_RULE (XOR reassoc).     *)
+(* block_close then reduces 16*i -> numeral (ARITH mul_red -- else the goal's  *)
+(* SUB_LIST(16*i,..)/word(16*i) won't match the store's SUB_LIST(<16i>,..)/    *)
+(* word <16i>) and reconciles the store address (i=0 flat, i>=1 nested).       *)
+(* tag_fold folds the r-element explicit tag list to list_of_seq via           *)
+(* LIST_OF_SEQ_ADD/GHASH_ACC_APPEND, closing each element by WBN_SUBLIST_SHIFT. *)
+(* ------------------------------------------------------------------------- *)
+
+(* the goal-side and store-side counter for output block i (0<=i<r). *)
+let wbn_full_goal_ctr i =
+  subst[mk_small_numeral i,`i_:num`]
+    `gcm_ctr_add (word (8 * (q + 1) + i_)) ctr0 :int128`;;
+let wbn_full_store_ctr i =
+  funpow i (fun t -> mk_comb(`gcm_ctr_inc:int128->int128`, t))
+    `gcm_ctr_add (word (8 * (q + 1))) ctr0 :int128`;;
+(* the goal-side and store-side output addresses for block i. *)
+let wbn_full_goal_addr i =
+  subst[mk_small_numeral i,`i_:num`]
+    `word_add out_p (word (16 * (8 * (q + 1) + i_))):int64`;;
+let wbn_full_store_addr i =
+  if i = 0 then `word_add out_p (word (128 * (q + 1))):int64`
+  else mk_comb(mk_comb(`word_add:int64->int64->int64`,
+                       `word_add out_p (word (128 * (q + 1))):int64`),
+               mk_comb(`word:num->int64`, mk_small_numeral(16 * i)));;
+
+(* the standalone per-block value bridge goal + tactic. *)
+let wbn_block_bridge_goal r i =
+  let it = mk_small_numeral i and rt = mk_small_numeral r in
+  let gcph = subst[it,`i_:num`]
+    `bytes_to_int128 (SUB_LIST (16 * (8 * (q + 1) + i_),16) (ibytes:byte list))` in
+  let gval = list_mk_comb(`word_xor:int128->int128->int128`,
+    [list_mk_comb(`word_xor:int128->int128->int128`,
+       [gcph; list_mk_comb(`aes13`,[wbn_full_goal_ctr i;
+          `k0:int128`;`k1:int128`;`k2:int128`;`k3:int128`;`k4:int128`;`k5:int128`;`k6:int128`;
+          `k7:int128`;`k8:int128`;`k9:int128`;`k10:int128`;`k11:int128`;`k12:int128`;`k13:int128`])]);
+     `k14:int128`]) in
+  let scph = subst[it,`i_:num`;rt,`r_:num`]
+    `bytes_to_int128 (SUB_LIST (16 * i_,16) (SUB_LIST (128 * (q + 1),16 * r_) (ibytes:byte list)))` in
+  let sval = list_mk_comb(`word_xor:int128->int128->int128`,
+    [scph; list_mk_comb(`aes256_encrypt`,
+       [wbn_full_store_ctr i;
+        `[k0;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]:(int128)list`])]) in
+  mk_forall(`q:num`, mk_imp(subst[it,`i_:num`;rt,`r_:num`] `i_ < r_`, mk_eq(gval,sval)));;
+
+let wbn_block_bridge_tac r i =
+  let it = mk_small_numeral i and rt = mk_small_numeral r in
+  let sublist_inst = SPECL [`ibytes:byte list`;`q:num`;it;rt] WBN_SUBLIST_SHIFT in
+  let ctr_eq = mk_eq(wbn_full_goal_ctr i, wbn_full_store_ctr i) in
+  GEN_TAC THEN DISCH_TAC THEN
+  (MP_TAC sublist_inst THEN ANTS_TAC THENL [ARITH_TAC; DISCH_THEN(SUBST1_TAC o SYM)]) THEN
+  SUBGOAL_THEN ctr_eq SUBST1_TAC THENL
+   [REWRITE_TAC[GCM_CTR_INC_FOLD] THEN AP_THM_TAC THEN AP_TERM_TAC THEN CONV_TAC WORD_RULE;
+    ALL_TAC] THEN
+  REWRITE_TAC[GSYM AES256_XOR_ENCRYPT_RECONSTRUCT] THEN CONV_TAC WORD_RULE;;
+
+(* close one output block j = 8*(q+1)+i in the case-2 forall of FULL_r. *)
+let wbn_block_close_tac r i =
+  let brg = SPEC `q:num` (prove(wbn_block_bridge_goal r i, wbn_block_bridge_tac r i)) in
+  let it = mk_small_numeral i in
+  let mul_red = ARITH_RULE (mk_eq(mk_binop `( * ):num->num->num` `16` it,
+                                  mk_small_numeral(16 * i))) in
+  let common = REWRITE_TAC[GCM_CTR_INC_ITER_ADD] THEN
+    MP_TAC brg THEN (ANTS_TAC THENL [ARITH_TAC; ALL_TAC]) THEN DISCH_THEN SUBST1_TAC THEN
+    REWRITE_TAC[mul_red] in
+  if i = 0 then
+    common THEN
+    REWRITE_TAC[ARITH_RULE `16 * 8 * (q + 1) = 128 * (q + 1)`; MULT_CLAUSES; ADD_CLAUSES] THEN
+    ASM_REWRITE_TAC[]
+  else
+    let addr_eq = mk_eq(wbn_full_goal_addr i, wbn_full_store_addr i) in
+    let addr_arith = subst[it,`i_:num`]
+      `16 * (8 * (q + 1) + i_) = 128 * (q + 1) + 16 * i_` in
+    common THEN
+    SUBGOAL_THEN addr_eq SUBST1_TAC THENL
+     [REWRITE_TAC[ARITH_RULE addr_arith; mul_red] THEN CONV_TAC WORD_RULE; ALL_TAC] THEN
+    FIRST_X_ASSUM ACCEPT_TAC;;
+
+(* (A) the case-2 output forall for shift r. *)
+let wbn_case2_forall_tac r =
+  let one_block i =
+    FIRST_X_ASSUM(SUBST_ALL_TAC o check (fun th -> match concl th with
+      Comb(Comb(Const("=",_),Var("j",_)),_) -> true | _ -> false)) THEN
+    wbn_block_close_tac r i in
+  let disj = end_itlist (fun a b -> mk_disj(a,b))
+    (map (fun i -> subst[mk_small_numeral i,`i_:num`] `j = 8 * (q + 1) + i_`) (0--(r-1))) in
+  X_GEN_TAC `j:num` THEN DISCH_TAC THEN ASM_CASES_TAC `j < 8 * (q + 1)` THENL
+   [FIRST_X_ASSUM MATCH_MP_TAC THEN FIRST_X_ASSUM ACCEPT_TAC;
+    SUBGOAL_THEN disj STRIP_ASSUME_TAC THENL
+     ((UNDISCH_TAC (subst[mk_small_numeral r,`r_:num`] `nblk = 8 * (q + 1) + r_`) THEN
+       UNDISCH_TAC `~(j < 8 * (q + 1))` THEN UNDISCH_TAC `j < nblk` THEN ARITH_TAC) ::
+      map one_block (0--(r-1)))];;
+
+(* (B) the tag fold: r-element explicit tag list -> list_of_seq cph nblk. *)
+let wbn_tag_elt_close r i =
+  let mul_red = ARITH_RULE (mk_eq(mk_binop `( * ):num->num->num` `16` (mk_small_numeral i),
+                                  mk_small_numeral(16 * i))) in
+  MP_TAC(REWRITE_RULE[mul_red; MULT_CLAUSES]
+           (SPECL [`ibytes:byte list`;`q:num`;mk_small_numeral i;mk_small_numeral r]
+              WBN_SUBLIST_SHIFT)) THEN
+  ANTS_TAC THENL [ARITH_TAC; DISCH_THEN MATCH_ACCEPT_TAC];;
+let wbn_tag_fold_tac r =
+  let rt = mk_small_numeral r in
+  AP_TERM_TAC THEN
+  SUBGOAL_THEN (subst[rt,`r_:num`]
+     `list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16) (ibytes:byte list))) nblk =
+      list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16) ibytes)) (8 * (q + 1) + r_)`)
+    SUBST1_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  REWRITE_TAC[LIST_OF_SEQ_ADD; MAP_APPEND; GHASH_ACC_APPEND] THEN
+  REWRITE_TAC[WORD_BYTEREVERSE_BYTEREVERSE] THEN AP_TERM_TAC THEN
+  REWRITE_TAC[LIST_OF_SEQ_CLAUSES; LIST_OF_SEQ_CLAUSES_5_8; MAP; o_DEF] THEN
+  REWRITE_TAC[CONS_11] THEN
+  (if r = 1 then ALL_TAC else REPEAT CONJ_TAC) THEN
+  FIRST (map (fun i -> AP_TERM_TAC THEN AP_TERM_TAC THEN wbn_tag_elt_close r i) (0--(r-1)));;
+
+(* the full FULL_r tactic (r>=1): FRAME_SUBSUMED -> POSTCONDITION_THM with        *)
+(* intermediate (shifted band_post /\ ext2 first-8(k+1) forall), split into        *)
+(* [ (A) case-2 forall + (B) tag fold ] and [ ADD_PRESERVED: INNER_TAIL_FEED +     *)
+(* carry the forall through the narrow tail writes ].                              *)
+(* the intermediate post: shifted band_post r (of the SPECL'd tail) conjoined     *)
+(* with the ext2 seam's first-8(k+1)-out-blocks forall (conjunct 64).             *)
+let wbn_full_inter_post r =
+  let band_post_r =
+    el 2 (snd(strip_comb(snd(dest_imp(concl(SPECL (shift_vals r) (wbn_tail_gen2 r))))))) in
+  mk_abs(`s:armstate`,
+    mk_conj(snd(dest_abs band_post_r),
+            el 64 (conjuncts (snd(dest_abs wbn_prepretail_post_ext2)))));;
+let WBN_PREP_TO_END_FULL_r_TAC r =
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC ENSURES_FRAME_SUBSUMED THEN EXISTS_TAC (wbn_narrow_frame r) THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN SUBSUMED_MAYCHANGE_TAC;
+    ALL_TAC] THEN
+  MATCH_MP_TAC ENSURES_POSTCONDITION_THM THEN
+  EXISTS_TAC (wbn_full_inter_post r) THEN
+  CONJ_TAC THENL
+   [X_GEN_TAC `s:armstate` THEN REWRITE_TAC[] THEN STRIP_TAC THEN
+    ASM_REWRITE_TAC[] THEN ABBREV_TAC `q = (nblk - 9) DIV 8` THEN
+    CONJ_TAC THENL [wbn_case2_forall_tac r; wbn_tag_fold_tac r];
+    MATCH_MP_TAC ENSURES_ADD_PRESERVED THEN CONJ_TAC THENL
+     [INNER_TAIL_FEED_TAC r (wbn_tail_gen2 r);
+      REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; MAYCHANGE; SEQ_ID] THEN
+      REWRITE_TAC[GSYM SEQ_ASSOC] THEN PURE_REWRITE_TAC[ASSIGNS_SEQ] THEN
+      CONV_TAC(REDEPTH_CONV BETA_CONV) THEN REWRITE_TAC[ASSIGNS_THM] THEN
+      CONV_TAC(REDEPTH_CONV BETA_CONV) THEN REWRITE_TAC[LEFT_IMP_EXISTS_THM] THEN
+      REPEAT GEN_TAC THEN STRIP_TAC THEN
+      X_GEN_TAC `j:num` THEN DISCH_TAC THEN
+      FIRST_X_ASSUM(SUBST_ALL_TAC o SYM o check (fun th -> is_eq(concl th) &&
+        (match rhs(concl th) with Var("s'",_) -> true | _ -> false))) THEN
+      SUBGOAL_THEN (subst[mk_small_numeral r,`r_:num`]
+        `nonoverlapping (word_add out_p (word (16 * j)):int64,16)
+         (word_add out_p (word (128 * ((nblk - 9) DIV 8 + 1))),16 * r_)`) ASSUME_TAC THENL
+       [NONOVERLAPPING_TAC; ALL_TAC] THEN
+      WBN_PUSH_LHS_READ_TAC THEN
+      FIRST_ASSUM(fun th -> if is_forall(concl th) then MATCH_MP_TAC th else NO_TAC) THEN
+      FIRST_X_ASSUM ACCEPT_TAC]];;
+
+(* r=2..8 full-post legs (session-049, each hyps=0, ~49s).  r=1 is FULL_1 above. *)
+let WBN_PREP_TO_END_FULL_2 = prove(wbn_prep_to_end_full_goal 2, WBN_PREP_TO_END_FULL_r_TAC 2);;
+let WBN_PREP_TO_END_FULL_3 = prove(wbn_prep_to_end_full_goal 3, WBN_PREP_TO_END_FULL_r_TAC 3);;
+let WBN_PREP_TO_END_FULL_4 = prove(wbn_prep_to_end_full_goal 4, WBN_PREP_TO_END_FULL_r_TAC 4);;
+let WBN_PREP_TO_END_FULL_5 = prove(wbn_prep_to_end_full_goal 5, WBN_PREP_TO_END_FULL_r_TAC 5);;
+let WBN_PREP_TO_END_FULL_6 = prove(wbn_prep_to_end_full_goal 6, WBN_PREP_TO_END_FULL_r_TAC 6);;
+let WBN_PREP_TO_END_FULL_7 = prove(wbn_prep_to_end_full_goal 7, WBN_PREP_TO_END_FULL_r_TAC 7);;
+let WBN_PREP_TO_END_FULL_8 = prove(wbn_prep_to_end_full_goal 8, WBN_PREP_TO_END_FULL_r_TAC 8);;
+
+(* ------------------------------------------------------------------------- *)
+(* WBN_PREP_TO_END (session-049): the 8-way case split on r = 1+(nblk-9) MOD 8. *)
+(* From the ext2 seam post to the full nblk-uniform wbn_end_post, under         *)
+(* 9 <= nblk + the 3 side-conditions.  Each residue rr in {0..7} dispatches to   *)
+(* WBN_PREP_TO_END_FULL_(rr+1); the per-branch length hyp                        *)
+(* nblk = 8*((nblk-9)DIV 8 + 1) + (rr+1) follows by ARITH from the DIVISION      *)
+(* identity + 9 <= nblk.                                                         *)
+(* ------------------------------------------------------------------------- *)
+
+let wbn_full_thm = Array.of_list
+  [WBN_PREP_TO_END_FULL_1;  (* index 0 unused-ish; use r directly 1..8 *)
+   WBN_PREP_TO_END_FULL_1; WBN_PREP_TO_END_FULL_2; WBN_PREP_TO_END_FULL_3;
+   WBN_PREP_TO_END_FULL_4; WBN_PREP_TO_END_FULL_5; WBN_PREP_TO_END_FULL_6;
+   WBN_PREP_TO_END_FULL_7; WBN_PREP_TO_END_FULL_8];;
+
+let wbn_prep_to_end_goal_final =
+  let hyps = end_itlist (curry mk_conj)
+    (wbn_front_hyps_wide_tm :: `9 <= nblk` :: wbn_prep_to_end_extra_clauses) in
+  let ens = list_mk_comb(`ensures arm`,
+    [wbn_prepretail_post_ext2; wbn_end_post; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(hyps, ens));;
+
+let WBN_PREP_TO_END = prove(wbn_prep_to_end_goal_final,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(SPEC `nblk - 9` (MATCH_MP DIVISION (ARITH_RULE `~(8 = 0)`))) THEN
+  ABBREV_TAC `rr = (nblk - 9) MOD 8` THEN STRIP_TAC THEN
+  FIRST_X_ASSUM(fun th -> if concl th = `rr < 8` then MP_TAC th else NO_TAC) THEN
+  REWRITE_TAC[ARITH_RULE
+    `rr < 8 <=> rr = 0 \/ rr = 1 \/ rr = 2 \/ rr = 3 \/
+                rr = 4 \/ rr = 5 \/ rr = 6 \/ rr = 7`] THEN
+  STRIP_TAC THEN
+  FIRST (map (fun r ->
+    MATCH_MP_TAC wbn_full_thm.(r) THEN ASM_REWRITE_TAC[] THEN
+    UNDISCH_TAC `nblk - 9 = (nblk - 9) DIV 8 * 8 + rr` THEN
+    ASM_REWRITE_TAC[] THEN UNDISCH_TAC `9 <= nblk` THEN ARITH_TAC) (1--8)));;
+
+(* ------------------------------------------------------------------------- *)
+(* WBN_FRONT_TO_END (session-049): the full nblk>8 (nblk>=17) front->exit       *)
+(* chain, pc+0x20 -> pc+4528.  WBN_FRONT_TO_PREP_EXT2 ; WBN_PREP_TO_END via     *)
+(* ENSURES_TRANS_SIMPLE (both share frame wbn_front_C_tm, and the seam post      *)
+(* wbn_prepretail_post_ext2 is aconv between them).  Precond = wbn_front_P_tm    *)
+(* (the PC-free front core), post = wbn_end_post (nblk-uniform output forall +   *)
+(* GHASH_ACC_APPEND-folded tag over list_of_seq cph nblk).  The 3 side-conds     *)
+(* ride the antecedent outward (WBN_PREP_TO_END needs them; the front leg does   *)
+(* not); 9<=nblk from 17<=nblk by ARITH.  hyps=0, no new CHEAT (the 2 scoped     *)
+(* Q19/Q16 identity CHEATs remain buried in the loop body + prepretail).        *)
+(* ------------------------------------------------------------------------- *)
+
+let wbn_front_to_end_goal =
+  let hyps = end_itlist (curry mk_conj)
+    (wbn_front_hyps_wide_tm :: wbn_prep_to_end_extra_clauses) in
+  let ens = list_mk_comb(`ensures arm`,
+    [wbn_front_P_tm; wbn_end_post; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(hyps, ens));;
+
+let WBN_FRONT_TO_END = prove(wbn_front_to_end_goal,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
+  EXISTS_TAC wbn_prepretail_post_ext2 THEN
+  REPEAT CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_IDEMPOT_TAC;
+    MATCH_MP_TAC WBN_FRONT_TO_PREP_EXT2 THEN ASM_REWRITE_TAC[];
+    MATCH_MP_TAC WBN_PREP_TO_END THEN ASM_REWRITE_TAC[] THEN
+    UNDISCH_TAC `17 <= nblk` THEN ARITH_TAC]);;
+
+(* ========================================================================= *)
+(* SESSION-050 -- the nblk 9..16 leg (the loop is NEVER entered).             *)
+(*                                                                           *)
+(* For 9 <= nblk <= 16: q = (nblk-9) DIV 8 = 0, and d = 128*((nblk-1) DIV 8) *)
+(* = 128 (CONSTANT, since (nblk-1) DIV 8 = 1 across 9..16).  So at the loop- *)
+(* skip branch 0x49c (b.ge 0x9f0) we have X0 = in_p+128 == X5 = in_p+128, so *)
+(* the b.ge is TAKEN -> control goes STRAIGHT to prepretail 0x9f0; the main   *)
+(* loop body is never executed.  (For nblk>=17, d>=256 so X0<X5 and the b.ge  *)
+(* falls through into the loop head 0x4a0 -- that is WBN_FRONT_TO_END's path.) *)
+(*                                                                           *)
+(* The 9..16 leg is therefore a pure straight-line chain:                     *)
+(*   FRONT (0x20 -> 0x9f0, b.ge@0x49c TAKEN)  [WBN_FRONT_TO_PREP_916]          *)
+(*   ; PREPRETAIL (0x9f0 -> pc+3796, k:=0)    [WBN_PREPRETAIL_EXT2_916]        *)
+(*   ; PREP_TO_END (pc+3796 -> pc+4528)       [WBN_PREP_TO_END_916]            *)
+(* The FRONT and PREPRETAIL sims are the SAME code as the >=17 versions, only  *)
+(* the hyp band (17<=nblk -> 9<=nblk /\ nblk<=16) and the 0x49c branch         *)
+(* resolution differ; every register/memory read is IDENTICAL (the branch     *)
+(* only changes PC).  PREP_TO_END is symbolic in q (covers q=0).              *)
+(* ------------------------------------------------------------------------- *)
+
+(* the 9..16 hyp band: wbn_front_hyps_wide_tm with 17<=nblk -> 9<=nblk/\nblk<=16 *)
+let wbn_front_hyps_916_tm =
+  let rec repl t = match t with
+    | Comb(Comb(Const("/\\",_),a),b) -> mk_conj(repl a, repl b)
+    | _ -> if t = `17 <= nblk` then `9 <= nblk /\ nblk <= 16` else t in
+  repl wbn_front_hyps_wide_tm;;
+
+(* (nblk-1) DIV 8 = 1 for 9..16  ->  the loop-skip pointer d = 128*1 = 128. *)
+let DIV8_916 = prove
+ (`!nblk. 9 <= nblk /\ nblk <= 16 ==> (nblk - 1) DIV 8 = 1`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(SPECL[`nblk - 1`;`8`] DIVISION) THEN ANTS_TAC THENL [ARITH_TAC; ALL_TAC] THEN
+  ASM_ARITH_TAC);;
+
+(* index bound for the first-tail-block lane, 9<= variant (8*k+8 < nblk, k=0 here). *)
+let WBN_Q9_INDEX_LT_9 = prove
+ (`!nblk. 9 <= nblk /\ 128 * nblk < 2 EXP 62 ==> 8 * ((nblk - 9) DIV 8) + 8 < nblk`,
+  GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(SPECL[`nblk - 9`;`8`] DIVISION) THEN ANTS_TAC THENL [ARITH_TAC; ALL_TAC] THEN
+  ABBREV_TAC `k = (nblk - 9) DIV 8` THEN ASM_ARITH_TAC);;
+
+(* 0x42c b.ge (loop-entry test, X0=in_p<X5): FALLS THROUGH for 9..16 too. *)
+let WB_LOOPENTER_FLAGS_916 = prove
+ (`!(in_p:int64) nblk. 9 <= nblk /\ nblk <= 16 /\ 128 * nblk < 2 EXP 62 /\
+        val in_p + 16 * nblk < 2 EXP 63
+    ==> (ival (word_sub in_p (word_add (word (128 * (nblk - 1) DIV 8)) in_p)) < &0 <=> T) /\
+        (ival in_p - ival (word_add (word (128 * (nblk - 1) DIV 8)) in_p) =
+         ival (word_sub in_p (word_add (word (128 * (nblk - 1) DIV 8)) in_p)) <=> T)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(SPEC `nblk:num` DIV8_916) THEN ANTS_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  DISCH_THEN SUBST1_TAC THEN REWRITE_TAC[MULT_CLAUSES] THEN
+  ABBREV_TAC `d = 128` THEN
+  SUBGOAL_THEN `1 <= d /\ d <= 16 * nblk /\ d <= 2 EXP 63` STRIP_ASSUME_TAC THENL
+   [EXPAND_TAC "d" THEN MP_TAC(ASSUME `9 <= nblk`) THEN ARITH_TAC; ALL_TAC] THEN
+  REWRITE_TAC[WORD_RULE `word_sub p (word_add (word d) p):int64 = word_neg (word d)`] THEN
+  ASM_SIMP_TAC[IVAL_NEG_SMALL] THEN
+  SUBGOAL_THEN `word_add (word d) in_p:int64 = word_add in_p (word d)` SUBST1_TAC THENL
+   [CONV_TAC WORD_RULE; ALL_TAC] THEN
+  SUBGOAL_THEN `ival (word_add in_p (word d):int64) = &(val in_p + d)` SUBST1_TAC THENL
+   [MATCH_MP_TAC IVAL_PTR_ADD THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `ival (in_p:int64) = &(val in_p)` SUBST1_TAC THENL
+   [MATCH_MP_TAC IVAL_SMALL_PTR THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[INT_ARITH `--(&d):int < &0 <=> &0:int < &d`; INT_OF_NUM_LT] THEN
+    ASM_ARITH_TAC;
+    REWRITE_TAC[GSYM INT_OF_NUM_ADD] THEN INT_ARITH_TAC]);;
+
+(* 9..16 versions of the front-prefix arith/lane tactics (NBLK_ARITH_TAC hardcodes
+   17<=nblk; these mirror the shape with the 9..16 band). *)
+let NBLK_ARITH_916_TAC =
+  MP_TAC(ASSUME `9 <= nblk`) THEN MP_TAC(ASSUME `nblk <= 16`) THEN
+  MP_TAC(ASSUME `128 * nblk < 2 EXP 62`) THEN
+  POP_ASSUM_LIST(K ALL_TAC) THEN ARITH_TAC;;
+
+let WBN_FRONT_PREP_BUF_916_TAC =
+  SUBGOAL_THEN `SUB_LIST (0, 16 * nblk) (ibytes:byte list) = ibytes` ASSUME_TAC THENL
+   [MATCH_MP_TAC SUB_LIST_LENGTH_IMPLIES THEN ASM_REWRITE_TAC[LE_REFL]; ALL_TAC] THEN
+  SUBGOAL_THEN `read (memory :> bytes128 in_p) s0 = bytes_to_int128 (SUB_LIST (0,16) ibytes)` ASSUME_TAC THENL
+   [MP_TAC(SPECL [`nblk:num`; `in_p:int64`; `ibytes:byte list`; `s0:armstate`] INPUT_BYTES_TO_BYTE128_LANES) THEN
+    ASM_REWRITE_TAC[LE_REFL] THEN DISCH_THEN(MP_TAC o SPEC `0`) THEN
+    ANTS_TAC THENL [NBLK_ARITH_916_TAC; ALL_TAC] THEN
+    REWRITE_TAC[MULT_CLAUSES; WORD_ADD_0] THEN DISCH_THEN(fun th -> REWRITE_TAC[th]); ALL_TAC] THEN
+  SUBGOAL_THEN `word_ushr (word (128 * nblk):int64) 3 = word (16 * nblk)` ASSUME_TAC THENL
+   [MATCH_MP_TAC USHR_128NBLK_ANY THEN NBLK_ARITH_916_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `word_and (word_sub (word (16 * nblk)) (word 1)) (word 18446744073709551488):int64 = word (128 * ((nblk - 1) DIV 8))` ASSUME_TAC THENL
+   [MATCH_MP_TAC AND_MASK_16NBLK_ANY THEN NBLK_ARITH_916_TAC; ALL_TAC];;
+
+let WBN_LANES_916_TAC =
+  SUBGOAL_THEN
+   `!k. k < 8 ==> read (memory :> bytes128 (word_add in_p (word (16 * k)))) s0 =
+                  bytes_to_int128 (SUB_LIST (16 * k, 16) (ibytes:byte list))`
+   MP_TAC THENL
+   [MP_TAC(SPECL [`nblk:num`; `in_p:int64`; `ibytes:byte list`; `s0:armstate`]
+      INPUT_BYTES_TO_BYTE128_LANES) THEN
+    ASM_REWRITE_TAC[LE_REFL] THEN
+    DISCH_THEN(fun lth -> X_GEN_TAC `k:num` THEN DISCH_TAC THEN
+      MP_TAC(SPEC `k:num` lth) THEN ANTS_TAC THENL
+       [MP_TAC(ASSUME `k < 8`) THEN NBLK_ARITH_916_TAC; REWRITE_TAC[]]);
+    DISCH_THEN(fun lth ->
+      EVERY(map (fun i ->
+        ASSUME_TAC(CONV_RULE(DEPTH_CONV NUM_RED_CONV)
+          (MP (SPEC (mk_small_numeral i) lth)
+              (ARITH_RULE(mk_binop `(<):num->num->bool` (mk_small_numeral i) `8`)))))
+        (0--7)))];;
+
+let wbn_init_916_tac =
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  REWRITE_TAC[C_ARGUMENTS; SOME_FLAGS] THEN ENSURES_INIT_TAC "s0" THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[C_ARGUMENTS]) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_dec]) THEN
+  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV let_CONV)) THEN
+  FIRST_X_ASSUM(STRIP_ASSUME_TAC o check(is_conj o concl)) THEN
+  WBN_FRONT_PREP_BUF_916_TAC;;
+
+(* 0x42c resolve (fall-through) via WB_LOOPENTER_FLAGS_916. *)
+let WBN_RESOLVE_42C_916_TAC : tactic =
+  MP_TAC(SPECL [`in_p:int64`; `nblk:num`] WB_LOOPENTER_FLAGS_916) THEN
+  ANTS_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th]));;
+
+(* 0x49c resolve (b.ge TAKEN, d=128): substitute (nblk-1)DIV8=1, then WB_PTRCMP_FLAGS
+   with a=d=128 collapses 128<128 to F in the assumptions. *)
+let WBN_RESOLVE_49C_916_TAC : tactic = fun (asl,w) ->
+  (MP_TAC(SPEC `nblk:num` DIV8_916) THEN
+   ANTS_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
+   DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th]) THEN
+                        REWRITE_TAC[th] THEN ASSUME_TAC th) THEN
+   MP_TAC(SPECL [`in_p:int64`; `128`; `128`] WB_PTRCMP_FLAGS) THEN
+   ANTS_TAC THENL
+    [CONJ_TAC THEN MP_TAC(ASSUME `val (in_p:int64) + 16 * nblk < 2 EXP 63`) THEN
+     MP_TAC(ASSUME `9 <= nblk`) THEN ARITH_TAC;
+     ALL_TAC] THEN
+   DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th])) THEN
+   RULE_ASSUM_TAC(REWRITE_RULE[ARITH_RULE `(128 < 128) <=> F`;
+                               ARITH_RULE `128 * 1 = 128`])) (asl,w);;
+
+(* the full front-916 sim: prefix IDENTICAL to WBN_FRONT_FULL_TAC to s287, then
+   0x49c resolved TAKEN, step 288 lands at 0x9f0. *)
+let WBN_FRONT_916_FULL_TAC =
+  wbn_init_916_tac THEN WBN_LANES_916_TAC THEN WBN_FRONT_STEP_TAC THEN
+  WBN_RESOLVE_42C_916_TAC THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (260--260) THEN
+  EVERY(map (fun i -> ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (i--i) THEN
+             GCM_SIMD_SIMPLIFY_TAC THEN DISCARD_STALE_Q30_TAC) (261--287)) THEN
+  WBN_RESOLVE_49C_916_TAC THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (288--288);;
+
+(* invariant-establishment closer at s288 (mirror of WBN_LOOP_INVARIANT_ENTRY branch 1). *)
+let ENTRY_CLOSER_916 =
+  ENSURES_FINAL_STATE_TAC THEN
+  REWRITE_TAC[wbn_loop_inv_core] THEN
+  CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN
+  CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[GSYM GCM_CTR_ADD_LANES]) THEN
+  REWRITE_TAC[GCM_CTR_INC_ITER_ADD; GCM_CTR_ADD_1; GSYM GCM_CTR_ADD_LANES] THEN
+  REWRITE_TAC[list_of_seq; MAP; ghash_polyval_acc] THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[GCM_CTR_INC_LANES; GCM_CTR_INC2_LANES;
+     GCM_CTR_INC3_LANES; GCM_CTR_INC4_LANES; GCM_CTR_INC5_LANES;
+     GCM_CTR_INC6_LANES; GCM_CTR_INC7_LANES]) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[GSYM GCM_CTR_ADD_LANES]) THEN
+  REWRITE_TAC[GCM_CTR_ADD_0] THEN
+  CONV_TAC(ONCE_DEPTH_CONV EXPAND_CASES_CONV) THEN
+  CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN
+  REWRITE_TAC[WORD_ADD_0] THEN ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[ADD_CLAUSES] THEN CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN
+  CONV_TAC(ONCE_DEPTH_CONV EXPAND_CASES_CONV) THEN
+  REWRITE_TAC[WORD_ADD_0; MULT_CLAUSES] THEN ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[GSYM GCM_CTR_ADD_LANES; GCM_CTR_ADD_0] THEN
+  CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN ASM_REWRITE_TAC[GCM_CTR_ADD_0] THEN
+  REWRITE_TAC[gcm_ctr_raw_def;
+    WORD_RULE `word_add (word_add (x:32 word) (word 12)) (word 1) =
+               word_add x (word 13)`;
+    WORD_ADD_0];;
+
+(* postcond target for the front-916 leg = wbn_core_applied 0 at PC 0x9f0. *)
+let wbn_entry_post_916 =
+  mk_abs(`s:armstate`,
+    list_mk_conj[
+      `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
+      `read PC s = word (pc + 0x9f0)`;
+      mk_comb(mk_comb(wbn_core_applied,`0:num`),`s:armstate`)]);;
+
+let wbn_front_to_prep_916_goal =
+  let ens = list_mk_comb(`ensures arm`,[wbn_front_P_tm; wbn_entry_post_916; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_916_tm, ens));;
+
+(* FRONT-916: front sim 0x20 -> 0x9f0, b.ge@0x49c TAKEN, lands at wbn_core_applied 0. *)
+let WBN_FRONT_TO_PREP_916 = prove(wbn_front_to_prep_916_goal,
+  WBN_FRONT_916_FULL_TAC THEN
+  wb_front_fold_tac THEN
+  ENTRY_CLOSER_916 THEN
+  MP_TAC(SPECL [`in_p:int64`; `128`; `128`] WB_PTRCMP_FLAGS) THEN
+  ANTS_TAC THENL
+   [CONJ_TAC THEN MP_TAC(ASSUME `val (in_p:int64) + 16 * nblk < 2 EXP 63`) THEN
+    MP_TAC(ASSUME `9 <= nblk`) THEN ARITH_TAC;
+    ALL_TAC] THEN
+  DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN
+  REWRITE_TAC[ARITH_RULE `(128 < 128) <=> F`] THEN
+  ASM_REWRITE_TAC[] THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[htable_mem_dec] THEN ASM_REWRITE_TAC[] THEN
+    CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN REWRITE_TAC[];
+    REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+    REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC]);;
+
+(* PREPRETAIL-916: identical to WBN_PREPRETAIL_EXT2 but with the 9..16 band and
+   WBN_Q9_INDEX_LT_9 (the only 17<=nblk step).  Same scoped Q16/Q19 CHEAT. *)
+let wbn_prepretail_ext2_916_goal =
+  let kk = `(nblk - 9) DIV 8` in
+  let pre = mk_abs(`s:armstate`,
+    list_mk_conj[
+      `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
+      `read PC s = word (pc + 0x9f0)`;
+      mk_comb(mk_comb(wbn_core_applied,kk),`s:armstate`)]) in
+  let ens = list_mk_comb(`ensures arm`,[pre; wbn_prepretail_post_ext2; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_916_tm, ens));;
+
+let WBN_PREPRETAIL_EXT2_916 = prove(wbn_prepretail_ext2_916_goal,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN REWRITE_TAC[wbn_loop_inv_core] THEN
+  CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN ENSURES_INIT_TAC "s0" THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_dec]) THEN
+  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV let_CONV)) THEN
+  FIRST_X_ASSUM(fun th ->
+    let c = concl th in
+    if can (find_term (fun t->match t with Const("byteswap128",_)->true|_->false)) c &&
+       can (find_term (fun t->match t with Const("karatsuba_mid",_)->true|_->false)) c
+    then STRIP_ASSUME_TAC th else NO_TAC) THEN
+  ABBREV_TAC `k = (nblk - 9) DIV 8` THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (1--1) THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (2--2) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  REV32_FOLD_TAC "Q5" "s2" `word (8*k+13):32 word` THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (3--3) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  CTR_INCR_NORM_TAC "s3" 13 THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (4--7) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  REV32_FOLD_TAC "Q6" "s7" `word (8*k+14):32 word` THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (8--9) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  CTR_INCR_NORM_TAC "s9" 14 THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (10--14) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  REV32_FOLD_TAC "Q7" "s14" `word (8*k+15):32 word` THEN
+  ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (15--120) THEN
+  ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (121--211) THEN
+  ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (212--240) THEN
+  DISCARD_QREGS_TAC ["Q16";"Q17";"Q18";"Q19"] THEN
+  ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (241--306) THEN
+  ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (307--311) THEN
+  MP_TAC(SPECL [`nblk:num`; `in_p:int64`; `ibytes:byte list`; `k:num`; `s311:armstate`]
+    WBN_Q9_SPEC) THEN
+  ANTS_TAC THENL
+   [ASM_REWRITE_TAC[] THEN MP_TAC(SPEC `nblk:num` WBN_Q9_INDEX_LT_9) THEN
+    ASM_REWRITE_TAC[] THEN ARITH_TAC;
+    DISCH_TAC] THEN
+  ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (312--313) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[GSYM aes13]) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE(map GSYM wb_ctr_lanes_thms)) THEN
+  ENSURES_FINAL_STATE_TAC THEN
+  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+  REPEAT CONJ_TAC THEN
+  TRY(W(fun (asl,w) ->
+        if can (find_term (fun t -> is_const t && fst(dest_const t) = "ghash_polyval_acc")) w
+        then CHEAT_TAC else NO_TAC)) THEN
+  TRY MONOTONE_MAYCHANGE_TAC THEN
+  TRY (ASM_REWRITE_TAC[]));;
+
+(* FRONT-916 ; PREPRETAIL-916 composed to the ext2 seam (pc+0x20 -> pc+3796).       *)
+(* The PRECONDITION bridge collapses (nblk-9)DIV8 to 0 (q=0 for 9..16), matching     *)
+(* the front-916 postcond (wbn_core_applied 0) to the prepretail-916 precond.        *)
+let wbn_front_to_prep_ext2_916_goal =
+  let ens = list_mk_comb(`ensures arm`,
+    [wbn_front_P_tm; wbn_prepretail_post_ext2; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_916_tm, ens));;
+
+let WBN_FRONT_TO_PREP_EXT2_916 = prove(wbn_front_to_prep_ext2_916_goal,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
+  EXISTS_TAC wbn_entry_post_916 THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_IDEMPOT_TAC;
+    ALL_TAC] THEN
+  CONJ_TAC THENL
+   [MATCH_MP_TAC WBN_FRONT_TO_PREP_916 THEN ASM_REWRITE_TAC[];
+    MATCH_MP_TAC ENSURES_PRECONDITION_THM THEN
+    EXISTS_TAC (rand(rator(rator(snd(dest_imp(snd(strip_forall(concl WBN_PREPRETAIL_EXT2_916)))))))) THEN
+    CONJ_TAC THENL
+     [GEN_TAC THEN CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN
+      SUBGOAL_THEN `(nblk - 9) DIV 8 = 0` SUBST1_TAC THENL
+       [MP_TAC(SPECL[`nblk - 9`;`8`] DIVISION) THEN ASM_ARITH_TAC;
+        DISCH_THEN(fun th -> ACCEPT_TAC th)];
+      MATCH_MP_TAC WBN_PREPRETAIL_EXT2_916 THEN ASM_REWRITE_TAC[]]]);;
+
+(* WBN_PREP_TO_END_916: pc+3796 -> pc+4528 for the 9..16 band.  Same 8-way r split *)
+(* as WBN_PREP_TO_END but with the 9..16 hyp band; dispatches to the FULL_916_r     *)
+(* legs (r-block seam->band reconciliation, symbolic in q, q=0 here).               *)
+(*                                                                                  *)
+(* SESSION-051: CLOSED CHEAT-FREE (hyps=0).  s050's "warm 16*1 reduce quirk" was a  *)
+(* MISDIAGNOSIS.  The real root cause: WBN_PREP_TO_END_FULL_r_TAC does NOT handle    *)
+(* r=1 (it fails ACCEPT_TAC even on a COLD image) -- which is EXACTLY why the >=17    *)
+(* build hand-writes WBN_PREP_TO_END_FULL_1 (:4011) and only applies the parametric  *)
+(* tactic for r=2..8.  The 916 legs mirror that structure precisely:                 *)
+(*   FULL_916_1 = the hand-written FULL_1 tactic body (band-agnostic: it works from  *)
+(*     the nblk=8*(q+1)+1 equation + the ext2 seam post, not the 17<=/9<= band),      *)
+(*   FULL_916_2..8 = WBN_PREP_TO_END_FULL_r_TAC r (unchanged; the band change is      *)
+(*     confined to the goal hyps that STRIP_TAC consumes).                           *)
+(* All 8 legs verified hyps=0; the dispatcher is the WBN_PREP_TO_END 8-way           *)
+(* rr=(nblk-9)MOD 8 split over the FULL_916 array.                                    *)
+
+(* 916-banded full-post goal (9..16 band; otherwise identical to *)
+(* wbn_prep_to_end_full_goal). *)
+let wbn_prep_to_end_full_916_goal r =
+  let nblk_eq = subst[mk_small_numeral r,`r_:num`]
+                  `nblk = 8 * ((nblk - 9) DIV 8 + 1) + r_` in
+  let hyps = end_itlist (curry mk_conj)
+    (wbn_front_hyps_916_tm :: nblk_eq :: wbn_prep_to_end_extra_clauses) in
+  let ens = list_mk_comb(`ensures arm`,
+    [wbn_prepretail_post_ext2; wbn_end_post; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(hyps, ens));;
+
+(* the r=1 leg tactic = body of WBN_PREP_TO_END_FULL_1 (:4011), hoisted as a named  *)
+(* tactic.  Band-agnostic, so it serves both the >=17 and the 9..16 r=1 legs.  The  *)
+(* parametric WBN_PREP_TO_END_FULL_r_TAC cannot do r=1 (case-2/tag close specialise *)
+(* to r>=2 store re-indexing). *)
+let WBN_PREP_TO_END_FULL_1_HAND_TAC =
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC ENSURES_FRAME_SUBSUMED THEN
+  EXISTS_TAC (wbn_narrow_frame 1) THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN SUBSUMED_MAYCHANGE_TAC;
+    ALL_TAC] THEN
+  MATCH_MP_TAC ENSURES_POSTCONDITION_THM THEN
+  EXISTS_TAC (mk_abs(`s:armstate`,
+    mk_conj(snd(dest_abs(el 2 (snd(strip_comb(snd(dest_imp(concl(SPECL (shift_vals 1) WB_TAIL_GEN2_1)))))))),
+            el 64 (conjuncts (snd(dest_abs wbn_prepretail_post_ext2)))))) THEN
+  CONJ_TAC THENL
+   [X_GEN_TAC `s:armstate` THEN REWRITE_TAC[] THEN STRIP_TAC THEN
+    ASM_REWRITE_TAC[] THEN ABBREV_TAC `q = (nblk - 9) DIV 8` THEN
+    CONJ_TAC THENL
+     [X_GEN_TAC `j:num` THEN DISCH_TAC THEN
+      ASM_CASES_TAC `j < 8 * (q + 1)` THENL
+       [FIRST_X_ASSUM MATCH_MP_TAC THEN FIRST_X_ASSUM ACCEPT_TAC;
+        SUBGOAL_THEN `j = 8 * (q + 1)` SUBST_ALL_TAC THENL
+         [ASM_ARITH_TAC; ALL_TAC] THEN
+        REWRITE_TAC[ARITH_RULE `16 * 8 * (q + 1) = 128 * (q + 1)`; GCM_CTR_INC_ITER_ADD] THEN
+        FIRST_X_ASSUM(fun th -> if is_eq(concl th) &&
+          (match lhs(concl th) with Comb(Comb(Const("read",_),_),_) ->
+             (can (find_term (fun t -> t = `aes256_encrypt`)) (concl th)) | _ -> false)
+          then SUBST1_TAC th else NO_TAC) THEN
+        SUBGOAL_THEN `SUB_LIST (0,16) (SUB_LIST (128 * (q + 1),16 * 1) (ibytes:byte list)) =
+                      SUB_LIST (128 * (q + 1),16) ibytes` SUBST1_TAC THENL
+         [REWRITE_TAC[SUB_LIST_MIN_RIGHT] THEN AP_THM_TAC THEN AP_TERM_TAC THEN
+          AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN
+        GEN_REWRITE_TAC LAND_CONV [GSYM AES256_XOR_ENCRYPT_RECONSTRUCT] THEN
+        CONV_TAC WORD_RULE];
+      REWRITE_TAC[WORD_BYTEREVERSE_BYTEREVERSE] THEN AP_TERM_TAC THEN
+      SUBGOAL_THEN
+        `list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16) (ibytes:byte list))) nblk =
+         list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16) ibytes)) (8 * (q + 1) + 1)`
+        SUBST1_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
+      REWRITE_TAC[LIST_OF_SEQ_ADD; MAP_APPEND; GHASH_ACC_APPEND] THEN AP_TERM_TAC THEN
+      REWRITE_TAC[LIST_OF_SEQ_CLAUSES; MAP; MULT_CLAUSES; ADD_CLAUSES] THEN
+      REWRITE_TAC[SUB_LIST_MIN_RIGHT; ARITH_RULE `MIN 16 16 = 16`;
+                  ARITH_RULE `16 * 8 * (q + 1) = 128 * (q + 1)`]];
+    MATCH_MP_TAC ENSURES_ADD_PRESERVED THEN CONJ_TAC THENL
+     [INNER_TAIL_FEED_TAC 1 WB_TAIL_GEN2_1;
+      REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; MAYCHANGE; SEQ_ID] THEN
+      REWRITE_TAC[GSYM SEQ_ASSOC] THEN PURE_REWRITE_TAC[ASSIGNS_SEQ] THEN
+      CONV_TAC(REDEPTH_CONV BETA_CONV) THEN REWRITE_TAC[ASSIGNS_THM] THEN
+      CONV_TAC(REDEPTH_CONV BETA_CONV) THEN REWRITE_TAC[LEFT_IMP_EXISTS_THM] THEN
+      REPEAT GEN_TAC THEN STRIP_TAC THEN
+      X_GEN_TAC `j:num` THEN DISCH_TAC THEN
+      FIRST_X_ASSUM(SUBST_ALL_TAC o SYM o check (fun th -> is_eq(concl th) &&
+        (match rhs(concl th) with Var("s'",_) -> true | _ -> false))) THEN
+      SUBGOAL_THEN `nonoverlapping (word_add out_p (word (16 * j)):int64,16)
+         (word_add out_p (word (128 * ((nblk - 9) DIV 8 + 1))),16)` ASSUME_TAC THENL
+       [NONOVERLAPPING_TAC; ALL_TAC] THEN
+      WBN_PUSH_LHS_READ_TAC THEN
+      FIRST_ASSUM(fun th -> if is_forall(concl th) then MATCH_MP_TAC th else NO_TAC) THEN
+      FIRST_X_ASSUM ACCEPT_TAC]];;
+
+let WBN_PREP_TO_END_FULL_916_1 = prove(wbn_prep_to_end_full_916_goal 1, WBN_PREP_TO_END_FULL_1_HAND_TAC);;
+let WBN_PREP_TO_END_FULL_916_2 = prove(wbn_prep_to_end_full_916_goal 2, WBN_PREP_TO_END_FULL_r_TAC 2);;
+let WBN_PREP_TO_END_FULL_916_3 = prove(wbn_prep_to_end_full_916_goal 3, WBN_PREP_TO_END_FULL_r_TAC 3);;
+let WBN_PREP_TO_END_FULL_916_4 = prove(wbn_prep_to_end_full_916_goal 4, WBN_PREP_TO_END_FULL_r_TAC 4);;
+let WBN_PREP_TO_END_FULL_916_5 = prove(wbn_prep_to_end_full_916_goal 5, WBN_PREP_TO_END_FULL_r_TAC 5);;
+let WBN_PREP_TO_END_FULL_916_6 = prove(wbn_prep_to_end_full_916_goal 6, WBN_PREP_TO_END_FULL_r_TAC 6);;
+let WBN_PREP_TO_END_FULL_916_7 = prove(wbn_prep_to_end_full_916_goal 7, WBN_PREP_TO_END_FULL_r_TAC 7);;
+let WBN_PREP_TO_END_FULL_916_8 = prove(wbn_prep_to_end_full_916_goal 8, WBN_PREP_TO_END_FULL_r_TAC 8);;
+
+let wbn_full_916_thm = Array.of_list
+  [WBN_PREP_TO_END_FULL_916_1;  (* index 0 unused; use r directly 1..8 *)
+   WBN_PREP_TO_END_FULL_916_1; WBN_PREP_TO_END_FULL_916_2; WBN_PREP_TO_END_FULL_916_3;
+   WBN_PREP_TO_END_FULL_916_4; WBN_PREP_TO_END_FULL_916_5; WBN_PREP_TO_END_FULL_916_6;
+   WBN_PREP_TO_END_FULL_916_7; WBN_PREP_TO_END_FULL_916_8];;
+
+let wbn_prep_to_end_916_goal =
+  let hyps = end_itlist (curry mk_conj)
+    (wbn_front_hyps_916_tm :: `9 <= nblk` :: wbn_prep_to_end_extra_clauses) in
+  let ens = list_mk_comb(`ensures arm`,
+    [wbn_prepretail_post_ext2; wbn_end_post; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(hyps, ens));;
+
+let WBN_PREP_TO_END_916 = prove(wbn_prep_to_end_916_goal,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(SPEC `nblk - 9` (MATCH_MP DIVISION (ARITH_RULE `~(8 = 0)`))) THEN
+  ABBREV_TAC `rr = (nblk - 9) MOD 8` THEN STRIP_TAC THEN
+  FIRST_X_ASSUM(fun th -> if concl th = `rr < 8` then MP_TAC th else NO_TAC) THEN
+  REWRITE_TAC[ARITH_RULE
+    `rr < 8 <=> rr = 0 \/ rr = 1 \/ rr = 2 \/ rr = 3 \/
+                rr = 4 \/ rr = 5 \/ rr = 6 \/ rr = 7`] THEN
+  STRIP_TAC THEN
+  FIRST (map (fun r ->
+    MATCH_MP_TAC wbn_full_916_thm.(r) THEN ASM_REWRITE_TAC[] THEN
+    UNDISCH_TAC `nblk - 9 = (nblk - 9) DIV 8 * 8 + rr` THEN
+    ASM_REWRITE_TAC[] THEN UNDISCH_TAC `9 <= nblk` THEN ARITH_TAC) (1--8)));;
+
+(* WBN_FRONT_TO_END_916: the full 9..16 front->exit chain, pc+0x20 -> pc+4528. *)
+(* FRONT_TO_PREP_EXT2_916 ; PREP_TO_END_916 via ENSURES_TRANS_SIMPLE.          *)
+let wbn_front_to_end_916_goal =
+  let hyps = end_itlist (curry mk_conj)
+    (wbn_front_hyps_916_tm :: wbn_prep_to_end_extra_clauses) in
+  let ens = list_mk_comb(`ensures arm`,
+    [wbn_front_P_tm; wbn_end_post; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(hyps, ens));;
+
+let WBN_FRONT_TO_END_916 = prove(wbn_front_to_end_916_goal,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
+  EXISTS_TAC wbn_prepretail_post_ext2 THEN
+  REPEAT CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_IDEMPOT_TAC;
+    MATCH_MP_TAC WBN_FRONT_TO_PREP_EXT2_916 THEN ASM_REWRITE_TAC[];
+    MATCH_MP_TAC WBN_PREP_TO_END_916 THEN ASM_REWRITE_TAC[]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* NEXT (session-051): finish WBN_PREP_TO_END_916 (re-run the FULL_916_r legs *)
+(*   on a fresh COLD image -- the ACCEPT_TAC re-run quirk is warm-image only) *)
+(*   then Phase 7 unify.                                                      *)
+(* --- Phase 7: AESV8_GCM_8X_DEC_256_WB_CORRECT ---                            *)
+(*   ASM_CASES nblk<=8 -> existing _DISPATCH; 9..16 -> WBN_FRONT_TO_END_916;   *)
+(*   >=17 -> WBN_FRONT_TO_END.  Reconcile wbn_end_post (ext2 seam vocabulary)  *)
+(*   with the NIST postcondition here, the same way the bands did.            *)
+(* ------------------------------------------------------------------------- *)
