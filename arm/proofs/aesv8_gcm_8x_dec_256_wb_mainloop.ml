@@ -3445,3 +3445,66 @@ let WBN_FRONT_TO_PREP_EXT2 = prove(wbn_front_to_prep_ext2_goal,
       REWRITE_TAC[ARITH_RULE `pc + 0x4a0 = pc + 1184`] THEN CONV_TAC TAUT;
       MP_TAC(SPECL wb_front_vars WBN_LOOP_PREP_EXT2) THEN
       ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC]]]);;
+
+(* ========================================================================= *)
+(* SESSION-044 -- PHASE 6 STEP 2: the tail leg (WBN_PREP_TO_END).            *)
+(*                                                                           *)
+(* KEY STRUCTURAL FACT (session-044): wb.ml's WB_TAIL_r_TAC tail proofs      *)
+(* already START at pc+3796 -- EXACTLY the EXT2 seam PC -- and drive to      *)
+(* pc+4528 (the whole-function exit) CHEAT-FREE (they discharge the r-block  *)
+(* GHASH via GMULT{r}_FULL_CORRECT_BA).  prove_band k's back-leg is          *)
+(* `WB_PREP_TAC k THEN WB_TAIL_k_TAC`, proving                               *)
+(*   ensures arm (q_at k) (band_post k) (band_frame k)                       *)
+(* where q_at k = wb_front_postcond @ nblk:=k.  So the tail leg we need is   *)
+(* structurally wb.ml's OWN back-leg, in the shifted (post-loop) variables.  *)
+(*                                                                           *)
+(* STEP 2a -- WB_TAIL_GEN_r: package that back-leg as a standalone           *)
+(* universally-quantified lemma, proven from the band precond MINUS the 4    *)
+(* cells the EXT2 seam does NOT carry (xi_p, ivec_p, [sp+72], in_p block-0). *)
+(* Proving it from the weakened precond DOES the in-proof dropped-cells      *)
+(* audit (the human's owed check) AND yields a lemma the EXT2 post can feed  *)
+(* by pure precondition-weakening (no re-simulation).                        *)
+(* ------------------------------------------------------------------------- *)
+
+(* the band goal split into (vars, hyps, pre, post, frame) *)
+let wbn_dissect_band k =
+  let g = mk_band_goal k in
+  let vars, body = strip_forall g in
+  let hyps, ens = dest_imp body in
+  let _, args = strip_comb ens in
+  (vars, hyps, el 1 args, el 2 args, el 3 args);;
+
+(* the 4 seam cells EXT2 drops -- objdump-confirmed never read by the tail,  *)
+(* re-confirmed in-proof by proving WB_TAIL_GEN_r from the precond without   *)
+(* them (session-044).  [sp+72]=0 is a pinned artifact; xi_p/ivec_p are      *)
+(* consumed only via the pre-seeded Q19/Q16 and Q0..Q7; in_p block-0 arrives *)
+(* pre-loaded in Q9 (WBN_Q9_SPEC).                                           *)
+let wbn_tail_drop_lhs = [
+  `read (memory :> bytes64 (word_add stackpointer (word 72))) (s:armstate)`;
+  `read (memory :> bytes128 xi_p) (s:armstate)`;
+  `read (memory :> bytes128 ivec_p) (s:armstate)`;
+  `read (memory :> bytes128 in_p) (s:armstate)`];;
+
+(* q_at k with the 4 dropped cells removed *)
+let wbn_weak_q_at k =
+  let cs = conjuncts (snd(dest_abs (q_at k))) in
+  let kept = filter (fun c -> not (is_eq c && mem (lhs c) wbn_tail_drop_lhs)) cs in
+  mk_abs(`s:armstate`, end_itlist (curry mk_conj) kept);;
+
+(* the generic tail back-leg goal: ensures (weak q_at r) (band_post r) frame *)
+let wbn_tail_backleg_goal r =
+  let (vars, hyps, pre0, post, frame) = wbn_dissect_band r in
+  ignore pre0;
+  let ens = list_mk_comb(`ensures arm`, [wbn_weak_q_at r; post; frame]) in
+  list_mk_forall(vars, mk_imp(hyps, ens));;
+
+(* r=1 (validated session-044, ~133s): confirms the r=1 tail reads none of   *)
+(* the 4 dropped cells.  Tactic = the prove_band back-leg verbatim.          *)
+let WB_TAIL_GEN_1 = prove(wbn_tail_backleg_goal 1,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 1 THEN WB_TAIL_1_TAC);;
+
+(* r=8 (validated session-044, ~315s): the HARDEST tail (Q18LATEST window +  *)
+(* full Karatsuba merge + WA_UNIFY_BB) -- proving it from the weakened       *)
+(* precond confirms even the 8-block GHASH close needs none of the 4 cells.  *)
+let WB_TAIL_GEN_8 = prove(wbn_tail_backleg_goal 8,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 8 THEN WB_TAIL_8_TAC);;
