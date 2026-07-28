@@ -3128,3 +3128,142 @@ let WBN_FRONT_TO_PREP = prove(wbn_front_to_prep_goal,
       REWRITE_TAC[ARITH_RULE `pc + 0x4a0 = pc + 1184`] THEN CONV_TAC TAUT;
       MP_TAC(SPECL wb_front_vars WBN_LOOP_PREP) THEN
       ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC]]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* SESSION-040 -- the OUTPUT-STORE-FORALL augmentation of the prepretail post. *)
+(*                                                                            *)
+(* GAP found session-040: wbn_prepretail_post (64 conjuncts) DROPS the loop   *)
+(* invariant's quantified output-store conjunct                               *)
+(*   !j. j < 8*((nblk-9)DIV8 + 1) ==>                                         *)
+(*       read (memory :> bytes128 (word_add out_p (word (16*j)))) s =         *)
+(*       word_xor (word_xor (bytes_to_int128 (SUB_LIST (16*j,16) ibytes))     *)
+(*                (aes13 (gcm_ctr_inc_iter j ctr0) k0..k13)) k14              *)
+(* (mainloop.ml:644).  Those are the first 8*(k+1) DECRYPTED output blocks.   *)
+(* The Phase-6/7 final per-block output post needs stores for ALL nblk blocks;*)
+(* the Phase-6 tail leg (WB_TAIL_r) produces only the last r = nblk-8*(k+1),   *)
+(* so the first 8*(k+1) MUST be carried through the seam.  The prepretail      *)
+(* region (0x9f0..0xed4) does ZERO output stores (objdump), so the forall      *)
+(* passes through the KEEPDATA sim unchanged -- re-proving the prepretail with *)
+(* the forall appended to its post closes it by ASM_REWRITE (a genuine         *)
+(* preserved read-fact, NOT frame-preservation: ENSURES_ADD_PRESERVED cannot   *)
+(* be used because the MAYCHANGE frame permits out_p writes).                  *)
+(*                                                                            *)
+(* wbn_out_forall = the invariant's output-store forall at i:=k, as a          *)
+(* predicate on s (extracted from wbn_loop_inv_core to guarantee it is the     *)
+(* SAME term the sim preserves).  wbn_prepretail_post_ext = the 65-conjunct    *)
+(* post = wbn_prepretail_post /\ wbn_out_forall.                               *)
+(* ------------------------------------------------------------------------- *)
+
+let wbn_out_forall =
+  let full = list_mk_comb(wbn_core_applied, [`(nblk - 9) DIV 8`; `s:armstate`]) in
+  let inv_cs = conjuncts (rhs(concl (REWRITE_CONV[wbn_loop_inv_core] full))) in
+  mk_abs(`s:armstate`, find is_forall inv_cs);;
+
+let wbn_prepretail_post_ext =
+  mk_abs(`s:armstate`,
+    mk_conj(snd(dest_abs wbn_prepretail_post),
+            snd(dest_abs wbn_out_forall)));;
+
+(* WBN_PREPRETAIL_EXT: identical sim to WBN_PREPRETAIL (validated session-040,  *)
+(* ~131s) but with the output-store forall appended to the post -- it survives  *)
+(* the KEEPDATA sim to s313 and closes by the same ASM_REWRITE tail.  The two   *)
+(* Q16/Q19 GHASH conjuncts stay behind the same scoped disclosed CHEAT (the     *)
+(* [11] RINNER=LINNER identity).  hyps=0.                                       *)
+let wbn_prepretail_ext_goal =
+  let kk = `(nblk - 9) DIV 8` in
+  let pre = mk_abs(`s:armstate`,
+    list_mk_conj[
+      `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
+      `read PC s = word (pc + 0x9f0)`;
+      mk_comb(mk_comb(wbn_core_applied,kk),`s:armstate`)]) in
+  let ens = list_mk_comb(`ensures arm`,[pre; wbn_prepretail_post_ext; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
+
+let WBN_PREPRETAIL_EXT = prove(wbn_prepretail_ext_goal,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN REWRITE_TAC[wbn_loop_inv_core] THEN
+  CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN ENSURES_INIT_TAC "s0" THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_dec]) THEN
+  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV let_CONV)) THEN
+  FIRST_X_ASSUM(fun th ->
+    let c = concl th in
+    if can (find_term (fun t->match t with Const("byteswap128",_)->true|_->false)) c &&
+       can (find_term (fun t->match t with Const("karatsuba_mid",_)->true|_->false)) c
+    then STRIP_ASSUME_TAC th else NO_TAC) THEN
+  ABBREV_TAC `k = (nblk - 9) DIV 8` THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (1--1) THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (2--2) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  REV32_FOLD_TAC "Q5" "s2" `word (8*k+13):32 word` THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (3--3) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  CTR_INCR_NORM_TAC "s3" 13 THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (4--7) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  REV32_FOLD_TAC "Q6" "s7" `word (8*k+14):32 word` THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (8--9) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  CTR_INCR_NORM_TAC "s9" 14 THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (10--14) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  REV32_FOLD_TAC "Q7" "s14" `word (8*k+15):32 word` THEN
+  ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (15--120) THEN
+  ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (121--211) THEN
+  ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (212--240) THEN
+  DISCARD_QREGS_TAC ["Q16";"Q17";"Q18";"Q19"] THEN
+  ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (241--306) THEN
+  ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (307--313) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[GSYM aes13]) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE(map GSYM wb_ctr_lanes_thms)) THEN
+  ENSURES_FINAL_STATE_TAC THEN
+  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+  REPEAT CONJ_TAC THEN
+  TRY(W(fun (asl,w) ->
+        if can (find_term (fun t -> is_const t && fst(dest_const t) = "ghash_polyval_acc")) w
+        then CHEAT_TAC else NO_TAC)) THEN
+  TRY MONOTONE_MAYCHANGE_TAC THEN
+  TRY (ASM_REWRITE_TAC[]));;
+
+(* WBN_LOOP_PREP_EXT / WBN_FRONT_TO_PREP_EXT: the EXT-post analogues of          *)
+(* WBN_LOOP_PREP / WBN_FRONT_TO_PREP, chaining through WBN_PREPRETAIL_EXT.       *)
+(* Same ENSURES_TRANS_SIMPLE / ENSURES_PRECONDITION_THM route (incl. the s039   *)
+(* two-rator peel).  Both hyps=0 (validated session-040).                       *)
+let wbn_loop_prep_ext_goal =
+  let loop_pre = mk_abs(`s:armstate`,
+    list_mk_conj[
+      `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
+      `read PC s = word (pc + 0x4a0)`;
+      mk_comb(mk_comb(wbn_core_applied,`0`),`s:armstate`)]) in
+  let ens = list_mk_comb(`ensures arm`,[loop_pre; wbn_prepretail_post_ext; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
+
+let WBN_LOOP_PREP_EXT = prove(wbn_loop_prep_ext_goal,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
+  EXISTS_TAC (rand(rator(snd(dest_imp(snd(strip_forall(concl WBN_MAIN_LOOP))))))) THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_IDEMPOT_TAC;
+    ALL_TAC] THEN
+  CONJ_TAC THENL
+   [MP_TAC(SPECL wb_front_vars WBN_MAIN_LOOP) THEN
+    ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC];
+    MP_TAC(SPECL wb_front_vars WBN_PREPRETAIL_EXT) THEN
+    ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC]]);;
+
+let wbn_front_to_prep_ext_goal =
+  let ens = list_mk_comb(`ensures arm`,
+    [wbn_front_P_tm; wbn_prepretail_post_ext; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
+
+let WBN_FRONT_TO_PREP_EXT = prove(wbn_front_to_prep_ext_goal,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
+  EXISTS_TAC wbn_entry_post THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_IDEMPOT_TAC;
+    ALL_TAC] THEN
+  CONJ_TAC THENL
+   [MP_TAC(SPECL wb_front_vars WBN_LOOP_INVARIANT_ENTRY) THEN
+    ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC];
+    MATCH_MP_TAC ENSURES_PRECONDITION_THM THEN
+    EXISTS_TAC (rand(rator(rator(snd(dest_imp(snd(strip_forall(concl WBN_LOOP_PREP_EXT)))))))) THEN
+    CONJ_TAC THENL
+     [GEN_TAC THEN REWRITE_TAC[WBN_INV_SPLIT] THEN
+      CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN
+      REWRITE_TAC[ARITH_RULE `pc + 0x4a0 = pc + 1184`] THEN CONV_TAC TAUT;
+      MP_TAC(SPECL wb_front_vars WBN_LOOP_PREP_EXT) THEN
+      ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC]]]);;
