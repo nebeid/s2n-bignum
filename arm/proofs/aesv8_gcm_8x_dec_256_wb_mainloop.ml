@@ -2112,3 +2112,110 @@ let WBN_MAIN_LOOP = prove(wbn_main_loop_goal,
     ENSURES_INIT_TAC "s0" THEN ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
     REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
     REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC]);;
+
+(* ========================================================================= *)
+(* Section 11. PHASE 5 -- PREPRETAIL (0x9f0..0xed4 straight-line sim).         *)
+(*                                                                            *)
+(* The loop-exit state (WBN_MAIN_LOOP postcond: PC=pc+0x9f0, wbn_loop_inv_core *)
+(* at k=(nblk-9)DIV8, GHASH lagging one 8-block group) is driven through the   *)
+(* prepretail code (0x9f0..0xed4, 313 instrs) to the SHARED TAIL SEAM at       *)
+(* pc+3796 (=0xed4), the exact state every wb.ml WB_TAIL_r_TAC consumes        *)
+(* (ENSURES_INIT_TAC "s265" on q_at r = wb.ml's wb_front_postcond[nblk:=r]).   *)
+(*                                                                            *)
+(* SEAM CONTRACT (session-033, verified against wb.ml:3081-3803 + Explore):    *)
+(*  - The tail seam is at pc+3796 (0xed4), NOT 0xec0.  The prepretail sims     *)
+(*    THROUGH 0xec0..0xed0 (ext v16; sub x5,x4,x0; cmp; ldr q9,[x0],#16; ldp   *)
+(*    q24,q25,[x6,#160]) to set up the tail's Q9/Q24/Q25/X0/X5 registers.      *)
+(*  - In the <=8 band the FRONT folds 0 GHASH blocks (Q19=word_bytereverse xi) *)
+(*    and the TAIL folds all r.  The prepretail is the pipelined analogue: it  *)
+(*    folds the FINAL in-flight 8-block group (blocks 8k..8k+7) into Q19       *)
+(*    (catching the lagging GHASH stream up), and computes AES keystreams for  *)
+(*    the tail's Q0..Q7.                                                       *)
+(*  - RECOMPOSE SUBSTITUTION (session-033, fully determined off the s313       *)
+(*    harvest): the prepretail postcond = wb_front_postcond instantiated with  *)
+(*      ctr0'   := gcm_ctr_add (word (8*(k+1))) ctr0   (tail's shifted counter) *)
+(*      in_p'   := word_add in_p  (word (128*(k+1)))                            *)
+(*      out_p'  := word_add out_p (word (128*(k+1)))                            *)
+(*      nblk'   := r = nblk - 8*(k+1)   (1..8)                                  *)
+(*      xi'     := the caught-up ghash acc over all 8*(k+1) processed blocks    *)
+(*      ibytes' := the last r blocks of ibytes                                 *)
+(*    Q0..Q7 reconcile via GCM_CTR_ADD_COMPOSE:                                 *)
+(*      gcm_ctr_add(8k+8+i) ctr0 = gcm_ctr_inc^i (gcm_ctr_add(8(k+1)) ctr0).    *)
+(*                                                                            *)
+(* SIM RECIPE (session-033, VALIDATED interactively end-to-end on              *)
+(* wb-dec-mainloop10, ~2min, no hang/OOM; reaches read PC s313 = word(pc+3796);*)
+(* full state harvested -- see orchestrator/logs/session-033-prepretail-       *)
+(* recipe.md and session-033-summary.md):                                      *)
+(*                                                                            *)
+(*   REPEAT GEN_TAC THEN STRIP_TAC THEN REWRITE_TAC[wbn_loop_inv_core] THEN     *)
+(*   CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN ENSURES_INIT_TAC "s0" THEN         *)
+(*   RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_dec]) THEN                          *)
+(*   RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV let_CONV)) THEN                    *)
+(*   FIRST_X_ASSUM(fun th -> ... strip the byteswap128/karatsuba_mid conj) THEN *)
+(*   ABBREV_TAC for k := (nblk - 9) DIV 8, THEN                                 *)
+(*   [counter setup 1..14: rev32 v5@2/v6@7/v7@14, add v30@3/9]                  *)
+(*   ARM_STEPS_TAC EXEC (1--1) THEN               [ldp q26,q27 = keys k0,k1]    *)
+(*   ARM_STEPS_TAC EXEC (2--2) THEN GCM_SIMD_SIMPLIFY_TAC THEN                  *)
+(*   REV32_FOLD_TAC "Q5" "s2" [word (8*k+13):32 word] THEN                      *)
+(*   ARM_STEPS_TAC EXEC (3--3) THEN GCM_SIMD_SIMPLIFY_TAC THEN CTR_INCR_NORM_TAC "s3" 13 THEN *)
+(*   ARM_STEPS_TAC EXEC (4--7) THEN GCM_SIMD_SIMPLIFY_TAC THEN                  *)
+(*   REV32_FOLD_TAC "Q6" "s7" [word (8*k+14):32 word] THEN                      *)
+(*   ARM_STEPS_TAC EXEC (8--9) THEN GCM_SIMD_SIMPLIFY_TAC THEN CTR_INCR_NORM_TAC "s9" 14 THEN *)
+(*   ARM_STEPS_TAC EXEC (10--14) THEN GCM_SIMD_SIMPLIFY_TAC THEN                *)
+(*   REV32_FOLD_TAC "Q7" "s14" [word (8*k+15):32 word] THEN                     *)
+(*   (* AES/GHASH bulk 15..240, KEEPDATA keeps Q0..Q19 *)                       *)
+(*   ARM_STEPS_FOLD_KEEPDATA_TAC EXEC (15--120) THEN                            *)
+(*   ARM_STEPS_FOLD_KEEPDATA_TAC EXEC (121--211) THEN                           *)
+(*   ARM_STEPS_FOLD_KEEPDATA_TAC EXEC (212--240) THEN                           *)
+(*   (* discard the GHASH cluster before the [sp+64] modulus reduce (Q19        *)
+(*      CHEATed -- kills the s014 concrete-modulus hang) *)                     *)
+(*   DISCARD_QREGS_TAC ["Q16";"Q17";"Q18";"Q19"] THEN                           *)
+(*   ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC EXEC (241--306) THEN                    *)
+(*   (* tail setup 307..313 -> pc+3796 *)                                       *)
+(*   ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC EXEC (307--313) THEN                    *)
+(*   ENSURES_FINAL_STATE_TAC THEN ...close per-conjunct...                      *)
+(*                                                                            *)
+(* Harvested s313 register facts (k=(nblk-9)DIV8; all CHEAT-free except Q19):   *)
+(*   PC = pc+3796                                        [matches seam]         *)
+(*   Q0..Q7 = aes13(gcm_ctr_add(8k+8..8k+15) ctr0) k0..k13   [ctr shift]        *)
+(*   Q24 = karatsuba_mid h8 || karatsuba_mid h7 ; Q25 = h8   [reloaded @0xed0]  *)
+(*   Q16/Q19 = GHASH acc staging   -> SCOPED CHEAT (= the [11] RINNER=LINNER)   *)
+(*   X0 = in_p+128(k+1)+16 ; X2 = out_p+128(k+1) ; X4 = in_p+16nblk             *)
+(*   X5 = (in_p+16nblk)-(in_p+128(k+1)) = word(16*r)                            *)
+(*   X1=128nblk X9=16nblk X10=sp+64 X11=key_p X3=xi_p X6=htbl_p X16=ivec_p      *)
+(*   X15=2^32 Q31=2^96 SP=stackpointer ; [sp+64]=0xC2..; keys k0..k14; htable;  *)
+(*   store-forall j<8*(k+1); input buffer -- all preserved.                    *)
+(*   NF/ZF/CF/VF on word_sub(in_p+16nblk)(in_p+128(k+1)) vs 112 [-> r=... calc] *)
+(*                                                                            *)
+(* NEXT SESSION deliverable: state WBN_PREPRETAIL as an ensures with post =     *)
+(* wb_front_postcond[shifted params above] (so WB_TAIL_r applies verbatim),     *)
+(* drive the recipe above, close every conjunct CHEAT-free EXCEPT the Q19       *)
+(* caught-up GHASH (scoped CHEAT mirroring [11] at :2085 -- same identity),     *)
+(* commit, cold-load gate.  The goal below is the current skeleton (post at     *)
+(* pc+3796 minimal); it is CHEAT-stubbed so the file loads.  DO NOT ship the    *)
+(* minimal post -- replace with the shifted wb_front_postcond before the        *)
+(* Phase-6 recompose can use it.                                                *)
+(* ========================================================================= *)
+
+let wbn_prepretail_goal =
+  let kk = `(nblk - 9) DIV 8` in
+  let pre = mk_abs(`s:armstate`,
+    list_mk_conj[
+      `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
+      `read PC s = word (pc + 0x9f0)`;
+      mk_comb(mk_comb(wbn_core_applied,kk),`s:armstate`)]) in
+  (* NOTE: minimal harvest post (PC only) -- session-033 skeleton.  Replace with
+     the shifted wb_front_postcond (see the RECOMPOSE SUBSTITUTION comment) so
+     WB_TAIL_r_TAC consumes it verbatim.  Every seam post MUST include
+     aligned_bytes_loaded (BRIEF constraint) -- add it back with the real post. *)
+  let post = mk_abs(`s:armstate`,
+    list_mk_conj[
+      `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
+      `read PC s = word (pc + 3796)`]) in
+  let ens = list_mk_comb(`ensures arm`,[pre; post; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
+
+(* SESSION-033: the 313-instr sim above VALIDATED to pc+3796 interactively.
+   Skeleton stubbed with CHEAT_TAC (disclosed) so the file loads; the full
+   CHEAT-free close (bar the scoped Q19) is the next session's deliverable. *)
+let WBN_PREPRETAIL = prove(wbn_prepretail_goal, CHEAT_TAC);;
