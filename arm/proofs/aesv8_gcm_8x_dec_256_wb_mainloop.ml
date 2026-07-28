@@ -3267,3 +3267,44 @@ let WBN_FRONT_TO_PREP_EXT = prove(wbn_front_to_prep_ext_goal,
       REWRITE_TAC[ARITH_RULE `pc + 0x4a0 = pc + 1184`] THEN CONV_TAC TAUT;
       MP_TAC(SPECL wb_front_vars WBN_LOOP_PREP_EXT) THEN
       ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC]]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* SESSION-040 -- WBN_Q9_SPEC: the first-tail-block resolver for the seam.     *)
+(*                                                                            *)
+(* At the prepretail seam (pc+3796) the code has just executed                 *)
+(*   ecc:  ldr q9, [x0], #16     (x0 = in_p + 128*(k+1) pre-increment)         *)
+(* so the sim carries  read Q9 s313 = read (memory :> bytes128                 *)
+(*   (word_add in_p (word (128*(k+1))))) s311  -- a RAW memory read (harvested  *)
+(* session-040).  The tail's FIRST instruction eor3 v12,v9,v0,v29 @0xedc reads  *)
+(* this Q9 (objdump-confirmed: incoming Q9 is consumed BEFORE any tail reload   *)
+(* at 0xfa4), so it MUST reach the tail seam in spec form.  This lemma resolves  *)
+(* that raw read to bytes_to_int128 (SUB_LIST (16*8*(k+1),16) ibytes) = the      *)
+(* first tail block (global block 8*(k+1)) via INPUT_BYTES_TO_BYTE128_LANES at    *)
+(* lane 8*(k+1), given 8*(k+1) < nblk (WBN_Q9_INDEX_LT) and the preserved        *)
+(* whole-buffer input-bytes fact.  hyps=0 (session-040).                         *)
+(* USE (next session): add read Q9 = <this RHS> to the prepretail post, resolve  *)
+(* it in the sim right before ENSURES_FINAL_STATE via                           *)
+(*   MP_TAC(SPECL[...] WBN_Q9_SPEC) using the s313 input-bytes fact + the raw    *)
+(*   Q9 read (bridge s311->s313 memory equality: no stores 0xecc..0xed4).         *)
+(* ------------------------------------------------------------------------- *)
+let WBN_Q9_SPEC = prove
+ (`!(nblk:num) (in_p:int64) (ibytes:byte list) (k:num) (s:armstate).
+     LENGTH ibytes = 16 * nblk /\
+     8 * (k + 1) < nblk /\
+     read (memory :> bytes (in_p,16 * nblk)) s = num_of_bytelist ibytes
+     ==> read (memory :> bytes128 (word_add in_p (word (128 * (k + 1))))) s =
+         bytes_to_int128 (SUB_LIST (16 * (8 * (k + 1)),16) ibytes)`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(SPECL [`nblk:num`; `in_p:int64`; `ibytes:byte list`; `s:armstate`]
+    INPUT_BYTES_TO_BYTE128_LANES) THEN
+  ANTS_TAC THENL
+   [CONJ_TAC THENL
+     [ASM_ARITH_TAC;
+      SUBGOAL_THEN `SUB_LIST (0, 16 * nblk) (ibytes:byte list) = ibytes` SUBST1_TAC THENL
+       [MATCH_MP_TAC SUB_LIST_LENGTH_IMPLIES THEN ASM_REWRITE_TAC[LE_REFL]; ALL_TAC] THEN
+      ASM_REWRITE_TAC[]];
+    DISCH_THEN(MP_TAC o SPEC `8 * (k + 1):num`) THEN
+    ANTS_TAC THENL
+     [ASM_ARITH_TAC;
+      REWRITE_TAC[ARITH_RULE `16 * (8 * (k + 1)) = 128 * (k + 1)`] THEN
+      DISCH_THEN(fun th -> REWRITE_TAC[th])]]);;
