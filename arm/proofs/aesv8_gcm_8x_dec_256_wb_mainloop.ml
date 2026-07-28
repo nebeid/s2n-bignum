@@ -3508,3 +3508,18 @@ let WB_TAIL_GEN_1 = prove(wbn_tail_backleg_goal 1,
 (* precond confirms even the 8-block GHASH close needs none of the 4 cells.  *)
 let WB_TAIL_GEN_8 = prove(wbn_tail_backleg_goal 8,
   REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 8 THEN WB_TAIL_8_TAC);;
+
+(* r=2..7 (validated session-044): same back-leg, all hyps=0.  Timings:      *)
+(* r2~166s r3~132s r4~165s r5~200s r6~237s r7~277s.                          *)
+let WB_TAIL_GEN_2 = prove(wbn_tail_backleg_goal 2,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 2 THEN WB_TAIL_2_TAC);;
+let WB_TAIL_GEN_3 = prove(wbn_tail_backleg_goal 3,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 3 THEN WB_TAIL_3_TAC);;
+let WB_TAIL_GEN_4 = prove(wbn_tail_backleg_goal 4,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 4 THEN WB_TAIL_4_TAC);;
+let WB_TAIL_GEN_5 = prove(wbn_tail_backleg_goal 5,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 5 THEN WB_TAIL_5_TAC);;
+let WB_TAIL_GEN_6 = prove(wbn_tail_backleg_goal 6,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 6 THEN WB_TAIL_6_TAC);;
+let WB_TAIL_GEN_7 = prove(wbn_tail_backleg_goal 7,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 7 THEN WB_TAIL_7_TAC);;
