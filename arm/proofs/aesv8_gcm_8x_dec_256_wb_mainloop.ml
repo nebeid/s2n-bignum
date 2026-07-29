@@ -3580,6 +3580,35 @@ let WBN_INPUT_SLICE = prove
   REWRITE_TAC[NUM_OF_WORDLIST_SUB_LIST; DIMINDEX_8] THEN
   AP_THM_TAC THEN AP_TERM_TAC THEN AP_TERM_TAC THEN ARITH_TAC);;
 
+(* Session-047 generalization of WBN_INPUT_SLICE to an arbitrary slice length  *)
+(* m (= 16*r):  the r>1 shifted tail reads 16*r input bytes at 128*(k+1), not   *)
+(* just 16.  Same proof, m kept symbolic under 128*(k+1)+m <= 16*nblk. hyps=0.  *)
+let WBN_INPUT_SLICE_GEN = prove
+ (`!(nblk:num) (in_p:int64) (ibytes:byte list) (k:num) (m:num) (s:armstate).
+     LENGTH ibytes = 16 * nblk /\ 128 * (k + 1) + m <= 16 * nblk /\
+     read (memory :> bytes (in_p,16 * nblk)) s = num_of_bytelist ibytes
+     ==> read (memory :> bytes (word_add in_p (word (128 * (k + 1))),m)) s =
+         num_of_bytelist (SUB_LIST (128 * (k + 1),m) ibytes)`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(ISPECL [`in_p:int64`; `16 * nblk`; `128 * (k+1)`; `read memory (s:armstate)`]
+    READ_BYTES_DIV) THEN
+  REWRITE_TAC[GSYM READ_COMPONENT_COMPOSE] THEN DISCH_TAC THEN
+  SUBGOAL_THEN `read (memory :> bytes (word_add in_p (word (128 * (k + 1))),m)) s =
+     (read (memory :> bytes (word_add in_p (word (128 * (k + 1))),
+                             16 * nblk - 128 * (k + 1))) s) MOD 2 EXP (8 * m)`
+   SUBST1_TAC THENL
+   [MP_TAC(ISPECL [`word_add in_p (word (128 * (k+1))):int64`;
+                   `16 * nblk - 128 * (k+1)`; `m:num`; `read memory (s:armstate)`]
+       READ_BYTES_MOD) THEN
+    REWRITE_TAC[GSYM READ_COMPONENT_COMPOSE] THEN
+    SUBGOAL_THEN `MIN (16 * nblk - 128 * (k + 1)) m = m` SUBST1_TAC THENL
+     [ASM_ARITH_TAC; ALL_TAC] THEN
+    DISCH_THEN(SUBST1_TAC o SYM) THEN REFL_TAC; ALL_TAC] THEN
+  FIRST_X_ASSUM(SUBST1_TAC o SYM) THEN ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[NUM_OF_BYTELIST_EQ_WORDLIST] THEN
+  REWRITE_TAC[NUM_OF_WORDLIST_SUB_LIST; DIMINDEX_8] THEN
+  AP_THM_TAC THEN AP_TERM_TAC THEN AP_TERM_TAC THEN ARITH_TAC);;
+
 (* 6-cell drop: the 4 session-044 cells PLUS the dead X1,X9. *)
 let wbn_tail_drop_lhs6 = wbn_tail_drop_lhs @
   [`read X1 (s:armstate)`; `read X9 (s:armstate)`];;
@@ -3598,11 +3627,9 @@ let wbn_tail_backleg_goal6 r =
 let WB_TAIL_GEN2_1 = prove(wbn_tail_backleg_goal6 1,
   REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 1 THEN WB_TAIL_1_TAC);;
 
-(* r=2..8: same back-leg from the 6-cell-drop weak precond.  NOT yet run this *)
-(* session (each ~130-315s; the r=1 validation + the shared WB_TAIL_r_TAC     *)
-(* machinery make these low-risk).  Uncomment + run next session, then commit; *)
-(* the ckpt rebuild bakes them (mirrors the WB_TAIL_GEN_r cost).              *)
-(*
+(* r=2..8: same back-leg from the 6-cell-drop weak precond (each ~130-315s;  *)
+(* WB_TAIL_GEN2_2 validated session-047 at ~165s; the others share the        *)
+(* WB_TAIL_r_TAC machinery).  Each hyps=0 IS the per-r X1/X9 dead-cell audit.  *)
 let WB_TAIL_GEN2_2 = prove(wbn_tail_backleg_goal6 2,
   REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 2 THEN WB_TAIL_2_TAC);;
 let WB_TAIL_GEN2_3 = prove(wbn_tail_backleg_goal6 3,
@@ -3617,7 +3644,6 @@ let WB_TAIL_GEN2_7 = prove(wbn_tail_backleg_goal6 7,
   REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 7 THEN WB_TAIL_7_TAC);;
 let WB_TAIL_GEN2_8 = prove(wbn_tail_backleg_goal6 8,
   REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 8 THEN WB_TAIL_8_TAC);;
-*)
 
 (* ------------------------------------------------------------------------- *)
 (* WBN_PREP_TO_END_r recipe (VALIDATED for r=1 down to a full close this       *)
@@ -3742,41 +3768,79 @@ let wbn_prep_to_end_goal r tail_r =
     [wbn_prepretail_post_ext2; shifted_post; wbn_front_C_tm]) in
   list_mk_forall(wb_front_vars, mk_imp(hyps, ens));;
 
-(* the r=1 reconciliation tactic (session-046, validated live session-047).   *)
-let WBN_PREP_TO_END_1 = prove(wbn_prep_to_end_goal 1 WB_TAIL_GEN2_1,
+(* Parametric reconciliation tactic (session-047, validated r=1..2 live, then  *)
+(* r=3..8 by the same shape).  The r>1 cases read 16*r input bytes so use       *)
+(* WBN_INPUT_SLICE_GEN (m=16*r) both for the SUB_LIST fold (Q9) and the direct  *)
+(* input-read residual; the flags/X4/X5 close after SUBST word_sub=word(16*r);   *)
+(* the counter reads fold via GCM_CTR_ADD_1/COMPOSE + a 14-deep AP peel.  Every  *)
+(* pre-implication conjunct is closed order-independently by a per-goal FIRST    *)
+(* [REFL; WORD_RULE; counter-peel; slice] so leaf count/order never matters.     *)
+let WBN_PREP_TO_END_r_TAC r tail_r =
+  let rt = mk_small_numeral r in
+  let m16r = mk_binop `( * ):num->num->num` `16` rt in
+  let mnum = mk_small_numeral (16 * r) in
+  let sv = shift_vals r in
+  let tail = SPECL sv tail_r in
+  let _,targs = strip_comb (snd(dest_imp(concl tail))) in
+  let tail_frame = el 3 targs and tail_pre = el 1 targs in
+  let slice_close =
+    MP_TAC(SPECL [`nblk:num`;`in_p:int64`;`ibytes:byte list`;`q:num`;mnum;`x:armstate`]
+             WBN_INPUT_SLICE_GEN) THEN
+    ANTS_TAC THENL
+     [ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
+      REWRITE_TAC[ARITH_RULE(mk_eq(m16r,mnum))] THEN DISCH_THEN ACCEPT_TAC] in
+  let counter_close =
+    REPLICATE_TAC 14 AP_THM_TAC THEN AP_TERM_TAC THEN AP_THM_TAC THEN AP_TERM_TAC THEN
+    CONV_TAC WORD_RULE in
   REPEAT GEN_TAC THEN STRIP_TAC THEN
-  MATCH_MP_TAC ENSURES_FRAME_SUBSUMED THEN
-  EXISTS_TAC (el 3 (snd(strip_comb (snd(dest_imp(concl(SPECL (shift_vals 1) WB_TAIL_GEN2_1))))))) THEN
+  MATCH_MP_TAC ENSURES_FRAME_SUBSUMED THEN EXISTS_TAC tail_frame THEN
   CONJ_TAC THENL
    [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN SUBSUMED_MAYCHANGE_TAC;
     ALL_TAC] THEN
-  MATCH_MP_TAC ENSURES_PRECONDITION_THM THEN
-  EXISTS_TAC (el 1 (snd(strip_comb (snd(dest_imp(concl(SPECL (shift_vals 1) WB_TAIL_GEN2_1))))))) THEN
+  MATCH_MP_TAC ENSURES_PRECONDITION_THM THEN EXISTS_TAC tail_pre THEN
   CONJ_TAC THENL
    [GEN_TAC THEN REWRITE_TAC[] THEN STRIP_TAC THEN
     ASM_REWRITE_TAC[WORD_BYTEREVERSE_BYTEREVERSE] THEN
     ABBREV_TAC `q = (nblk - 9) DIV 8` THEN
-    SUBGOAL_THEN `16 * nblk = 128 * (q + 1) + 16` ASSUME_TAC THENL
-     [UNDISCH_TAC `nblk = 8 * (q + 1) + 1` THEN ARITH_TAC; ALL_TAC] THEN
+    SUBGOAL_THEN (subst[rt,`r_:num`] `16 * nblk = 128 * (q + 1) + 16 * r_`)
+      ASSUME_TAC THENL
+     [UNDISCH_TAC (subst[rt,`r_:num`] `nblk = 8 * (q + 1) + r_`) THEN ARITH_TAC;
+      ALL_TAC] THEN
     REWRITE_TAC[GSYM GCM_CTR_ADD_1; GCM_CTR_ADD_COMPOSE] THEN
-    MP_TAC(SPECL [`nblk:num`;`in_p:int64`;`ibytes:byte list`;`q:num`;`x:armstate`]
-      WBN_INPUT_SLICE) THEN
+    MP_TAC(SPECL [`nblk:num`;`in_p:int64`;`ibytes:byte list`;`q:num`;m16r;`x:armstate`]
+      WBN_INPUT_SLICE_GEN) THEN
     ANTS_TAC THENL
      [ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
-      DISCH_THEN(fun th -> REWRITE_TAC[REWRITE_RULE[ARITH_RULE `16 * 1 = 16`] th])] THEN
-    REWRITE_TAC[SUB_LIST_MIN_RIGHT; ARITH_RULE `MIN 16 (16 * 1) = 16`;
+      DISCH_THEN(fun th -> REWRITE_TAC[th])] THEN
+    REWRITE_TAC[SUB_LIST_MIN_RIGHT; ARITH_RULE(subst[rt,`r_:num`] `MIN 16 (16 * r_) = 16`);
                 ARITH_RULE `16 * 8 * (q + 1) = 128 * (q + 1)`] THEN
-    ASM_REWRITE_TAC[] THEN REWRITE_TAC[ARITH_RULE `16 * 1 = 16`] THEN
-    SUBGOAL_THEN `word_sub (word_add in_p (word (128 * (q + 1) + 16)))
-                  (word_add in_p (word (128 * (q + 1)))):int64 = word 16`
-      SUBST_ALL_TAC THENL
-     [CONV_TAC WORD_RULE; ALL_TAC] THEN
-    REPEAT CONJ_TAC THEN TRY REFL_TAC THEN TRY (CONV_TAC WORD_RULE) THEN
-    REPLICATE_TAC 14 AP_THM_TAC THEN AP_TERM_TAC THEN AP_THM_TAC THEN
-    AP_TERM_TAC THEN CONV_TAC WORD_RULE;
-    MP_TAC (SPECL (shift_vals 1) WB_TAIL_GEN2_1) THEN ANTS_TAC THENL
+    ASM_REWRITE_TAC[] THEN
+    SUBGOAL_THEN (subst[rt,`r_:num`]
+      `word_sub (word_add in_p (word (128 * (q + 1) + 16 * r_)))
+                (word_add in_p (word (128 * (q + 1)))):int64 = word (16 * r_)`)
+      SUBST_ALL_TAC THENL [CONV_TAC WORD_RULE; ALL_TAC] THEN
+    REPEAT CONJ_TAC THEN
+    FIRST [REFL_TAC; CONV_TAC WORD_RULE; counter_close; slice_close];
+    MP_TAC tail THEN ANTS_TAC THENL
      [CONJ_TAC THENL
         [REWRITE_TAC[LENGTH_SUB_LIST] THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
          ALL_TAC] THEN
       REPEAT CONJ_TAC THEN (FIRST_ASSUM ACCEPT_TAC ORELSE NONOVERLAPPING_TAC);
-      DISCH_THEN ACCEPT_TAC]]);;
+      DISCH_THEN ACCEPT_TAC]];;
+
+let WBN_PREP_TO_END_1 = prove(wbn_prep_to_end_goal 1 WB_TAIL_GEN2_1,
+  WBN_PREP_TO_END_r_TAC 1 WB_TAIL_GEN2_1);;
+let WBN_PREP_TO_END_2 = prove(wbn_prep_to_end_goal 2 WB_TAIL_GEN2_2,
+  WBN_PREP_TO_END_r_TAC 2 WB_TAIL_GEN2_2);;
+let WBN_PREP_TO_END_3 = prove(wbn_prep_to_end_goal 3 WB_TAIL_GEN2_3,
+  WBN_PREP_TO_END_r_TAC 3 WB_TAIL_GEN2_3);;
+let WBN_PREP_TO_END_4 = prove(wbn_prep_to_end_goal 4 WB_TAIL_GEN2_4,
+  WBN_PREP_TO_END_r_TAC 4 WB_TAIL_GEN2_4);;
+let WBN_PREP_TO_END_5 = prove(wbn_prep_to_end_goal 5 WB_TAIL_GEN2_5,
+  WBN_PREP_TO_END_r_TAC 5 WB_TAIL_GEN2_5);;
+let WBN_PREP_TO_END_6 = prove(wbn_prep_to_end_goal 6 WB_TAIL_GEN2_6,
+  WBN_PREP_TO_END_r_TAC 6 WB_TAIL_GEN2_6);;
+let WBN_PREP_TO_END_7 = prove(wbn_prep_to_end_goal 7 WB_TAIL_GEN2_7,
+  WBN_PREP_TO_END_r_TAC 7 WB_TAIL_GEN2_7);;
+let WBN_PREP_TO_END_8 = prove(wbn_prep_to_end_goal 8 WB_TAIL_GEN2_8,
+  WBN_PREP_TO_END_r_TAC 8 WB_TAIL_GEN2_8);;
