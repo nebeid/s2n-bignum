@@ -4246,24 +4246,54 @@ let WBN_PREP_TO_END_FULL_7 = prove(wbn_prep_to_end_full_goal 7, WBN_PREP_TO_END_
 let WBN_PREP_TO_END_FULL_8 = prove(wbn_prep_to_end_full_goal 8, WBN_PREP_TO_END_FULL_r_TAC 8);;
 
 (* ------------------------------------------------------------------------- *)
-(* NEXT (session-050): WBN_PREP_TO_END (8-way split) + chain + nblk 9..16.    *)
-(*                                                                             *)
-(* --- WBN_PREP_TO_END (8-way split) ---                                       *)
-(* Goal: !<wb_front_vars>. wide_hyps /\ 9 <= nblk /\ <3 side-conds>            *)
-(*   ==> ensures arm wbn_prepretail_post_ext2 wbn_end_post wbn_front_C_tm.     *)
-(* Proof: introduce r = 1 + (nblk-9) MOD 8; ASM_CASES on r in {1..8}; in each  *)
-(* branch the length hyp `nblk = 8*((nblk-9) DIV 8 + 1) + r` follows by        *)
-(* ARITH from `9 <= nblk` + the residue value, then MATCH_MP_TAC the matching  *)
-(* WBN_PREP_TO_END_FULL_r THEN ASM_REWRITE.  (Mirror AESV8_..._DISPATCH's      *)
-(* 8-way FIRST(map ...) style, but note the case var is the residue r, and     *)
-(* both DIV/MOD facts feed the ARITH; the loop count q=(nblk-9)DIV 8 stays     *)
-(* symbolic.)                                                                  *)
+(* WBN_PREP_TO_END (session-049): the 8-way case split on r = 1+(nblk-9) MOD 8. *)
+(* From the ext2 seam post to the full nblk-uniform wbn_end_post, under         *)
+(* 9 <= nblk + the 3 side-conditions.  Each residue rr in {0..7} dispatches to   *)
+(* WBN_PREP_TO_END_FULL_(rr+1); the per-branch length hyp                        *)
+(* nblk = 8*((nblk-9)DIV 8 + 1) + (rr+1) follows by ARITH from the DIVISION      *)
+(* identity + 9 <= nblk.                                                         *)
+(* ------------------------------------------------------------------------- *)
+
+let wbn_full_thm = Array.of_list
+  [WBN_PREP_TO_END_FULL_1;  (* index 0 unused-ish; use r directly 1..8 *)
+   WBN_PREP_TO_END_FULL_1; WBN_PREP_TO_END_FULL_2; WBN_PREP_TO_END_FULL_3;
+   WBN_PREP_TO_END_FULL_4; WBN_PREP_TO_END_FULL_5; WBN_PREP_TO_END_FULL_6;
+   WBN_PREP_TO_END_FULL_7; WBN_PREP_TO_END_FULL_8];;
+
+let wbn_prep_to_end_goal_final =
+  let hyps = end_itlist (curry mk_conj)
+    (wbn_front_hyps_wide_tm :: `9 <= nblk` :: wbn_prep_to_end_extra_clauses) in
+  let ens = list_mk_comb(`ensures arm`,
+    [wbn_prepretail_post_ext2; wbn_end_post; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(hyps, ens));;
+
+let WBN_PREP_TO_END = prove(wbn_prep_to_end_goal_final,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(SPEC `nblk - 9` (MATCH_MP DIVISION (ARITH_RULE `~(8 = 0)`))) THEN
+  ABBREV_TAC `rr = (nblk - 9) MOD 8` THEN STRIP_TAC THEN
+  FIRST_X_ASSUM(fun th -> if concl th = `rr < 8` then MP_TAC th else NO_TAC) THEN
+  REWRITE_TAC[ARITH_RULE
+    `rr < 8 <=> rr = 0 \/ rr = 1 \/ rr = 2 \/ rr = 3 \/
+                rr = 4 \/ rr = 5 \/ rr = 6 \/ rr = 7`] THEN
+  STRIP_TAC THEN
+  FIRST (map (fun r ->
+    MATCH_MP_TAC wbn_full_thm.(r) THEN ASM_REWRITE_TAC[] THEN
+    UNDISCH_TAC `nblk - 9 = (nblk - 9) DIV 8 * 8 + rr` THEN
+    ASM_REWRITE_TAC[] THEN UNDISCH_TAC `9 <= nblk` THEN ARITH_TAC) (1--8)));;
+
+(* ------------------------------------------------------------------------- *)
+(* NEXT (session-050): full nblk>8 front->exit chain + nblk 9..16 + Phase 7.  *)
 (*                                                                             *)
 (* --- full nblk>8 front->exit chain ---                                       *)
 (*   MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN EXISTS_TAC wbn_prepretail_post_ext2*)
 (*   THEN [C,,C=C by MAYCHANGE_IDEMPOT]; front leg = WBN_FRONT_TO_PREP_EXT2;   *)
 (*   back leg = WBN_PREP_TO_END.  Result: pc+0x20 -> pc+4528 for nblk>8, post  *)
 (*   = wbn_end_post.  The 3 side-conds ride the antecedent to the top precond. *)
+(*   NOTE WBN_FRONT_TO_PREP_EXT2's precond is wbn_front_P_tm (PC-free core) and *)
+(*   its post is wbn_prepretail_post_ext2; WBN_PREP_TO_END takes exactly that   *)
+(*   post as its precond, so the TRANS seam is aconv.  The chain's top precond  *)
+(*   needs the 3 side-conds threaded (they are NOT in wbn_front_P_tm) -- add    *)
+(*   them as antecedents, discharged by the Phase-8 wrapper / guard.           *)
 (*                                                                             *)
 (* --- nblk 9..16 leg + Phase 7 (see STATE.md Continuation) ---               *)
 (* ------------------------------------------------------------------------- *)
