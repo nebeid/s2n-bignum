@@ -4782,6 +4782,69 @@ let WBN_TAG_NIST_BRIDGE = prove
   REPEAT STRIP_TAC THEN
   ASM_REWRITE_TAC[NIST_GHASH_IS_POLYVAL; LIST_OF_SEQ_NIST_INPUT_SYM; BREV_RF8_128] THEN
   REWRITE_TAC[GSYM BREV_RF8_128; WORD_BYTEREVERSE_BYTEREVERSE]);;
+
+(* ------------------------------------------------------------------------- *)
+(* PHASE 7 output-side bridge lemmas (session-052, sim-free, symbolic nblk).   *)
+(* These are the symbolic-nblk analogues of the fixed-N GCM_DEC_PT_BYTES_WHOLE_k*)
+(* + BYTE_LIST_AT_WHOLE_CTR machinery in wb.ml, reconciling wbn_end_post's      *)
+(* nblk-uniform per-block output store forall to byte_list_at(gcm_dec_pt_bytes).*)
+
+(* EL of gcm_dec_blocks_from at a symbolic index (analogue of build_aes_ctr_el).*)
+let EL_GCM_DEC_BLOCKS_FROM = prove
+ (`!m base i x. i < m
+     ==> EL i (gcm_dec_blocks_from base m x) =
+         bytes_to_int128 (SUB_LIST (16 * (base + i),16) x)`,
+  INDUCT_TAC THEN REWRITE_TAC[LT] THEN
+  REPEAT GEN_TAC THEN STRUCT_CASES_TAC (SPEC `i:num` num_CASES) THEN
+  REWRITE_TAC[GCM_DEC_BLOCKS_FROM_STEP; EL; HD; TL] THENL
+   [REWRITE_TAC[ADD_CLAUSES];
+    DISCH_TAC THEN
+    FIRST_X_ASSUM(MP_TAC o SPECL [`base + 1`; `n:num`; `x:byte list`]) THEN
+    ANTS_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN DISCH_THEN SUBST1_TAC THEN
+    SUBGOAL_THEN `(base + 1) + n = base + SUC n` SUBST1_TAC THENL
+     [ARITH_TAC; REFL_TAC]]);;
+
+(* Whole-blocks (tail=16) collapse of gcm_dec_pt_bytes at symbolic nblk:        *)
+(*   nfull=(16*nblk-1)DIV 16=nblk-1, tail=16, so aes_ctr_full_tail_bytes -> ctr. *)
+let GCM_DEC_PT_BYTES_WHOLE_SYM = prove
+ (`!nblk ibytes ctr0 rk. 1 <= nblk
+     ==> gcm_dec_pt_bytes (16 * nblk) ibytes ctr0 rk =
+         aes_ctr_bytes ctr0 (gcm_dec_blocks_from 0 nblk ibytes) rk`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[gcm_dec_pt_bytes] THEN
+  SUBGOAL_THEN `(16 * nblk - 1) DIV 16 = nblk - 1` SUBST1_TAC THENL
+   [ASM_SIMP_TAC[ARITH_RULE `1 <= nblk ==> 16 * nblk - 1 = 16 * (nblk - 1) + 15`] THEN
+    SIMP_TAC[DIV_MULT_ADD; ARITH_EQ] THEN ARITH_TAC; ALL_TAC] THEN
+  CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
+  SUBGOAL_THEN `nblk - 1 + 1 = nblk /\ 16 * nblk - 16 * (nblk - 1) = 16`
+    (CONJUNCTS_THEN SUBST1_TAC) THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  MATCH_MP_TAC AES_CTR_FULL_TAIL_BYTES_WHOLE THEN
+  REWRITE_TAC[LENGTH_GCM_DEC_BLOCKS_FROM] THEN ASM_ARITH_TAC);;
+
+(* Per-block value bridge: wbn_end_post's store form (word_xor(word_xor cph     *)
+(* aes13..)k14) is exactly EL j of aes_ctr over the gcm_dec_blocks_from list     *)
+(* with the 15-key list.  Standalone (keeps AES/counter algebra out of the       *)
+(* ensures context) — analogue of wb.ml build_aes_ctr_el, at symbolic j.        *)
+let WBN_ENDBLOCK_IS_AES_CTR = prove
+ (`!nblk ibytes ctr0 k0 k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13 k14 j.
+     j < nblk
+     ==> word_xor
+           (word_xor (bytes_to_int128 (SUB_LIST (16 * j,16) ibytes))
+             (aes13 (gcm_ctr_inc_iter j ctr0) k0 k1 k2 k3 k4 k5 k6 k7 k8 k9
+                    k10 k11 k12 k13))
+           k14 =
+         EL j (aes_ctr ctr0 (gcm_dec_blocks_from 0 nblk ibytes)
+                 [k0;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14])`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(SPECL [`nblk:num`; `0`; `j:num`; `ibytes:byte list`]
+    EL_GCM_DEC_BLOCKS_FROM) THEN
+  ASM_REWRITE_TAC[ADD_CLAUSES] THEN DISCH_TAC THEN
+  MP_TAC(SPECL [`gcm_dec_blocks_from 0 nblk ibytes`; `ctr0:int128`;
+    `[k0;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]:int128 list`; `j:num`]
+    EL_AES_CTR) THEN
+  ASM_REWRITE_TAC[LENGTH_GCM_DEC_BLOCKS_FROM] THEN DISCH_THEN SUBST1_TAC THEN
+  ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[GSYM AES256_XOR_ENCRYPT_RECONSTRUCT] THEN CONV_TAC WORD_RULE);;
+
 (* ------------------------------------------------------------------------- *)
 (* --- Phase 7 (NEXT SESSION): AESV8_GCM_8X_DEC_256_WB_CORRECT ---              *)
 (*   ASM_CASES nblk<=8 -> existing _DISPATCH; 9..16 -> WBN_FRONT_TO_END_916;    *)
