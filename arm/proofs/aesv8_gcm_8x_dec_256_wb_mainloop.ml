@@ -3883,3 +3883,162 @@ let WBN_SUBLIST_SHIFT = prove
    [ASM_ARITH_TAC; ALL_TAC] THEN
   SUBGOAL_THEN `128 * (k + 1) + 16 * i = 16 * (8 * (k + 1) + i)` SUBST1_TAC THENL
    [ARITH_TAC; REFL_TAC]);;
+
+(* ------------------------------------------------------------------------- *)
+(* WBN_PREP_TO_END_FULL_r : the seam post fed to the shifted tail, delivering  *)
+(* the FULL-nblk output/tag contract (not the r-block band_post).  Post =      *)
+(* wbn_end_post: PC=pc+4528, the nblk-uniform output forall (aes13 XOR k14      *)
+(* vocabulary, matching the ext2 seam's carried forall), the tag folded to      *)
+(* list_of_seq cph nblk via GHASH_ACC_APPEND.                                   *)
+(*                                                                             *)
+(* Route (session-048): FRAME_SUBSUMED (narrow tail out-frame -> wide           *)
+(* wbn_front_C_tm), THEN ENSURES_POSTCONDITION_THM with the intermediate        *)
+(*   inter_post_r = \s. (shifted band_post r) s /\ (ext2 first-8(k+1) forall) s  *)
+(* splitting into: (1) inter_post_r ==> wbn_end_post [the tag-fold + store       *)
+(* re-index math], and (2) ensures ext2post inter_post_r narrow_frame, closed    *)
+(* by ENSURES_ADD_PRESERVED [narrow tail leg via INNER_TAIL_FEED_TAC + the       *)
+(* first-blocks forall carried by read-over-write through the narrow frame,      *)
+(* sound because the tail writes only bytes(out_p+128(k+1),16*r), disjoint       *)
+(* from the first 128(k+1) output bytes].                                        *)
+(* ------------------------------------------------------------------------- *)
+
+(* the nblk-uniform end post (PC + output forall over nblk + folded tag). *)
+let wbn_end_post =
+  let end_forall = `forall j. j < nblk
+    ==> read (memory :> bytes128 (word_add out_p (word (16 * j)))) s =
+        word_xor (word_xor (bytes_to_int128 (SUB_LIST (16 * j,16) ibytes))
+        (aes13 (gcm_ctr_inc_iter j ctr0) k0 k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13)) k14` in
+  let tag = `read (memory :> bytes128 xi_p) s =
+    word_bytereverse (ghash_polyval_acc (byteswap128 h) (word_bytereverse xi)
+      (MAP word_bytereverse
+        (list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16) ibytes)) nblk)))` in
+  mk_abs(`s:armstate`,
+    list_mk_conj [`read PC s = word (pc + 4528)`; end_forall; tag]);;
+
+(* full-post goal for a given r *)
+let wbn_prep_to_end_full_goal r =
+  let nblk_eq = subst[mk_small_numeral r,`r_:num`]
+                  `nblk = 8 * ((nblk - 9) DIV 8 + 1) + r_` in
+  let hyps = end_itlist (curry mk_conj)
+    (wbn_front_hyps_wide_tm :: nblk_eq :: wbn_prep_to_end_extra_clauses) in
+  let ens = list_mk_comb(`ensures arm`,
+    [wbn_prepretail_post_ext2; wbn_end_post; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(hyps, ens));;
+
+(* the narrow tail out-frame (writes only the last r output blocks) for shift r. *)
+let wbn_tail_gen2 r =
+  if r=1 then WB_TAIL_GEN2_1 else if r=2 then WB_TAIL_GEN2_2
+  else if r=3 then WB_TAIL_GEN2_3 else if r=4 then WB_TAIL_GEN2_4
+  else if r=5 then WB_TAIL_GEN2_5 else if r=6 then WB_TAIL_GEN2_6
+  else if r=7 then WB_TAIL_GEN2_7 else WB_TAIL_GEN2_8;;
+let wbn_narrow_frame r =
+  el 3 (snd(strip_comb(snd(dest_imp(concl(SPECL (shift_vals r) (wbn_tail_gen2 r)))))));;
+
+(* INNER_TAIL_FEED_TAC r tail_r: the post-FRAME_SUBSUMED inner half of           *)
+(* WBN_PREP_TO_END_r_TAC (PRECONDITION_THM + feed the shifted tail); proves      *)
+(* `ensures ext2post (shifted band_post r) narrow_frame` on its own.            *)
+let INNER_TAIL_FEED_TAC r tail_r =
+  let rt = mk_small_numeral r in
+  let m16r = mk_binop `( * ):num->num->num` `16` rt in
+  let mnum = mk_small_numeral (16 * r) in
+  let sv = shift_vals r in
+  let tail = SPECL sv tail_r in
+  let _,targs = strip_comb (snd(dest_imp(concl tail))) in
+  let tail_pre = el 1 targs in
+  let slice_close =
+    MP_TAC(SPECL [`nblk:num`;`in_p:int64`;`ibytes:byte list`;`q:num`;mnum;`x:armstate`]
+             WBN_INPUT_SLICE_GEN) THEN
+    ANTS_TAC THENL
+     [ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
+      REWRITE_TAC[ARITH_RULE(mk_eq(m16r,mnum))] THEN DISCH_THEN ACCEPT_TAC] in
+  let counter_close =
+    REPLICATE_TAC 14 AP_THM_TAC THEN AP_TERM_TAC THEN AP_THM_TAC THEN AP_TERM_TAC THEN
+    CONV_TAC WORD_RULE in
+  MATCH_MP_TAC ENSURES_PRECONDITION_THM THEN EXISTS_TAC tail_pre THEN
+  CONJ_TAC THENL
+   [GEN_TAC THEN REWRITE_TAC[] THEN STRIP_TAC THEN
+    ASM_REWRITE_TAC[WORD_BYTEREVERSE_BYTEREVERSE] THEN
+    ABBREV_TAC `q = (nblk - 9) DIV 8` THEN
+    SUBGOAL_THEN (subst[rt,`r_:num`] `16 * nblk = 128 * (q + 1) + 16 * r_`)
+      ASSUME_TAC THENL
+     [UNDISCH_TAC (subst[rt,`r_:num`] `nblk = 8 * (q + 1) + r_`) THEN ARITH_TAC;
+      ALL_TAC] THEN
+    REWRITE_TAC[GSYM GCM_CTR_ADD_1; GCM_CTR_ADD_COMPOSE] THEN
+    MP_TAC(SPECL [`nblk:num`;`in_p:int64`;`ibytes:byte list`;`q:num`;m16r;`x:armstate`]
+      WBN_INPUT_SLICE_GEN) THEN
+    ANTS_TAC THENL
+     [ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
+      DISCH_THEN(fun th -> REWRITE_TAC[th])] THEN
+    REWRITE_TAC[SUB_LIST_MIN_RIGHT; ARITH_RULE(subst[rt,`r_:num`] `MIN 16 (16 * r_) = 16`);
+                ARITH_RULE `16 * 8 * (q + 1) = 128 * (q + 1)`] THEN
+    ASM_REWRITE_TAC[] THEN
+    SUBGOAL_THEN (subst[rt,`r_:num`]
+      `word_sub (word_add in_p (word (128 * (q + 1) + 16 * r_)))
+                (word_add in_p (word (128 * (q + 1)))):int64 = word (16 * r_)`)
+      SUBST_ALL_TAC THENL [CONV_TAC WORD_RULE; ALL_TAC] THEN
+    REPEAT CONJ_TAC THEN
+    FIRST [REFL_TAC; CONV_TAC WORD_RULE; counter_close; slice_close];
+    MP_TAC tail THEN ANTS_TAC THENL
+     [CONJ_TAC THENL
+        [REWRITE_TAC[LENGTH_SUB_LIST] THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
+         ALL_TAC] THEN
+      REPEAT CONJ_TAC THEN (FIRST_ASSUM ACCEPT_TAC ORELSE NONOVERLAPPING_TAC);
+      DISCH_THEN ACCEPT_TAC]];;
+
+(* r=1 full-post: validated end-to-end interactively (session-048). *)
+let WBN_PREP_TO_END_FULL_1 = prove(wbn_prep_to_end_full_goal 1,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC ENSURES_FRAME_SUBSUMED THEN
+  EXISTS_TAC (wbn_narrow_frame 1) THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN SUBSUMED_MAYCHANGE_TAC;
+    ALL_TAC] THEN
+  MATCH_MP_TAC ENSURES_POSTCONDITION_THM THEN
+  EXISTS_TAC (mk_abs(`s:armstate`,
+    mk_conj(snd(dest_abs(el 2 (snd(strip_comb(snd(dest_imp(concl(SPECL (shift_vals 1) WB_TAIL_GEN2_1)))))))),
+            el 64 (conjuncts (snd(dest_abs wbn_prepretail_post_ext2)))))) THEN
+  CONJ_TAC THENL
+   [X_GEN_TAC `s:armstate` THEN REWRITE_TAC[] THEN STRIP_TAC THEN
+    ASM_REWRITE_TAC[] THEN ABBREV_TAC `q = (nblk - 9) DIV 8` THEN
+    CONJ_TAC THENL
+     [X_GEN_TAC `j:num` THEN DISCH_TAC THEN
+      ASM_CASES_TAC `j < 8 * (q + 1)` THENL
+       [FIRST_X_ASSUM MATCH_MP_TAC THEN FIRST_X_ASSUM ACCEPT_TAC;
+        SUBGOAL_THEN `j = 8 * (q + 1)` SUBST_ALL_TAC THENL
+         [ASM_ARITH_TAC; ALL_TAC] THEN
+        REWRITE_TAC[ARITH_RULE `16 * 8 * (q + 1) = 128 * (q + 1)`; GCM_CTR_INC_ITER_ADD] THEN
+        FIRST_X_ASSUM(fun th -> if is_eq(concl th) &&
+          (match lhs(concl th) with Comb(Comb(Const("read",_),_),_) ->
+             (can (find_term (fun t -> t = `aes256_encrypt`)) (concl th)) | _ -> false)
+          then SUBST1_TAC th else NO_TAC) THEN
+        SUBGOAL_THEN `SUB_LIST (0,16) (SUB_LIST (128 * (q + 1),16 * 1) (ibytes:byte list)) =
+                      SUB_LIST (128 * (q + 1),16) ibytes` SUBST1_TAC THENL
+         [REWRITE_TAC[SUB_LIST_MIN_RIGHT] THEN AP_THM_TAC THEN AP_TERM_TAC THEN
+          AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN
+        GEN_REWRITE_TAC LAND_CONV [GSYM AES256_XOR_ENCRYPT_RECONSTRUCT] THEN
+        CONV_TAC WORD_RULE];
+      REWRITE_TAC[WORD_BYTEREVERSE_BYTEREVERSE] THEN AP_TERM_TAC THEN
+      SUBGOAL_THEN
+        `list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16) (ibytes:byte list))) nblk =
+         list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16) ibytes)) (8 * (q + 1) + 1)`
+        SUBST1_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
+      REWRITE_TAC[LIST_OF_SEQ_ADD; MAP_APPEND; GHASH_ACC_APPEND] THEN AP_TERM_TAC THEN
+      REWRITE_TAC[LIST_OF_SEQ_CLAUSES; MAP; MULT_CLAUSES; ADD_CLAUSES] THEN
+      REWRITE_TAC[SUB_LIST_MIN_RIGHT; ARITH_RULE `MIN 16 16 = 16`;
+                  ARITH_RULE `16 * 8 * (q + 1) = 128 * (q + 1)`]];
+    MATCH_MP_TAC ENSURES_ADD_PRESERVED THEN CONJ_TAC THENL
+     [INNER_TAIL_FEED_TAC 1 WB_TAIL_GEN2_1;
+      REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; MAYCHANGE; SEQ_ID] THEN
+      REWRITE_TAC[GSYM SEQ_ASSOC] THEN PURE_REWRITE_TAC[ASSIGNS_SEQ] THEN
+      CONV_TAC(REDEPTH_CONV BETA_CONV) THEN REWRITE_TAC[ASSIGNS_THM] THEN
+      CONV_TAC(REDEPTH_CONV BETA_CONV) THEN REWRITE_TAC[LEFT_IMP_EXISTS_THM] THEN
+      REPEAT GEN_TAC THEN STRIP_TAC THEN
+      X_GEN_TAC `j:num` THEN DISCH_TAC THEN
+      FIRST_X_ASSUM(SUBST_ALL_TAC o SYM o check (fun th -> is_eq(concl th) &&
+        (match rhs(concl th) with Var("s'",_) -> true | _ -> false))) THEN
+      SUBGOAL_THEN `nonoverlapping (word_add out_p (word (16 * j)):int64,16)
+         (word_add out_p (word (128 * ((nblk - 9) DIV 8 + 1))),16)` ASSUME_TAC THENL
+       [NONOVERLAPPING_TAC; ALL_TAC] THEN
+      WBN_PUSH_LHS_READ_TAC THEN
+      FIRST_ASSUM(fun th -> if is_forall(concl th) then MATCH_MP_TAC th else NO_TAC) THEN
+      FIRST_X_ASSUM ACCEPT_TAC]]);;
