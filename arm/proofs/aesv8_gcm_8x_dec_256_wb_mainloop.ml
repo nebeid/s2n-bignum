@@ -4845,6 +4845,34 @@ let WBN_ENDBLOCK_IS_AES_CTR = prove
   ASM_REWRITE_TAC[] THEN
   REWRITE_TAC[GSYM AES256_XOR_ENCRYPT_RECONSTRUCT] THEN CONV_TAC WORD_RULE);;
 
+(* The full L1 output bridge: wbn_end_post's per-block store forall            *)
+(* (word_xor(word_xor cph aes13..)k14) collapses to                             *)
+(* byte_list_at(gcm_dec_pt_bytes(16*nblk)..) over the whole buffer.  The        *)
+(* symbolic-nblk analogue of prove_wb_wrapper's BYTE_LIST_AT_WHOLE_CTR leg.     *)
+(* 128*nblk < 2 EXP 62 (from the chain hyps) gives val(word(16*nblk))=16*nblk.  *)
+let WBN_END_OUTPUT_BYTE_LIST = prove
+ (`!nblk ibytes ctr0 k0 k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13 k14 out_p s.
+     1 <= nblk /\ 128 * nblk < 2 EXP 62 /\
+     (!j. j < nblk
+          ==> read (memory :> bytes128 (word_add out_p (word (16 * j)))) s =
+              word_xor
+              (word_xor (bytes_to_int128 (SUB_LIST (16 * j,16) ibytes))
+              (aes13 (gcm_ctr_inc_iter j ctr0) k0 k1 k2 k3 k4 k5 k6 k7 k8 k9
+               k10 k11 k12 k13))
+              k14)
+     ==> byte_list_at
+           (gcm_dec_pt_bytes (16 * nblk) ibytes ctr0
+              [k0;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14])
+           out_p (word (16 * nblk)) s`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  ASM_SIMP_TAC[GCM_DEC_PT_BYTES_WHOLE_SYM] THEN
+  MATCH_MP_TAC BYTE_LIST_AT_WHOLE_CTR THEN EXISTS_TAC `nblk:num` THEN
+  REWRITE_TAC[LENGTH_GCM_DEC_BLOCKS_FROM] THEN ASM_REWRITE_TAC[] THEN
+  CONJ_TAC THENL
+   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC;
+    X_GEN_TAC `j:num` THEN DISCH_TAC THEN ASM_SIMP_TAC[] THEN
+    MATCH_MP_TAC WBN_ENDBLOCK_IS_AES_CTR THEN ASM_REWRITE_TAC[]]);;
+
 (* ------------------------------------------------------------------------- *)
 (* --- Phase 7 (NEXT SESSION): AESV8_GCM_8X_DEC_256_WB_CORRECT ---              *)
 (*   ASM_CASES nblk<=8 -> existing _DISPATCH; 9..16 -> WBN_FRONT_TO_END_916;    *)
