@@ -4742,11 +4742,220 @@ let WBN_FRONT_TO_END_916 = prove(wbn_front_to_end_916_goal,
     MATCH_MP_TAC WBN_PREP_TO_END_916 THEN ASM_REWRITE_TAC[]]);;
 
 (* ------------------------------------------------------------------------- *)
-(* NEXT (session-051): finish WBN_PREP_TO_END_916 (re-run the FULL_916_r legs *)
-(*   on a fresh COLD image -- the ACCEPT_TAC re-run quirk is warm-image only) *)
-(*   then Phase 7 unify.                                                      *)
-(* --- Phase 7: AESV8_GCM_8X_DEC_256_WB_CORRECT ---                            *)
-(*   ASM_CASES nblk<=8 -> existing _DISPATCH; 9..16 -> WBN_FRONT_TO_END_916;   *)
-(*   >=17 -> WBN_FRONT_TO_END.  Reconcile wbn_end_post (ext2 seam vocabulary)  *)
-(*   with the NIST postcondition here, the same way the bands did.            *)
+(* PHASE 6 IS COMPLETE (session-051): WBN_PREP_TO_END_916 is CHEAT-free, so     *)
+(* the WHOLE nblk>8 chain (WBN_FRONT_TO_END for >=17, WBN_FRONT_TO_END_916 for  *)
+(* 9..16) is CHEAT-free EXCEPT the single scoped Q19/Q16 identity (the SAME     *)
+(* [11] RINNER=LINNER identity, instanced at :2085 in the loop body + the       *)
+(* guarded prepretail CHEATs :3054/:3217/:3395/:4572).  No new_axiom anywhere.   *)
 (* ------------------------------------------------------------------------- *)
+
+(* ------------------------------------------------------------------------- *)
+(* PHASE 7 tag-side bridge lemmas (session-051, sim-free, symbolic nblk).      *)
+(* These reconcile wbn_end_post's tag conjunct to the NIST nist_ghash form at   *)
+(* symbolic nblk (the fixed-N LIST_OF_SEQ_NIST_INPUT in wb.ml does not cover a   *)
+(* symbolic count).  WBN_TAG_NIST_BRIDGE is the drop-in tag rewrite for the      *)
+(* Phase-7 postcondition reconcile under the band identifications               *)
+(* byteswap128 h = ghash_twist H and xi = word_reversefields 8 tag0.            *)
+let MAP_LIST_OF_SEQ = prove
+ (`!(g:A->B) f n. MAP g (list_of_seq f n) = list_of_seq (g o f) n`,
+  GEN_TAC THEN ONCE_REWRITE_TAC[SWAP_FORALL_THM] THEN INDUCT_TAC THEN GEN_TAC THEN
+  ASM_REWRITE_TAC[LIST_OF_SEQ; MAP; o_THM] THEN REWRITE_TAC[o_ASSOC]);;
+
+let LIST_OF_SEQ_NIST_INPUT_SYM = prove
+ (`!ibytes N.
+     list_of_seq (nist_input_block ibytes) N =
+     MAP word_bytereverse
+       (list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16) ibytes)) N)`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[MAP_LIST_OF_SEQ] THEN
+  AP_THM_TAC THEN AP_TERM_TAC THEN
+  REWRITE_TAC[FUN_EQ_THM; o_THM; nist_input_block; BREV_RF8_128]);;
+
+let WBN_TAG_NIST_BRIDGE = prove
+ (`!(H:int128) h xi tag0 ibytes nblk.
+     byteswap128 h = ghash_twist H /\ xi = word_reversefields 8 tag0
+     ==> word_bytereverse
+           (ghash_polyval_acc (byteswap128 h) (word_bytereverse xi)
+             (MAP word_bytereverse
+               (list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16) ibytes)) nblk))) =
+         word_reversefields 8
+           (nist_ghash H tag0 (list_of_seq (nist_input_block ibytes) nblk))`,
+  REPEAT STRIP_TAC THEN
+  ASM_REWRITE_TAC[NIST_GHASH_IS_POLYVAL; LIST_OF_SEQ_NIST_INPUT_SYM; BREV_RF8_128] THEN
+  REWRITE_TAC[GSYM BREV_RF8_128; WORD_BYTEREVERSE_BYTEREVERSE]);;
+
+(* ------------------------------------------------------------------------- *)
+(* PHASE 7 output-side bridge lemmas (session-052, sim-free, symbolic nblk).   *)
+(* These are the symbolic-nblk analogues of the fixed-N GCM_DEC_PT_BYTES_WHOLE_k*)
+(* + BYTE_LIST_AT_WHOLE_CTR machinery in wb.ml, reconciling wbn_end_post's      *)
+(* nblk-uniform per-block output store forall to byte_list_at(gcm_dec_pt_bytes).*)
+
+(* EL of gcm_dec_blocks_from at a symbolic index (analogue of build_aes_ctr_el).*)
+let EL_GCM_DEC_BLOCKS_FROM = prove
+ (`!m base i x. i < m
+     ==> EL i (gcm_dec_blocks_from base m x) =
+         bytes_to_int128 (SUB_LIST (16 * (base + i),16) x)`,
+  INDUCT_TAC THEN REWRITE_TAC[LT] THEN
+  REPEAT GEN_TAC THEN STRUCT_CASES_TAC (SPEC `i:num` num_CASES) THEN
+  REWRITE_TAC[GCM_DEC_BLOCKS_FROM_STEP; EL; HD; TL] THENL
+   [REWRITE_TAC[ADD_CLAUSES];
+    DISCH_TAC THEN
+    FIRST_X_ASSUM(MP_TAC o SPECL [`base + 1`; `n:num`; `x:byte list`]) THEN
+    ANTS_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN DISCH_THEN SUBST1_TAC THEN
+    SUBGOAL_THEN `(base + 1) + n = base + SUC n` SUBST1_TAC THENL
+     [ARITH_TAC; REFL_TAC]]);;
+
+(* Whole-blocks (tail=16) collapse of gcm_dec_pt_bytes at symbolic nblk:        *)
+(*   nfull=(16*nblk-1)DIV 16=nblk-1, tail=16, so aes_ctr_full_tail_bytes -> ctr. *)
+let GCM_DEC_PT_BYTES_WHOLE_SYM = prove
+ (`!nblk ibytes ctr0 rk. 1 <= nblk
+     ==> gcm_dec_pt_bytes (16 * nblk) ibytes ctr0 rk =
+         aes_ctr_bytes ctr0 (gcm_dec_blocks_from 0 nblk ibytes) rk`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[gcm_dec_pt_bytes] THEN
+  SUBGOAL_THEN `(16 * nblk - 1) DIV 16 = nblk - 1` SUBST1_TAC THENL
+   [ASM_SIMP_TAC[ARITH_RULE `1 <= nblk ==> 16 * nblk - 1 = 16 * (nblk - 1) + 15`] THEN
+    SIMP_TAC[DIV_MULT_ADD; ARITH_EQ] THEN ARITH_TAC; ALL_TAC] THEN
+  CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
+  SUBGOAL_THEN `nblk - 1 + 1 = nblk /\ 16 * nblk - 16 * (nblk - 1) = 16`
+    (CONJUNCTS_THEN SUBST1_TAC) THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  MATCH_MP_TAC AES_CTR_FULL_TAIL_BYTES_WHOLE THEN
+  REWRITE_TAC[LENGTH_GCM_DEC_BLOCKS_FROM] THEN ASM_ARITH_TAC);;
+
+(* Per-block value bridge: wbn_end_post's store form (word_xor(word_xor cph     *)
+(* aes13..)k14) is exactly EL j of aes_ctr over the gcm_dec_blocks_from list     *)
+(* with the 15-key list.  Standalone (keeps AES/counter algebra out of the       *)
+(* ensures context) — analogue of wb.ml build_aes_ctr_el, at symbolic j.        *)
+let WBN_ENDBLOCK_IS_AES_CTR = prove
+ (`!nblk ibytes ctr0 k0 k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13 k14 j.
+     j < nblk
+     ==> word_xor
+           (word_xor (bytes_to_int128 (SUB_LIST (16 * j,16) ibytes))
+             (aes13 (gcm_ctr_inc_iter j ctr0) k0 k1 k2 k3 k4 k5 k6 k7 k8 k9
+                    k10 k11 k12 k13))
+           k14 =
+         EL j (aes_ctr ctr0 (gcm_dec_blocks_from 0 nblk ibytes)
+                 [k0;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14])`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(SPECL [`nblk:num`; `0`; `j:num`; `ibytes:byte list`]
+    EL_GCM_DEC_BLOCKS_FROM) THEN
+  ASM_REWRITE_TAC[ADD_CLAUSES] THEN DISCH_TAC THEN
+  MP_TAC(SPECL [`gcm_dec_blocks_from 0 nblk ibytes`; `ctr0:int128`;
+    `[k0;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]:int128 list`; `j:num`]
+    EL_AES_CTR) THEN
+  ASM_REWRITE_TAC[LENGTH_GCM_DEC_BLOCKS_FROM] THEN DISCH_THEN SUBST1_TAC THEN
+  ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[GSYM AES256_XOR_ENCRYPT_RECONSTRUCT] THEN CONV_TAC WORD_RULE);;
+
+(* The full L1 output bridge: wbn_end_post's per-block store forall            *)
+(* (word_xor(word_xor cph aes13..)k14) collapses to                             *)
+(* byte_list_at(gcm_dec_pt_bytes(16*nblk)..) over the whole buffer.  The        *)
+(* symbolic-nblk analogue of prove_wb_wrapper's BYTE_LIST_AT_WHOLE_CTR leg.     *)
+(* 128*nblk < 2 EXP 62 (from the chain hyps) gives val(word(16*nblk))=16*nblk.  *)
+let WBN_END_OUTPUT_BYTE_LIST = prove
+ (`!nblk ibytes ctr0 k0 k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13 k14 out_p s.
+     1 <= nblk /\ 128 * nblk < 2 EXP 62 /\
+     (!j. j < nblk
+          ==> read (memory :> bytes128 (word_add out_p (word (16 * j)))) s =
+              word_xor
+              (word_xor (bytes_to_int128 (SUB_LIST (16 * j,16) ibytes))
+              (aes13 (gcm_ctr_inc_iter j ctr0) k0 k1 k2 k3 k4 k5 k6 k7 k8 k9
+               k10 k11 k12 k13))
+              k14)
+     ==> byte_list_at
+           (gcm_dec_pt_bytes (16 * nblk) ibytes ctr0
+              [k0;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14])
+           out_p (word (16 * nblk)) s`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  ASM_SIMP_TAC[GCM_DEC_PT_BYTES_WHOLE_SYM] THEN
+  MATCH_MP_TAC BYTE_LIST_AT_WHOLE_CTR THEN EXISTS_TAC `nblk:num` THEN
+  REWRITE_TAC[LENGTH_GCM_DEC_BLOCKS_FROM] THEN ASM_REWRITE_TAC[] THEN
+  CONJ_TAC THENL
+   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC;
+    X_GEN_TAC `j:num` THEN DISCH_TAC THEN ASM_SIMP_TAC[] THEN
+    MATCH_MP_TAC WBN_ENDBLOCK_IS_AES_CTR THEN ASM_REWRITE_TAC[]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* PHASE 7 (session-052): AESV8_GCM_8X_DEC_256_WB_CORRECT -- all nblk >= 1.     *)
+(* 3-way ASM_CASES: nblk<=8 -> existing DISPATCH (NIST vocab already); 9..16 -> *)
+(* WBN_FRONT_TO_END_916; >=17 -> WBN_FRONT_TO_END.  Each >8 chain ends in       *)
+(* wbn_end_post (RAW per-block ext2 vocab) and begins at wbn_front_P_tm (raw xi, *)
+(* individual k0..k14 reads, htable_mem_dec h).  WBN_CHAIN_TO_NIST_TAC bridges   *)
+(* the raw chain to the NIST DISPATCH vocab under the band identifications       *)
+(*   ki := EL i rk,  h := byteswap128 (ghash_twist H),  xi := word_reversefields *)
+(*   8 tag0                                                                      *)
+(* via ENSURES_PRECONDITION_THM (NIST pre -> raw pre: KEY_READS_FROM_WORDLIST +  *)
+(* HTABLE_MEM_DEC_IS_HTABLE_MEM_8 + BYTESWAP128_INVOLUTION + BYTE_LIST_AT_TO_    *)
+(* READ_BYTES) and ENSURES_POSTCONDITION_THM (raw post -> NIST post: RK_ETA_15 + *)
+(* WBN_END_OUTPUT_BYTE_LIST for output, WBN_TAG_NIST_BRIDGE for tag).  The chain *)
+(* hyps flatten from the DISPATCH ALLPAIRS/PAIRWISE/ALL form.                    *)
+(*                                                                             *)
+(* The unified statement is the DISPATCH statement with the `nblk<=8` bound      *)
+(* DROPPED (just 1<=nblk) and the two size bounds 128*nblk<2 EXP 62 /            *)
+(* val in_p+16*nblk<2 EXP 63 ADDED to the antecedent (genuine preconditions the  *)
+(* Phase-8 wrapper/guard supplies -- for nblk<=8 they follow from small nblk;    *)
+(* for symbolic large nblk they must be assumed to avoid pointer/length          *)
+(* overflow).  CHEAT-FREE EXCEPT the single scoped Q19/[11] RINNER=LINNER        *)
+(* identity inherited by both >8 chains (loop body :2085 + guarded prepretail    *)
+(* CHEATs); no new_axiom anywhere.                                               *)
+
+let AESV8_GCM_8X_DEC_256_WB_CORRECT =
+  (* identification substitution: raw chain vars -> DISPATCH NIST vars *)
+  let idsub =
+    [`word_reversefields 8 (tag0:int128)`,`xi:int128`;
+     `byteswap128 (ghash_twist H)`,`h:int128`] @
+    (map (fun i -> mk_comb(mk_comb(`EL:num->(int128)list->int128`,mk_small_numeral i),
+                           `rk:int128 list`),
+                   mk_var("k"^string_of_int i,`:int128`)) (0--14)) in
+  let raw_pre'  = subst idsub wbn_front_P_tm
+  and raw_post' = subst idsub wbn_end_post in
+  (* the shared reconcile tactic, parameterized by the chain theorem *)
+  let WBN_CHAIN_TO_NIST_TAC chain_thm =
+    MATCH_MP_TAC ENSURES_PRECONDITION_THM THEN EXISTS_TAC raw_pre' THEN CONJ_TAC THENL
+     [X_GEN_TAC `s:armstate` THEN BETA_TAC THEN STRIP_TAC THEN ASM_REWRITE_TAC[] THEN
+      REWRITE_TAC[HTABLE_MEM_DEC_IS_HTABLE_MEM_8; BYTESWAP128_INVOLUTION] THEN
+      MP_TAC(SPECL [`key_p:int64`; `rk:int128 list`; `s:armstate`]
+        KEY_READS_FROM_WORDLIST) THEN
+      ASM_REWRITE_TAC[] THEN STRIP_TAC THEN ASM_REWRITE_TAC[] THEN
+      MP_TAC(ISPECL [`ibytes:byte list`; `in_p:int64`; `word (16 * nblk):int64`;
+        `s:armstate`] BYTE_LIST_AT_TO_READ_BYTES) THEN
+      SUBGOAL_THEN `val (word (16 * nblk):int64) = 16 * nblk` ASSUME_TAC THENL
+       [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC;
+        ALL_TAC] THEN
+      ASM_REWRITE_TAC[] THEN DISCH_THEN MATCH_MP_TAC THEN ASM_REWRITE_TAC[];
+      MATCH_MP_TAC ENSURES_POSTCONDITION_THM THEN EXISTS_TAC raw_post' THEN
+      CONJ_TAC THENL
+       [X_GEN_TAC `s:armstate` THEN BETA_TAC THEN STRIP_TAC THEN ASM_REWRITE_TAC[] THEN
+        CONJ_TAC THENL
+         [SUBGOAL_THEN
+           `gcm_dec_pt_bytes (16 * nblk) ibytes ctr0 rk =
+            gcm_dec_pt_bytes (16 * nblk) ibytes ctr0
+              [EL 0 rk;EL 1 rk;EL 2 rk;EL 3 rk;EL 4 rk;EL 5 rk;EL 6 rk;EL 7 rk;
+               EL 8 rk;EL 9 rk;EL 10 rk;EL 11 rk;EL 12 rk;EL 13 rk;EL 14 rk]`
+           SUBST1_TAC THENL
+           [AP_TERM_TAC THEN MATCH_MP_TAC RK_ETA_15 THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+          MATCH_MP_TAC WBN_END_OUTPUT_BYTE_LIST THEN ASM_REWRITE_TAC[];
+          MP_TAC(SPECL [`H:int128`; `byteswap128 (ghash_twist H)`;
+            `word_reversefields 8 (tag0:int128)`; `tag0:int128`; `ibytes:byte list`;
+            `nblk:num`] WBN_TAG_NIST_BRIDGE) THEN
+          REWRITE_TAC[BYTESWAP128_INVOLUTION] THEN DISCH_THEN MATCH_ACCEPT_TAC];
+        MATCH_MP_TAC chain_thm THEN
+        RULE_ASSUM_TAC(REWRITE_RULE
+          [ALLPAIRS; PAIRWISE; ALL; MAP; NONOVERLAPPING_CLAUSES]) THEN
+        REWRITE_TAC[ALLPAIRS; PAIRWISE; ALL; MAP; NONOVERLAPPING_CLAUSES] THEN
+        REPEAT CONJ_TAC THEN TRY(FIRST_ASSUM ACCEPT_TAC) THEN TRY(ASM_ARITH_TAC) THEN
+        ASM_MESON_TAC[NONOVERLAPPING_MODULO_SYM; nonoverlapping]]] in
+  (* the unified goal: DISPATCH statement, `nblk<=8` dropped, size bounds added *)
+  let correct_goal =
+    let dvars, dbody = strip_forall (concl AESV8_GCM_8X_DEC_256_WB_DISPATCH) in
+    let dhyps, dens = dest_imp dbody in
+    let hyps0 = filter (fun c -> c <> `nblk <= 8`) (conjuncts dhyps) in
+    let hyps' = `1 <= nblk` :: `128 * nblk < 2 EXP 62` ::
+                `val (in_p:int64) + 16 * nblk < 2 EXP 63` ::
+                (filter (fun c -> c <> `1 <= nblk`) hyps0) in
+    list_mk_forall(dvars, mk_imp(list_mk_conj hyps', dens)) in
+  prove(correct_goal,
+    REPEAT GEN_TAC THEN STRIP_TAC THEN
+    ASM_CASES_TAC `nblk <= 8` THENL
+     [ASM_MESON_TAC[AESV8_GCM_8X_DEC_256_WB_DISPATCH]; ALL_TAC] THEN
+    ASM_CASES_TAC `nblk <= 16` THENL
+     [WBN_CHAIN_TO_NIST_TAC WBN_FRONT_TO_END_916;
+      WBN_CHAIN_TO_NIST_TAC WBN_FRONT_TO_END]);;
