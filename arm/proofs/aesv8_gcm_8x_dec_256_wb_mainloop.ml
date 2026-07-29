@@ -3873,6 +3873,22 @@ let LIST_OF_SEQ_ADD = prove
     REWRITE_TAC[ADD_CLAUSES; LIST_OF_SEQ; APPEND] THEN
     AP_TERM_TAC THEN ASM_REWRITE_TAC[o_DEF]]);;
 
+(* LIST_OF_SEQ_CLAUSES (in the base) only covers n=0..4; the r-block tag fold      *)
+(* needs the explicit expansion up to n=8.  Each proved from the SUC recursion     *)
+(* (num_CONV on the count down to a CLAUSES-known value, then APPEND).             *)
+let LIST_OF_SEQ_CLAUSES_5_8 =
+  let expand_los n =
+    let suc_convs = map (fun k -> num_CONV (mk_small_numeral k)) (rev (5--n)) in
+    prove(mk_forall(`f:num->A`,
+       mk_eq(list_mk_comb(`list_of_seq:(num->A)->num->(A)list`,[`f:num->A`; mk_small_numeral n]),
+             mk_list(map (fun i -> mk_comb(`f:num->A`, mk_small_numeral i)) (0--(n-1)), `:A`))),
+      GEN_TAC THEN
+      GEN_REWRITE_TAC TOP_DEPTH_CONV suc_convs THEN
+      REWRITE_TAC[list_of_seq] THEN
+      CONV_TAC(DEPTH_CONV NUM_SUC_CONV) THEN
+      REWRITE_TAC[LIST_OF_SEQ_CLAUSES] THEN REWRITE_TAC[APPEND]) in
+  end_itlist CONJ (map expand_los [5;6;7;8]);;
+
 (* fold one gcm_ctr_inc into the running gcm_ctr_add offset (for the r>1 tail    *)
 (* stores' inc^i towers in WBN_PREP_TO_END_FULL_r).                             *)
 let GCM_CTR_INC_FOLD = prove
@@ -4050,64 +4066,189 @@ let WBN_PREP_TO_END_FULL_1 = prove(wbn_prep_to_end_full_goal 1,
       FIRST_X_ASSUM ACCEPT_TAC]]);;
 
 (* ------------------------------------------------------------------------- *)
-(* SESSION-048 -- r>1 generalization RECIPE (validated: r=2 case-2 block-0     *)
-(* + tag-fold algebra confirmed interactively; only mechanization owed).       *)
+(* SESSION-049 -- r>1 generalization of WBN_PREP_TO_END_FULL_1, MECHANIZED.    *)
 (*                                                                             *)
 (* WBN_PREP_TO_END_FULL_r for r=2..8 has the IDENTICAL skeleton as FULL_1;     *)
-(* the two r-dependent hand-parts (both validated on r=2 interactively):       *)
+(* the r-dependent hand-parts are packaged as OCaml `int -> tactic` closures   *)
+(* below and driven by WBN_PREP_TO_END_FULL_r_TAC.  Validated r=2..8 hyps=0.   *)
 (*                                                                             *)
-(* (A) case-2 OUTPUT forall (8*(q+1) <= j < nblk = 8*(q+1)+r): after           *)
-(*     ASM_CASES `j < 8*(q+1)` [case1 = R-forall verbatim], expand the r-block *)
-(*     range into an explicit disjunction and close each block i (0<=i<r):     *)
-(*       SUBGOAL_THEN `j = 8*(q+1) \/ ... \/ j = 8*(q+1)+(r-1)`                 *)
-(*         STRIP_ASSUME_TAC THENL [ASM_ARITH_TAC; <r ALL_TACs>] THEN           *)
-(*       FIRST_X_ASSUM SUBST_ALL_TAC THEN <per-block-i close>                   *)
-(*     per-block-i close (block j=8*(q+1)+i, band store i has an inc^i tower):  *)
-(*       REWRITE_TAC[ARITH_RULE `16*(8*(q+1)+i) = 128*(q+1)+16*i`;              *)
-(*                   GCM_CTR_INC_ITER_ADD] THEN  [goal ctr -> gcm_ctr_add]      *)
-(*       fold the band store's inc^i tower to gcm_ctr_add(word(8(q+1)+i)):      *)
-(*        i applications of GCM_CTR_INC_FOLD then GCM_CTR_ADD word-arith, OR    *)
-(*        note both sides reduce to gcm_ctr_add(word(8*(q+1)+i)) ctr0 THEN      *)
-(*       SUBST the matching band store (FIRST_ASSUM keyed on aes256_encrypt +   *)
-(*         the block addr word(128*(q+1)+16*i)) THEN                            *)
-(*       REWRITE_TAC[SUB_LIST_MIN_RIGHT; ARITH_RULE`MIN 16 (16*r)=16`] THEN     *)
-(*       (WBN_SUBLIST_SHIFT reindexes SUB_LIST(16*i,16)(SUB_LIST(128(q+1),16r)) *)
-(*         = SUB_LIST(128(q+1)+16i,16) if the band cph SUB_LIST needs it) THEN  *)
-(*       GEN_REWRITE_TAC LAND_CONV [GSYM AES256_XOR_ENCRYPT_RECONSTRUCT] THEN   *)
-(*       CONV_TAC WORD_RULE.                                                    *)
-(*     GOTCHA (found r=2): each per-block FIRST_X_ASSUM SUBST consumes a band   *)
-(*     store; do the blocks in order and match on the ADDR (word(128(q+1)+16i)) *)
-(*     not just `aes256_encrypt`, else the wrong store is picked/consumed.      *)
+(* KEY per-block algebra: for output block j = 8*(q+1)+i (0<=i<r), the         *)
+(* seam-carried full-post value equals the r-block band store.  block_bridge   *)
+(* proves that value identity STANDALONE (goal-form word_xor(word_xor cph      *)
+(* aes13)k14 = store-form word_xor cph (aes256_encrypt ...)), reconciling:     *)
+(*   - counter: gcm_ctr_inc_iter(8(q+1)+i) = gcm_ctr_add(word(8(q+1)+i)) =     *)
+(*              gcm_ctr_inc^i (gcm_ctr_add(word 8(q+1)))  [GCM_CTR_INC_FOLD]    *)
+(*   - cph slice: SUB_LIST(16*(8(q+1)+i),16) ibytes =                          *)
+(*              SUB_LIST(16*i,16)(SUB_LIST(128(q+1),16*r) ibytes) [WBN_SUBLIST_SHIFT] *)
+(*   - AES: GSYM AES256_XOR_ENCRYPT_RECONSTRUCT + WORD_RULE (XOR reassoc).     *)
+(* block_close then reduces 16*i -> numeral (ARITH mul_red -- else the goal's  *)
+(* SUB_LIST(16*i,..)/word(16*i) won't match the store's SUB_LIST(<16i>,..)/    *)
+(* word <16i>) and reconciles the store address (i=0 flat, i>=1 nested).       *)
+(* tag_fold folds the r-element explicit tag list to list_of_seq via           *)
+(* LIST_OF_SEQ_ADD/GHASH_ACC_APPEND, closing each element by WBN_SUBLIST_SHIFT. *)
+(* ------------------------------------------------------------------------- *)
+
+(* the goal-side and store-side counter for output block i (0<=i<r). *)
+let wbn_full_goal_ctr i =
+  subst[mk_small_numeral i,`i_:num`]
+    `gcm_ctr_add (word (8 * (q + 1) + i_)) ctr0 :int128`;;
+let wbn_full_store_ctr i =
+  funpow i (fun t -> mk_comb(`gcm_ctr_inc:int128->int128`, t))
+    `gcm_ctr_add (word (8 * (q + 1))) ctr0 :int128`;;
+(* the goal-side and store-side output addresses for block i. *)
+let wbn_full_goal_addr i =
+  subst[mk_small_numeral i,`i_:num`]
+    `word_add out_p (word (16 * (8 * (q + 1) + i_))):int64`;;
+let wbn_full_store_addr i =
+  if i = 0 then `word_add out_p (word (128 * (q + 1))):int64`
+  else mk_comb(mk_comb(`word_add:int64->int64->int64`,
+                       `word_add out_p (word (128 * (q + 1))):int64`),
+               mk_comb(`word:num->int64`, mk_small_numeral(16 * i)));;
+
+(* the standalone per-block value bridge goal + tactic. *)
+let wbn_block_bridge_goal r i =
+  let it = mk_small_numeral i and rt = mk_small_numeral r in
+  let gcph = subst[it,`i_:num`]
+    `bytes_to_int128 (SUB_LIST (16 * (8 * (q + 1) + i_),16) (ibytes:byte list))` in
+  let gval = list_mk_comb(`word_xor:int128->int128->int128`,
+    [list_mk_comb(`word_xor:int128->int128->int128`,
+       [gcph; list_mk_comb(`aes13`,[wbn_full_goal_ctr i;
+          `k0:int128`;`k1:int128`;`k2:int128`;`k3:int128`;`k4:int128`;`k5:int128`;`k6:int128`;
+          `k7:int128`;`k8:int128`;`k9:int128`;`k10:int128`;`k11:int128`;`k12:int128`;`k13:int128`])]);
+     `k14:int128`]) in
+  let scph = subst[it,`i_:num`;rt,`r_:num`]
+    `bytes_to_int128 (SUB_LIST (16 * i_,16) (SUB_LIST (128 * (q + 1),16 * r_) (ibytes:byte list)))` in
+  let sval = list_mk_comb(`word_xor:int128->int128->int128`,
+    [scph; list_mk_comb(`aes256_encrypt`,
+       [wbn_full_store_ctr i;
+        `[k0;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]:(int128)list`])]) in
+  mk_forall(`q:num`, mk_imp(subst[it,`i_:num`;rt,`r_:num`] `i_ < r_`, mk_eq(gval,sval)));;
+
+let wbn_block_bridge_tac r i =
+  let it = mk_small_numeral i and rt = mk_small_numeral r in
+  let sublist_inst = SPECL [`ibytes:byte list`;`q:num`;it;rt] WBN_SUBLIST_SHIFT in
+  let ctr_eq = mk_eq(wbn_full_goal_ctr i, wbn_full_store_ctr i) in
+  GEN_TAC THEN DISCH_TAC THEN
+  (MP_TAC sublist_inst THEN ANTS_TAC THENL [ARITH_TAC; DISCH_THEN(SUBST1_TAC o SYM)]) THEN
+  SUBGOAL_THEN ctr_eq SUBST1_TAC THENL
+   [REWRITE_TAC[GCM_CTR_INC_FOLD] THEN AP_THM_TAC THEN AP_TERM_TAC THEN CONV_TAC WORD_RULE;
+    ALL_TAC] THEN
+  REWRITE_TAC[GSYM AES256_XOR_ENCRYPT_RECONSTRUCT] THEN CONV_TAC WORD_RULE;;
+
+(* close one output block j = 8*(q+1)+i in the case-2 forall of FULL_r. *)
+let wbn_block_close_tac r i =
+  let brg = SPEC `q:num` (prove(wbn_block_bridge_goal r i, wbn_block_bridge_tac r i)) in
+  let it = mk_small_numeral i in
+  let mul_red = ARITH_RULE (mk_eq(mk_binop `( * ):num->num->num` `16` it,
+                                  mk_small_numeral(16 * i))) in
+  let common = REWRITE_TAC[GCM_CTR_INC_ITER_ADD] THEN
+    MP_TAC brg THEN (ANTS_TAC THENL [ARITH_TAC; ALL_TAC]) THEN DISCH_THEN SUBST1_TAC THEN
+    REWRITE_TAC[mul_red] in
+  if i = 0 then
+    common THEN
+    REWRITE_TAC[ARITH_RULE `16 * 8 * (q + 1) = 128 * (q + 1)`; MULT_CLAUSES; ADD_CLAUSES] THEN
+    ASM_REWRITE_TAC[]
+  else
+    let addr_eq = mk_eq(wbn_full_goal_addr i, wbn_full_store_addr i) in
+    let addr_arith = subst[it,`i_:num`]
+      `16 * (8 * (q + 1) + i_) = 128 * (q + 1) + 16 * i_` in
+    common THEN
+    SUBGOAL_THEN addr_eq SUBST1_TAC THENL
+     [REWRITE_TAC[ARITH_RULE addr_arith; mul_red] THEN CONV_TAC WORD_RULE; ALL_TAC] THEN
+    FIRST_X_ASSUM ACCEPT_TAC;;
+
+(* (A) the case-2 output forall for shift r. *)
+let wbn_case2_forall_tac r =
+  let one_block i =
+    FIRST_X_ASSUM(SUBST_ALL_TAC o check (fun th -> match concl th with
+      Comb(Comb(Const("=",_),Var("j",_)),_) -> true | _ -> false)) THEN
+    wbn_block_close_tac r i in
+  let disj = end_itlist (fun a b -> mk_disj(a,b))
+    (map (fun i -> subst[mk_small_numeral i,`i_:num`] `j = 8 * (q + 1) + i_`) (0--(r-1))) in
+  X_GEN_TAC `j:num` THEN DISCH_TAC THEN ASM_CASES_TAC `j < 8 * (q + 1)` THENL
+   [FIRST_X_ASSUM MATCH_MP_TAC THEN FIRST_X_ASSUM ACCEPT_TAC;
+    SUBGOAL_THEN disj STRIP_ASSUME_TAC THENL
+     ((UNDISCH_TAC (subst[mk_small_numeral r,`r_:num`] `nblk = 8 * (q + 1) + r_`) THEN
+       UNDISCH_TAC `~(j < 8 * (q + 1))` THEN UNDISCH_TAC `j < nblk` THEN ARITH_TAC) ::
+      map one_block (0--(r-1)))];;
+
+(* (B) the tag fold: r-element explicit tag list -> list_of_seq cph nblk. *)
+let wbn_tag_elt_close r i =
+  let mul_red = ARITH_RULE (mk_eq(mk_binop `( * ):num->num->num` `16` (mk_small_numeral i),
+                                  mk_small_numeral(16 * i))) in
+  MP_TAC(REWRITE_RULE[mul_red; MULT_CLAUSES]
+           (SPECL [`ibytes:byte list`;`q:num`;mk_small_numeral i;mk_small_numeral r]
+              WBN_SUBLIST_SHIFT)) THEN
+  ANTS_TAC THENL [ARITH_TAC; DISCH_THEN MATCH_ACCEPT_TAC];;
+let wbn_tag_fold_tac r =
+  let rt = mk_small_numeral r in
+  AP_TERM_TAC THEN
+  SUBGOAL_THEN (subst[rt,`r_:num`]
+     `list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16) (ibytes:byte list))) nblk =
+      list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16) ibytes)) (8 * (q + 1) + r_)`)
+    SUBST1_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  REWRITE_TAC[LIST_OF_SEQ_ADD; MAP_APPEND; GHASH_ACC_APPEND] THEN
+  REWRITE_TAC[WORD_BYTEREVERSE_BYTEREVERSE] THEN AP_TERM_TAC THEN
+  REWRITE_TAC[LIST_OF_SEQ_CLAUSES; LIST_OF_SEQ_CLAUSES_5_8; MAP; o_DEF] THEN
+  REWRITE_TAC[CONS_11] THEN
+  (if r = 1 then ALL_TAC else REPEAT CONJ_TAC) THEN
+  FIRST (map (fun i -> AP_TERM_TAC THEN AP_TERM_TAC THEN wbn_tag_elt_close r i) (0--(r-1)));;
+
+(* the full FULL_r tactic (r>=1): FRAME_SUBSUMED -> POSTCONDITION_THM with        *)
+(* intermediate (shifted band_post /\ ext2 first-8(k+1) forall), split into        *)
+(* [ (A) case-2 forall + (B) tag fold ] and [ ADD_PRESERVED: INNER_TAIL_FEED +     *)
+(* carry the forall through the narrow tail writes ].                              *)
+(* the intermediate post: shifted band_post r (of the SPECL'd tail) conjoined     *)
+(* with the ext2 seam's first-8(k+1)-out-blocks forall (conjunct 64).             *)
+let wbn_full_inter_post r =
+  let band_post_r =
+    el 2 (snd(strip_comb(snd(dest_imp(concl(SPECL (shift_vals r) (wbn_tail_gen2 r))))))) in
+  mk_abs(`s:armstate`,
+    mk_conj(snd(dest_abs band_post_r),
+            el 64 (conjuncts (snd(dest_abs wbn_prepretail_post_ext2)))));;
+let WBN_PREP_TO_END_FULL_r_TAC r =
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC ENSURES_FRAME_SUBSUMED THEN EXISTS_TAC (wbn_narrow_frame r) THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN SUBSUMED_MAYCHANGE_TAC;
+    ALL_TAC] THEN
+  MATCH_MP_TAC ENSURES_POSTCONDITION_THM THEN
+  EXISTS_TAC (wbn_full_inter_post r) THEN
+  CONJ_TAC THENL
+   [X_GEN_TAC `s:armstate` THEN REWRITE_TAC[] THEN STRIP_TAC THEN
+    ASM_REWRITE_TAC[] THEN ABBREV_TAC `q = (nblk - 9) DIV 8` THEN
+    CONJ_TAC THENL [wbn_case2_forall_tac r; wbn_tag_fold_tac r];
+    MATCH_MP_TAC ENSURES_ADD_PRESERVED THEN CONJ_TAC THENL
+     [INNER_TAIL_FEED_TAC r (wbn_tail_gen2 r);
+      REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; MAYCHANGE; SEQ_ID] THEN
+      REWRITE_TAC[GSYM SEQ_ASSOC] THEN PURE_REWRITE_TAC[ASSIGNS_SEQ] THEN
+      CONV_TAC(REDEPTH_CONV BETA_CONV) THEN REWRITE_TAC[ASSIGNS_THM] THEN
+      CONV_TAC(REDEPTH_CONV BETA_CONV) THEN REWRITE_TAC[LEFT_IMP_EXISTS_THM] THEN
+      REPEAT GEN_TAC THEN STRIP_TAC THEN
+      X_GEN_TAC `j:num` THEN DISCH_TAC THEN
+      FIRST_X_ASSUM(SUBST_ALL_TAC o SYM o check (fun th -> is_eq(concl th) &&
+        (match rhs(concl th) with Var("s'",_) -> true | _ -> false))) THEN
+      SUBGOAL_THEN (subst[mk_small_numeral r,`r_:num`]
+        `nonoverlapping (word_add out_p (word (16 * j)):int64,16)
+         (word_add out_p (word (128 * ((nblk - 9) DIV 8 + 1))),16 * r_)`) ASSUME_TAC THENL
+       [NONOVERLAPPING_TAC; ALL_TAC] THEN
+      WBN_PUSH_LHS_READ_TAC THEN
+      FIRST_ASSUM(fun th -> if is_forall(concl th) then MATCH_MP_TAC th else NO_TAC) THEN
+      FIRST_X_ASSUM ACCEPT_TAC]];;
+
+(* r=2..8 full-post legs (session-049, each hyps=0, ~49s).  r=1 is FULL_1 above. *)
+let WBN_PREP_TO_END_FULL_2 = prove(wbn_prep_to_end_full_goal 2, WBN_PREP_TO_END_FULL_r_TAC 2);;
+let WBN_PREP_TO_END_FULL_3 = prove(wbn_prep_to_end_full_goal 3, WBN_PREP_TO_END_FULL_r_TAC 3);;
+let WBN_PREP_TO_END_FULL_4 = prove(wbn_prep_to_end_full_goal 4, WBN_PREP_TO_END_FULL_r_TAC 4);;
+let WBN_PREP_TO_END_FULL_5 = prove(wbn_prep_to_end_full_goal 5, WBN_PREP_TO_END_FULL_r_TAC 5);;
+let WBN_PREP_TO_END_FULL_6 = prove(wbn_prep_to_end_full_goal 6, WBN_PREP_TO_END_FULL_r_TAC 6);;
+let WBN_PREP_TO_END_FULL_7 = prove(wbn_prep_to_end_full_goal 7, WBN_PREP_TO_END_FULL_r_TAC 7);;
+let WBN_PREP_TO_END_FULL_8 = prove(wbn_prep_to_end_full_goal 8, WBN_PREP_TO_END_FULL_r_TAC 8);;
+
+(* ------------------------------------------------------------------------- *)
+(* NEXT (session-050): WBN_PREP_TO_END (8-way split) + chain + nblk 9..16.    *)
 (*                                                                             *)
-(* (B) tag-fold: the shifted band tag ends in an r-ELEMENT EXPLICIT list        *)
-(*     [brev(cph@0); ...; brev(cph@(r-1))]; convert it to                       *)
-(*     MAP brev (list_of_seq (\i. cph(8*(q+1)+i)) r) so LIST_OF_SEQ_ADD +       *)
-(*     MAP_APPEND + GHASH_ACC_APPEND fold as in FULL_1.  For fixed r:           *)
-(*       REWRITE_TAC[WORD_BYTEREVERSE_BYTEREVERSE] THEN AP_TERM_TAC THEN        *)
-(*       (RHS) rewrite nblk -> 8*(q+1)+r in list_of_seq (SUBGOAL+ASM_REWRITE)   *)
-(*         THEN REWRITE_TAC[LIST_OF_SEQ_ADD; MAP_APPEND; GHASH_ACC_APPEND] THEN *)
-(*         AP_TERM_TAC THEN                                                     *)
-(*       REWRITE_TAC[LIST_OF_SEQ_CLAUSES; MAP; MULT_CLAUSES; ADD_CLAUSES] THEN  *)
-(*         [both sides now r-element explicit lists of brev(bytes_to_int128     *)
-(*          (SUB_LIST ...))].  Element-wise: REWRITE_TAC[CONS_11] to split into *)
-(*         r element-equalities; close element i (0<=i<r) via WBN_SUBLIST_SHIFT *)
-(*         at (q,i,r): SUB_LIST(16*i,16)(SUB_LIST(128(q+1),16*r)) =             *)
-(*         SUB_LIST(16*(8(q+1)+i),16).  VALIDATED r=2 to this exact split       *)
-(*         interactively (session-048).  CAUTION: do NOT chain a bare           *)
-(*         `AP_TERM_TAC THEN AP_TERM_TAC` across both CONJ branches with an     *)
-(*         ARITH_RULE rewrite -- that LOOPED (422s stack overflow, s048).       *)
-(*         Instead close each element with a targeted                          *)
-(*         `MP_TAC(SPECL[...] WBN_SUBLIST_SHIFT) THEN REWRITE_TAC[MULT/ADD_     *)
-(*         CLAUSES] THEN DISCH_THEN(SUBST1_TAC) THEN REFL_TAC` (or supply the   *)
-(*         `16*8*(q+1)=16*(8(q+1)+0)` form as an ARITH SUBGOAL, not a rewrite). *)
-(*                                                                             *)
-(* Then bind WBN_PREP_TO_END_FULL_2..8 by the same prove() with r substituted. *)
-(* Fold into a parametric WBN_PREP_TO_END_FULL_r_TAC once (A)/(B) are wrapped   *)
-(* as OCaml `int->tactic` closures parameterized by r (mirror                  *)
-(* WBN_PREP_TO_END_r_TAC's per-goal FIRST-list style to stay leaf-count-        *)
-(* agnostic; see PROVER_ADVICES prep-to-end-generalize-per-r).                 *)
-(*                                                                             *)
-(* --- THEN: WBN_PREP_TO_END (8-way split) ---                                 *)
+(* --- WBN_PREP_TO_END (8-way split) ---                                       *)
 (* Goal: !<wb_front_vars>. wide_hyps /\ 9 <= nblk /\ <3 side-conds>            *)
 (*   ==> ensures arm wbn_prepretail_post_ext2 wbn_end_post wbn_front_C_tm.     *)
 (* Proof: introduce r = 1 + (nblk-9) MOD 8; ASM_CASES on r in {1..8}; in each  *)
@@ -4118,11 +4259,11 @@ let WBN_PREP_TO_END_FULL_1 = prove(wbn_prep_to_end_full_goal 1,
 (* both DIV/MOD facts feed the ARITH; the loop count q=(nblk-9)DIV 8 stays     *)
 (* symbolic.)                                                                  *)
 (*                                                                             *)
-(* --- THEN: full nblk>8 front->exit chain ---                                 *)
+(* --- full nblk>8 front->exit chain ---                                       *)
 (*   MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN EXISTS_TAC wbn_prepretail_post_ext2*)
 (*   THEN [C,,C=C by MAYCHANGE_IDEMPOT]; front leg = WBN_FRONT_TO_PREP_EXT2;   *)
 (*   back leg = WBN_PREP_TO_END.  Result: pc+0x20 -> pc+4528 for nblk>8, post  *)
 (*   = wbn_end_post.  The 3 side-conds ride the antecedent to the top precond. *)
 (*                                                                             *)
-(* --- THEN: nblk 9..16 leg + Phase 7 (see STATE.md Continuation) ---          *)
+(* --- nblk 9..16 leg + Phase 7 (see STATE.md Continuation) ---               *)
 (* ------------------------------------------------------------------------- *)
