@@ -3844,3 +3844,42 @@ let WBN_PREP_TO_END_7 = prove(wbn_prep_to_end_goal 7 WB_TAIL_GEN2_7,
   WBN_PREP_TO_END_r_TAC 7 WB_TAIL_GEN2_7);;
 let WBN_PREP_TO_END_8 = prove(wbn_prep_to_end_goal 8 WB_TAIL_GEN2_8,
   WBN_PREP_TO_END_r_TAC 8 WB_TAIL_GEN2_8);;
+
+(* ========================================================================= *)
+(* SESSION-048 -- PHASE 6 STEP 2b: tag-fold + output-forall algebra.         *)
+(*                                                                           *)
+(* The per-r seam lemmas WBN_PREP_TO_END_r land a SHIFTED-band post:          *)
+(*   - PC = pc+4528 (whole-function exit)                                     *)
+(*   - the LAST r output stores at out_p + 128*(k+1) + 16*i (i<r)             *)
+(*   - the tag at xi_p = word_bytereverse (ghash_polyval_acc bh (brev xi)     *)
+(*       (MAP brev (list_of_seq cph (8*(k+1)))))  APPENDED with the r new     *)
+(*       blocks (double-brev'd running acc + r cph blocks).                    *)
+(* They DROP the first 8*(k+1) output stores (the ext2 seam post carries them *)
+(* as its conjunct [64] forall).  To get the full-nblk contract we must       *)
+(*   (a) carry the ext2 output forall through the r-block tail (its narrow    *)
+(*       output frame writes only bytes(out_p+128(k+1),16*r), disjoint from   *)
+(*       the first 128*(k+1) bytes -> ENSURES_ADD_PRESERVED, sound), and      *)
+(*   (b) fold the tag: caught_up ++ [r new blocks] = list_of_seq cph nblk     *)
+(*       via GHASH_ACC_APPEND (the one genuinely NEW algebra step).           *)
+(* These helper lemmas do the sim-free list/tag algebra for (b).             *)
+(* ------------------------------------------------------------------------- *)
+
+(* list_of_seq splits at any point into a prefix + a shifted suffix. *)
+let LIST_OF_SEQ_ADD = prove
+ (`!m (f:num->A) n. list_of_seq f (m + n) =
+        APPEND (list_of_seq f m) (list_of_seq (\i. f (m + i)) n)`,
+  INDUCT_TAC THEN REPEAT GEN_TAC THENL
+   [REWRITE_TAC[ADD_CLAUSES; LIST_OF_SEQ; APPEND; ETA_AX];
+    REWRITE_TAC[ADD_CLAUSES; LIST_OF_SEQ; APPEND] THEN
+    AP_TERM_TAC THEN ASM_REWRITE_TAC[o_DEF]]);;
+
+(* nesting: the shifted band's i-th cph block = the global (8*(k+1)+i)-th. *)
+let WBN_SUBLIST_SHIFT = prove
+ (`!(ibytes:byte list) k i r. i < r
+   ==> SUB_LIST (16 * i,16) (SUB_LIST (128 * (k + 1),16 * r) ibytes) =
+       SUB_LIST (16 * (8 * (k + 1) + i),16) ibytes`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[SUB_LIST_MIN_GENERAL] THEN
+  SUBGOAL_THEN `MIN 16 (16 * r - 16 * i) = 16` SUBST1_TAC THENL
+   [ASM_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `128 * (k + 1) + 16 * i = 16 * (8 * (k + 1) + i)` SUBST1_TAC THENL
+   [ARITH_TAC; REFL_TAC]);;
