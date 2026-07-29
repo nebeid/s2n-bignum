@@ -4282,18 +4282,44 @@ let WBN_PREP_TO_END = prove(wbn_prep_to_end_goal_final,
     ASM_REWRITE_TAC[] THEN UNDISCH_TAC `9 <= nblk` THEN ARITH_TAC) (1--8)));;
 
 (* ------------------------------------------------------------------------- *)
-(* NEXT (session-050): full nblk>8 front->exit chain + nblk 9..16 + Phase 7.  *)
+(* WBN_FRONT_TO_END (session-049): the full nblk>8 (nblk>=17) front->exit       *)
+(* chain, pc+0x20 -> pc+4528.  WBN_FRONT_TO_PREP_EXT2 ; WBN_PREP_TO_END via     *)
+(* ENSURES_TRANS_SIMPLE (both share frame wbn_front_C_tm, and the seam post      *)
+(* wbn_prepretail_post_ext2 is aconv between them).  Precond = wbn_front_P_tm    *)
+(* (the PC-free front core), post = wbn_end_post (nblk-uniform output forall +   *)
+(* GHASH_ACC_APPEND-folded tag over list_of_seq cph nblk).  The 3 side-conds     *)
+(* ride the antecedent outward (WBN_PREP_TO_END needs them; the front leg does   *)
+(* not); 9<=nblk from 17<=nblk by ARITH.  hyps=0, no new CHEAT (the 2 scoped     *)
+(* Q19/Q16 identity CHEATs remain buried in the loop body + prepretail).        *)
+(* ------------------------------------------------------------------------- *)
+
+let wbn_front_to_end_goal =
+  let hyps = end_itlist (curry mk_conj)
+    (wbn_front_hyps_wide_tm :: wbn_prep_to_end_extra_clauses) in
+  let ens = list_mk_comb(`ensures arm`,
+    [wbn_front_P_tm; wbn_end_post; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(hyps, ens));;
+
+let WBN_FRONT_TO_END = prove(wbn_front_to_end_goal,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
+  EXISTS_TAC wbn_prepretail_post_ext2 THEN
+  REPEAT CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_IDEMPOT_TAC;
+    MATCH_MP_TAC WBN_FRONT_TO_PREP_EXT2 THEN ASM_REWRITE_TAC[];
+    MATCH_MP_TAC WBN_PREP_TO_END THEN ASM_REWRITE_TAC[] THEN
+    UNDISCH_TAC `17 <= nblk` THEN ARITH_TAC]);;
+
+(* ------------------------------------------------------------------------- *)
+(* NEXT (session-050): nblk 9..16 leg (loop never entered) + Phase 7 unify.   *)
 (*                                                                             *)
-(* --- full nblk>8 front->exit chain ---                                       *)
-(*   MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN EXISTS_TAC wbn_prepretail_post_ext2*)
-(*   THEN [C,,C=C by MAYCHANGE_IDEMPOT]; front leg = WBN_FRONT_TO_PREP_EXT2;   *)
-(*   back leg = WBN_PREP_TO_END.  Result: pc+0x20 -> pc+4528 for nblk>8, post  *)
-(*   = wbn_end_post.  The 3 side-conds ride the antecedent to the top precond. *)
-(*   NOTE WBN_FRONT_TO_PREP_EXT2's precond is wbn_front_P_tm (PC-free core) and *)
-(*   its post is wbn_prepretail_post_ext2; WBN_PREP_TO_END takes exactly that   *)
-(*   post as its precond, so the TRANS seam is aconv.  The chain's top precond  *)
-(*   needs the 3 side-conds threaded (they are NOT in wbn_front_P_tm) -- add    *)
-(*   them as antecedents, discharged by the Phase-8 wrapper / guard.           *)
-(*                                                                             *)
-(* --- nblk 9..16 leg + Phase 7 (see STATE.md Continuation) ---               *)
+(* --- nblk 9..16 leg ---  (0x49c b.ge NOT taken -> straight to prepretail;    *)
+(*   the loop count q=(nblk-9)DIV 8 = 0.  Build the k=0-analogue front->        *)
+(*   prepretail (the seam at pc+3796 with q:=0), then reuse WBN_PREP_TO_END's   *)
+(*   FULL legs as-is (they are symbolic in q).  Cross-check WBN_FRONT_TO_END    *)
+(*   already covers nblk>=17; the 9..16 band is the q=0 slice.                 *)
+(* --- Phase 7: AESV8_GCM_8X_DEC_256_WB_CORRECT ---                            *)
+(*   ASM_CASES nblk<=8 -> existing _DISPATCH; nblk>8 -> WBN_FRONT_TO_END (+the  *)
+(*   9..16 leg).  Reconcile wbn_end_post (ext2 seam vocabulary) with the NIST   *)
+(*   postcondition here, the same way the bands did.  See STATE.md.            *)
 (* ------------------------------------------------------------------------- *)
