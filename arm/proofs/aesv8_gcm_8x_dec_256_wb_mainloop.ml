@@ -4748,6 +4748,41 @@ let WBN_FRONT_TO_END_916 = prove(wbn_front_to_end_916_goal,
 (* [11] RINNER=LINNER identity, instanced at :2085 in the loop body + the       *)
 (* guarded prepretail CHEATs :3054/:3217/:3395/:4572).  No new_axiom anywhere.   *)
 (* ------------------------------------------------------------------------- *)
+
+(* ------------------------------------------------------------------------- *)
+(* PHASE 7 tag-side bridge lemmas (session-051, sim-free, symbolic nblk).      *)
+(* These reconcile wbn_end_post's tag conjunct to the NIST nist_ghash form at   *)
+(* symbolic nblk (the fixed-N LIST_OF_SEQ_NIST_INPUT in wb.ml does not cover a   *)
+(* symbolic count).  WBN_TAG_NIST_BRIDGE is the drop-in tag rewrite for the      *)
+(* Phase-7 postcondition reconcile under the band identifications               *)
+(* byteswap128 h = ghash_twist H and xi = word_reversefields 8 tag0.            *)
+let MAP_LIST_OF_SEQ = prove
+ (`!(g:A->B) f n. MAP g (list_of_seq f n) = list_of_seq (g o f) n`,
+  GEN_TAC THEN ONCE_REWRITE_TAC[SWAP_FORALL_THM] THEN INDUCT_TAC THEN GEN_TAC THEN
+  ASM_REWRITE_TAC[LIST_OF_SEQ; MAP; o_THM] THEN REWRITE_TAC[o_ASSOC]);;
+
+let LIST_OF_SEQ_NIST_INPUT_SYM = prove
+ (`!ibytes N.
+     list_of_seq (nist_input_block ibytes) N =
+     MAP word_bytereverse
+       (list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16) ibytes)) N)`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[MAP_LIST_OF_SEQ] THEN
+  AP_THM_TAC THEN AP_TERM_TAC THEN
+  REWRITE_TAC[FUN_EQ_THM; o_THM; nist_input_block; BREV_RF8_128]);;
+
+let WBN_TAG_NIST_BRIDGE = prove
+ (`!(H:int128) h xi tag0 ibytes nblk.
+     byteswap128 h = ghash_twist H /\ xi = word_reversefields 8 tag0
+     ==> word_bytereverse
+           (ghash_polyval_acc (byteswap128 h) (word_bytereverse xi)
+             (MAP word_bytereverse
+               (list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16) ibytes)) nblk))) =
+         word_reversefields 8
+           (nist_ghash H tag0 (list_of_seq (nist_input_block ibytes) nblk))`,
+  REPEAT STRIP_TAC THEN
+  ASM_REWRITE_TAC[NIST_GHASH_IS_POLYVAL; LIST_OF_SEQ_NIST_INPUT_SYM; BREV_RF8_128] THEN
+  REWRITE_TAC[GSYM BREV_RF8_128; WORD_BYTEREVERSE_BYTEREVERSE]);;
+(* ------------------------------------------------------------------------- *)
 (* --- Phase 7 (NEXT SESSION): AESV8_GCM_8X_DEC_256_WB_CORRECT ---              *)
 (*   ASM_CASES nblk<=8 -> existing _DISPATCH; 9..16 -> WBN_FRONT_TO_END_916;    *)
 (*   >=17 -> WBN_FRONT_TO_END.  The two >8 chains END in wbn_end_post (RAW      *)
@@ -4765,9 +4800,11 @@ let WBN_FRONT_TO_END_916 = prove(wbn_front_to_end_916_goal,
 (*   (ghash_twist H), xi:=word_reversefields 8 tag0.  Reusable bridge lemmas     *)
 (*   ALL EXIST: KEY_READS_FROM_WORDLIST + RK_ETA_15 (pre keys), HTABLE_MEM_DEC_  *)
 (*   IS_HTABLE_MEM_8 (pre htable), GCM_DEC_FINAL_XI_NIST + BREV_RF8_128/_INV_128  *)
-(*   (tag), nist_input_block + LIST_OF_SEQ_NIST_INPUT (fixed-N -- needs a        *)
-(*   symbolic-nblk analogue), GCM_DEC_PT_BYTES_WHOLE_r (fixed-N -- symbolic-nblk *)
-(*   analogue needed for the output byte_list_at).                              *)
+(*   (tag), nist_input_block + LIST_OF_SEQ_NIST_INPUT (fixed-N; the symbolic-   *)
+(*   nblk analogue LIST_OF_SEQ_NIST_INPUT_SYM + the full tag rewrite            *)
+(*   WBN_TAG_NIST_BRIDGE are BUILT ABOVE, session-051, hyps=0 -- the L2 tag side *)
+(*   is DONE), GCM_DEC_PT_BYTES_WHOLE_r (fixed-N -- symbolic-nblk analogue      *)
+(*   still owed for the output byte_list_at).                                   *)
 (*   TWO bridge layers on the >8 chains:                                        *)
 (*     (L1) wbn_end_post RAW per-block form -> internal-wrapper post            *)
 (*          (byte_list_at (gcm_dec_pt_bytes nblk ..) + gcm_dec_final_xi nblk ..) *)
