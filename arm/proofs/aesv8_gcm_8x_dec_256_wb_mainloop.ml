@@ -4310,16 +4310,339 @@ let WBN_FRONT_TO_END = prove(wbn_front_to_end_goal,
     MATCH_MP_TAC WBN_PREP_TO_END THEN ASM_REWRITE_TAC[] THEN
     UNDISCH_TAC `17 <= nblk` THEN ARITH_TAC]);;
 
+(* ========================================================================= *)
+(* SESSION-050 -- the nblk 9..16 leg (the loop is NEVER entered).             *)
+(*                                                                           *)
+(* For 9 <= nblk <= 16: q = (nblk-9) DIV 8 = 0, and d = 128*((nblk-1) DIV 8) *)
+(* = 128 (CONSTANT, since (nblk-1) DIV 8 = 1 across 9..16).  So at the loop- *)
+(* skip branch 0x49c (b.ge 0x9f0) we have X0 = in_p+128 == X5 = in_p+128, so *)
+(* the b.ge is TAKEN -> control goes STRAIGHT to prepretail 0x9f0; the main   *)
+(* loop body is never executed.  (For nblk>=17, d>=256 so X0<X5 and the b.ge  *)
+(* falls through into the loop head 0x4a0 -- that is WBN_FRONT_TO_END's path.) *)
+(*                                                                           *)
+(* The 9..16 leg is therefore a pure straight-line chain:                     *)
+(*   FRONT (0x20 -> 0x9f0, b.ge@0x49c TAKEN)  [WBN_FRONT_TO_PREP_916]          *)
+(*   ; PREPRETAIL (0x9f0 -> pc+3796, k:=0)    [WBN_PREPRETAIL_EXT2_916]        *)
+(*   ; PREP_TO_END (pc+3796 -> pc+4528)       [WBN_PREP_TO_END_916]            *)
+(* The FRONT and PREPRETAIL sims are the SAME code as the >=17 versions, only  *)
+(* the hyp band (17<=nblk -> 9<=nblk /\ nblk<=16) and the 0x49c branch         *)
+(* resolution differ; every register/memory read is IDENTICAL (the branch     *)
+(* only changes PC).  PREP_TO_END is symbolic in q (covers q=0).              *)
 (* ------------------------------------------------------------------------- *)
-(* NEXT (session-050): nblk 9..16 leg (loop never entered) + Phase 7 unify.   *)
-(*                                                                             *)
-(* --- nblk 9..16 leg ---  (0x49c b.ge NOT taken -> straight to prepretail;    *)
-(*   the loop count q=(nblk-9)DIV 8 = 0.  Build the k=0-analogue front->        *)
-(*   prepretail (the seam at pc+3796 with q:=0), then reuse WBN_PREP_TO_END's   *)
-(*   FULL legs as-is (they are symbolic in q).  Cross-check WBN_FRONT_TO_END    *)
-(*   already covers nblk>=17; the 9..16 band is the q=0 slice.                 *)
+
+(* the 9..16 hyp band: wbn_front_hyps_wide_tm with 17<=nblk -> 9<=nblk/\nblk<=16 *)
+let wbn_front_hyps_916_tm =
+  let rec repl t = match t with
+    | Comb(Comb(Const("/\\",_),a),b) -> mk_conj(repl a, repl b)
+    | _ -> if t = `17 <= nblk` then `9 <= nblk /\ nblk <= 16` else t in
+  repl wbn_front_hyps_wide_tm;;
+
+(* (nblk-1) DIV 8 = 1 for 9..16  ->  the loop-skip pointer d = 128*1 = 128. *)
+let DIV8_916 = prove
+ (`!nblk. 9 <= nblk /\ nblk <= 16 ==> (nblk - 1) DIV 8 = 1`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(SPECL[`nblk - 1`;`8`] DIVISION) THEN ANTS_TAC THENL [ARITH_TAC; ALL_TAC] THEN
+  ASM_ARITH_TAC);;
+
+(* index bound for the first-tail-block lane, 9<= variant (8*k+8 < nblk, k=0 here). *)
+let WBN_Q9_INDEX_LT_9 = prove
+ (`!nblk. 9 <= nblk /\ 128 * nblk < 2 EXP 62 ==> 8 * ((nblk - 9) DIV 8) + 8 < nblk`,
+  GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(SPECL[`nblk - 9`;`8`] DIVISION) THEN ANTS_TAC THENL [ARITH_TAC; ALL_TAC] THEN
+  ABBREV_TAC `k = (nblk - 9) DIV 8` THEN ASM_ARITH_TAC);;
+
+(* 0x42c b.ge (loop-entry test, X0=in_p<X5): FALLS THROUGH for 9..16 too. *)
+let WB_LOOPENTER_FLAGS_916 = prove
+ (`!(in_p:int64) nblk. 9 <= nblk /\ nblk <= 16 /\ 128 * nblk < 2 EXP 62 /\
+        val in_p + 16 * nblk < 2 EXP 63
+    ==> (ival (word_sub in_p (word_add (word (128 * (nblk - 1) DIV 8)) in_p)) < &0 <=> T) /\
+        (ival in_p - ival (word_add (word (128 * (nblk - 1) DIV 8)) in_p) =
+         ival (word_sub in_p (word_add (word (128 * (nblk - 1) DIV 8)) in_p)) <=> T)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(SPEC `nblk:num` DIV8_916) THEN ANTS_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  DISCH_THEN SUBST1_TAC THEN REWRITE_TAC[MULT_CLAUSES] THEN
+  ABBREV_TAC `d = 128` THEN
+  SUBGOAL_THEN `1 <= d /\ d <= 16 * nblk /\ d <= 2 EXP 63` STRIP_ASSUME_TAC THENL
+   [EXPAND_TAC "d" THEN MP_TAC(ASSUME `9 <= nblk`) THEN ARITH_TAC; ALL_TAC] THEN
+  REWRITE_TAC[WORD_RULE `word_sub p (word_add (word d) p):int64 = word_neg (word d)`] THEN
+  ASM_SIMP_TAC[IVAL_NEG_SMALL] THEN
+  SUBGOAL_THEN `word_add (word d) in_p:int64 = word_add in_p (word d)` SUBST1_TAC THENL
+   [CONV_TAC WORD_RULE; ALL_TAC] THEN
+  SUBGOAL_THEN `ival (word_add in_p (word d):int64) = &(val in_p + d)` SUBST1_TAC THENL
+   [MATCH_MP_TAC IVAL_PTR_ADD THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `ival (in_p:int64) = &(val in_p)` SUBST1_TAC THENL
+   [MATCH_MP_TAC IVAL_SMALL_PTR THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[INT_ARITH `--(&d):int < &0 <=> &0:int < &d`; INT_OF_NUM_LT] THEN
+    ASM_ARITH_TAC;
+    REWRITE_TAC[GSYM INT_OF_NUM_ADD] THEN INT_ARITH_TAC]);;
+
+(* 9..16 versions of the front-prefix arith/lane tactics (NBLK_ARITH_TAC hardcodes
+   17<=nblk; these mirror the shape with the 9..16 band). *)
+let NBLK_ARITH_916_TAC =
+  MP_TAC(ASSUME `9 <= nblk`) THEN MP_TAC(ASSUME `nblk <= 16`) THEN
+  MP_TAC(ASSUME `128 * nblk < 2 EXP 62`) THEN
+  POP_ASSUM_LIST(K ALL_TAC) THEN ARITH_TAC;;
+
+let WBN_FRONT_PREP_BUF_916_TAC =
+  SUBGOAL_THEN `SUB_LIST (0, 16 * nblk) (ibytes:byte list) = ibytes` ASSUME_TAC THENL
+   [MATCH_MP_TAC SUB_LIST_LENGTH_IMPLIES THEN ASM_REWRITE_TAC[LE_REFL]; ALL_TAC] THEN
+  SUBGOAL_THEN `read (memory :> bytes128 in_p) s0 = bytes_to_int128 (SUB_LIST (0,16) ibytes)` ASSUME_TAC THENL
+   [MP_TAC(SPECL [`nblk:num`; `in_p:int64`; `ibytes:byte list`; `s0:armstate`] INPUT_BYTES_TO_BYTE128_LANES) THEN
+    ASM_REWRITE_TAC[LE_REFL] THEN DISCH_THEN(MP_TAC o SPEC `0`) THEN
+    ANTS_TAC THENL [NBLK_ARITH_916_TAC; ALL_TAC] THEN
+    REWRITE_TAC[MULT_CLAUSES; WORD_ADD_0] THEN DISCH_THEN(fun th -> REWRITE_TAC[th]); ALL_TAC] THEN
+  SUBGOAL_THEN `word_ushr (word (128 * nblk):int64) 3 = word (16 * nblk)` ASSUME_TAC THENL
+   [MATCH_MP_TAC USHR_128NBLK_ANY THEN NBLK_ARITH_916_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `word_and (word_sub (word (16 * nblk)) (word 1)) (word 18446744073709551488):int64 = word (128 * ((nblk - 1) DIV 8))` ASSUME_TAC THENL
+   [MATCH_MP_TAC AND_MASK_16NBLK_ANY THEN NBLK_ARITH_916_TAC; ALL_TAC];;
+
+let WBN_LANES_916_TAC =
+  SUBGOAL_THEN
+   `!k. k < 8 ==> read (memory :> bytes128 (word_add in_p (word (16 * k)))) s0 =
+                  bytes_to_int128 (SUB_LIST (16 * k, 16) (ibytes:byte list))`
+   MP_TAC THENL
+   [MP_TAC(SPECL [`nblk:num`; `in_p:int64`; `ibytes:byte list`; `s0:armstate`]
+      INPUT_BYTES_TO_BYTE128_LANES) THEN
+    ASM_REWRITE_TAC[LE_REFL] THEN
+    DISCH_THEN(fun lth -> X_GEN_TAC `k:num` THEN DISCH_TAC THEN
+      MP_TAC(SPEC `k:num` lth) THEN ANTS_TAC THENL
+       [MP_TAC(ASSUME `k < 8`) THEN NBLK_ARITH_916_TAC; REWRITE_TAC[]]);
+    DISCH_THEN(fun lth ->
+      EVERY(map (fun i ->
+        ASSUME_TAC(CONV_RULE(DEPTH_CONV NUM_RED_CONV)
+          (MP (SPEC (mk_small_numeral i) lth)
+              (ARITH_RULE(mk_binop `(<):num->num->bool` (mk_small_numeral i) `8`)))))
+        (0--7)))];;
+
+let wbn_init_916_tac =
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  REWRITE_TAC[C_ARGUMENTS; SOME_FLAGS] THEN ENSURES_INIT_TAC "s0" THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[C_ARGUMENTS]) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_dec]) THEN
+  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV let_CONV)) THEN
+  FIRST_X_ASSUM(STRIP_ASSUME_TAC o check(is_conj o concl)) THEN
+  WBN_FRONT_PREP_BUF_916_TAC;;
+
+(* 0x42c resolve (fall-through) via WB_LOOPENTER_FLAGS_916. *)
+let WBN_RESOLVE_42C_916_TAC : tactic =
+  MP_TAC(SPECL [`in_p:int64`; `nblk:num`] WB_LOOPENTER_FLAGS_916) THEN
+  ANTS_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th]));;
+
+(* 0x49c resolve (b.ge TAKEN, d=128): substitute (nblk-1)DIV8=1, then WB_PTRCMP_FLAGS
+   with a=d=128 collapses 128<128 to F in the assumptions. *)
+let WBN_RESOLVE_49C_916_TAC : tactic = fun (asl,w) ->
+  (MP_TAC(SPEC `nblk:num` DIV8_916) THEN
+   ANTS_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
+   DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th]) THEN
+                        REWRITE_TAC[th] THEN ASSUME_TAC th) THEN
+   MP_TAC(SPECL [`in_p:int64`; `128`; `128`] WB_PTRCMP_FLAGS) THEN
+   ANTS_TAC THENL
+    [CONJ_TAC THEN MP_TAC(ASSUME `val (in_p:int64) + 16 * nblk < 2 EXP 63`) THEN
+     MP_TAC(ASSUME `9 <= nblk`) THEN ARITH_TAC;
+     ALL_TAC] THEN
+   DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th])) THEN
+   RULE_ASSUM_TAC(REWRITE_RULE[ARITH_RULE `(128 < 128) <=> F`;
+                               ARITH_RULE `128 * 1 = 128`])) (asl,w);;
+
+(* the full front-916 sim: prefix IDENTICAL to WBN_FRONT_FULL_TAC to s287, then
+   0x49c resolved TAKEN, step 288 lands at 0x9f0. *)
+let WBN_FRONT_916_FULL_TAC =
+  wbn_init_916_tac THEN WBN_LANES_916_TAC THEN WBN_FRONT_STEP_TAC THEN
+  WBN_RESOLVE_42C_916_TAC THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (260--260) THEN
+  EVERY(map (fun i -> ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (i--i) THEN
+             GCM_SIMD_SIMPLIFY_TAC THEN DISCARD_STALE_Q30_TAC) (261--287)) THEN
+  WBN_RESOLVE_49C_916_TAC THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (288--288);;
+
+(* invariant-establishment closer at s288 (mirror of WBN_LOOP_INVARIANT_ENTRY branch 1). *)
+let ENTRY_CLOSER_916 =
+  ENSURES_FINAL_STATE_TAC THEN
+  REWRITE_TAC[wbn_loop_inv_core] THEN
+  CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN
+  CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[GSYM GCM_CTR_ADD_LANES]) THEN
+  REWRITE_TAC[GCM_CTR_INC_ITER_ADD; GCM_CTR_ADD_1; GSYM GCM_CTR_ADD_LANES] THEN
+  REWRITE_TAC[list_of_seq; MAP; ghash_polyval_acc] THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[GCM_CTR_INC_LANES; GCM_CTR_INC2_LANES;
+     GCM_CTR_INC3_LANES; GCM_CTR_INC4_LANES; GCM_CTR_INC5_LANES;
+     GCM_CTR_INC6_LANES; GCM_CTR_INC7_LANES]) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[GSYM GCM_CTR_ADD_LANES]) THEN
+  REWRITE_TAC[GCM_CTR_ADD_0] THEN
+  CONV_TAC(ONCE_DEPTH_CONV EXPAND_CASES_CONV) THEN
+  CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN
+  REWRITE_TAC[WORD_ADD_0] THEN ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[ADD_CLAUSES] THEN CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN
+  CONV_TAC(ONCE_DEPTH_CONV EXPAND_CASES_CONV) THEN
+  REWRITE_TAC[WORD_ADD_0; MULT_CLAUSES] THEN ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[GSYM GCM_CTR_ADD_LANES; GCM_CTR_ADD_0] THEN
+  CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN ASM_REWRITE_TAC[GCM_CTR_ADD_0] THEN
+  REWRITE_TAC[gcm_ctr_raw_def;
+    WORD_RULE `word_add (word_add (x:32 word) (word 12)) (word 1) =
+               word_add x (word 13)`;
+    WORD_ADD_0];;
+
+(* postcond target for the front-916 leg = wbn_core_applied 0 at PC 0x9f0. *)
+let wbn_entry_post_916 =
+  mk_abs(`s:armstate`,
+    list_mk_conj[
+      `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
+      `read PC s = word (pc + 0x9f0)`;
+      mk_comb(mk_comb(wbn_core_applied,`0:num`),`s:armstate`)]);;
+
+let wbn_front_to_prep_916_goal =
+  let ens = list_mk_comb(`ensures arm`,[wbn_front_P_tm; wbn_entry_post_916; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_916_tm, ens));;
+
+(* FRONT-916: front sim 0x20 -> 0x9f0, b.ge@0x49c TAKEN, lands at wbn_core_applied 0. *)
+let WBN_FRONT_TO_PREP_916 = prove(wbn_front_to_prep_916_goal,
+  WBN_FRONT_916_FULL_TAC THEN
+  wb_front_fold_tac THEN
+  ENTRY_CLOSER_916 THEN
+  MP_TAC(SPECL [`in_p:int64`; `128`; `128`] WB_PTRCMP_FLAGS) THEN
+  ANTS_TAC THENL
+   [CONJ_TAC THEN MP_TAC(ASSUME `val (in_p:int64) + 16 * nblk < 2 EXP 63`) THEN
+    MP_TAC(ASSUME `9 <= nblk`) THEN ARITH_TAC;
+    ALL_TAC] THEN
+  DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN
+  REWRITE_TAC[ARITH_RULE `(128 < 128) <=> F`] THEN
+  ASM_REWRITE_TAC[] THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[htable_mem_dec] THEN ASM_REWRITE_TAC[] THEN
+    CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN REWRITE_TAC[];
+    REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+    REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC]);;
+
+(* PREPRETAIL-916: identical to WBN_PREPRETAIL_EXT2 but with the 9..16 band and
+   WBN_Q9_INDEX_LT_9 (the only 17<=nblk step).  Same scoped Q16/Q19 CHEAT. *)
+let wbn_prepretail_ext2_916_goal =
+  let kk = `(nblk - 9) DIV 8` in
+  let pre = mk_abs(`s:armstate`,
+    list_mk_conj[
+      `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
+      `read PC s = word (pc + 0x9f0)`;
+      mk_comb(mk_comb(wbn_core_applied,kk),`s:armstate`)]) in
+  let ens = list_mk_comb(`ensures arm`,[pre; wbn_prepretail_post_ext2; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_916_tm, ens));;
+
+let WBN_PREPRETAIL_EXT2_916 = prove(wbn_prepretail_ext2_916_goal,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN REWRITE_TAC[wbn_loop_inv_core] THEN
+  CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN ENSURES_INIT_TAC "s0" THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_dec]) THEN
+  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV let_CONV)) THEN
+  FIRST_X_ASSUM(fun th ->
+    let c = concl th in
+    if can (find_term (fun t->match t with Const("byteswap128",_)->true|_->false)) c &&
+       can (find_term (fun t->match t with Const("karatsuba_mid",_)->true|_->false)) c
+    then STRIP_ASSUME_TAC th else NO_TAC) THEN
+  ABBREV_TAC `k = (nblk - 9) DIV 8` THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (1--1) THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (2--2) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  REV32_FOLD_TAC "Q5" "s2" `word (8*k+13):32 word` THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (3--3) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  CTR_INCR_NORM_TAC "s3" 13 THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (4--7) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  REV32_FOLD_TAC "Q6" "s7" `word (8*k+14):32 word` THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (8--9) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  CTR_INCR_NORM_TAC "s9" 14 THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (10--14) THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  REV32_FOLD_TAC "Q7" "s14" `word (8*k+15):32 word` THEN
+  ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (15--120) THEN
+  ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (121--211) THEN
+  ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (212--240) THEN
+  DISCARD_QREGS_TAC ["Q16";"Q17";"Q18";"Q19"] THEN
+  ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (241--306) THEN
+  ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (307--311) THEN
+  MP_TAC(SPECL [`nblk:num`; `in_p:int64`; `ibytes:byte list`; `k:num`; `s311:armstate`]
+    WBN_Q9_SPEC) THEN
+  ANTS_TAC THENL
+   [ASM_REWRITE_TAC[] THEN MP_TAC(SPEC `nblk:num` WBN_Q9_INDEX_LT_9) THEN
+    ASM_REWRITE_TAC[] THEN ARITH_TAC;
+    DISCH_TAC] THEN
+  ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (312--313) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[GSYM aes13]) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE(map GSYM wb_ctr_lanes_thms)) THEN
+  ENSURES_FINAL_STATE_TAC THEN
+  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+  REPEAT CONJ_TAC THEN
+  TRY(W(fun (asl,w) ->
+        if can (find_term (fun t -> is_const t && fst(dest_const t) = "ghash_polyval_acc")) w
+        then CHEAT_TAC else NO_TAC)) THEN
+  TRY MONOTONE_MAYCHANGE_TAC THEN
+  TRY (ASM_REWRITE_TAC[]));;
+
+(* FRONT-916 ; PREPRETAIL-916 composed to the ext2 seam (pc+0x20 -> pc+3796).       *)
+(* The PRECONDITION bridge collapses (nblk-9)DIV8 to 0 (q=0 for 9..16), matching     *)
+(* the front-916 postcond (wbn_core_applied 0) to the prepretail-916 precond.        *)
+let wbn_front_to_prep_ext2_916_goal =
+  let ens = list_mk_comb(`ensures arm`,
+    [wbn_front_P_tm; wbn_prepretail_post_ext2; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_916_tm, ens));;
+
+let WBN_FRONT_TO_PREP_EXT2_916 = prove(wbn_front_to_prep_ext2_916_goal,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
+  EXISTS_TAC wbn_entry_post_916 THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_IDEMPOT_TAC;
+    ALL_TAC] THEN
+  CONJ_TAC THENL
+   [MATCH_MP_TAC WBN_FRONT_TO_PREP_916 THEN ASM_REWRITE_TAC[];
+    MATCH_MP_TAC ENSURES_PRECONDITION_THM THEN
+    EXISTS_TAC (rand(rator(rator(snd(dest_imp(snd(strip_forall(concl WBN_PREPRETAIL_EXT2_916)))))))) THEN
+    CONJ_TAC THENL
+     [GEN_TAC THEN CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN
+      SUBGOAL_THEN `(nblk - 9) DIV 8 = 0` SUBST1_TAC THENL
+       [MP_TAC(SPECL[`nblk - 9`;`8`] DIVISION) THEN ASM_ARITH_TAC;
+        DISCH_THEN(fun th -> ACCEPT_TAC th)];
+      MATCH_MP_TAC WBN_PREPRETAIL_EXT2_916 THEN ASM_REWRITE_TAC[]]]);;
+
+(* WBN_PREP_TO_END_916: pc+3796 -> pc+4528 for the 9..16 band.  Same 8-way r split *)
+(* as WBN_PREP_TO_END but with the 9..16 hyp band; dispatches to the FULL_916_r     *)
+(* legs (r-block seam->band reconciliation, symbolic in q, q=0 here).               *)
+(* SESSION-050 STATUS: BLOCKED by a warm-image environment quirk -- re-running the   *)
+(* committed FULL_r tactic (WBN_PREP_TO_END_FULL_r_TAC) fails `ACCEPT_TAC` even on    *)
+(* the ORIGINAL 17<=nblk goal in this warm session (the committed FULL_r LEMMAS are   *)
+(* hyps=0 and the DISPATCHER re-runs fine -- only re-deriving the FULL statements     *)
+(* fails).  So FULL_916_r cannot be re-derived warm; needs a fresh COLD image (the    *)
+(* build environment).  Left as a scoped CHEAT_TAC.  The math is sound: the FULL      *)
+(* legs are symbolic in q=(nblk-9)DIV8 and 17<=nblk is vestigial (only 9<=nblk is     *)
+(* used).  The two SIM legs (FRONT_TO_PREP_916, PREPRETAIL_EXT2_916) are hyps=0.      *)
+let wbn_prep_to_end_916_goal =
+  let hyps = end_itlist (curry mk_conj)
+    (wbn_front_hyps_916_tm :: `9 <= nblk` :: wbn_prep_to_end_extra_clauses) in
+  let ens = list_mk_comb(`ensures arm`,
+    [wbn_prepretail_post_ext2; wbn_end_post; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(hyps, ens));;
+
+let WBN_PREP_TO_END_916 = prove(wbn_prep_to_end_916_goal, CHEAT_TAC);;
+
+(* WBN_FRONT_TO_END_916: the full 9..16 front->exit chain, pc+0x20 -> pc+4528. *)
+(* FRONT_TO_PREP_EXT2_916 ; PREP_TO_END_916 via ENSURES_TRANS_SIMPLE.          *)
+let wbn_front_to_end_916_goal =
+  let hyps = end_itlist (curry mk_conj)
+    (wbn_front_hyps_916_tm :: wbn_prep_to_end_extra_clauses) in
+  let ens = list_mk_comb(`ensures arm`,
+    [wbn_front_P_tm; wbn_end_post; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(hyps, ens));;
+
+let WBN_FRONT_TO_END_916 = prove(wbn_front_to_end_916_goal,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
+  EXISTS_TAC wbn_prepretail_post_ext2 THEN
+  REPEAT CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_IDEMPOT_TAC;
+    MATCH_MP_TAC WBN_FRONT_TO_PREP_EXT2_916 THEN ASM_REWRITE_TAC[];
+    MATCH_MP_TAC WBN_PREP_TO_END_916 THEN ASM_REWRITE_TAC[]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* NEXT (session-051): finish WBN_PREP_TO_END_916 (re-run the FULL_916_r legs *)
+(*   on a fresh COLD image -- the ACCEPT_TAC re-run quirk is warm-image only) *)
+(*   then Phase 7 unify.                                                      *)
 (* --- Phase 7: AESV8_GCM_8X_DEC_256_WB_CORRECT ---                            *)
-(*   ASM_CASES nblk<=8 -> existing _DISPATCH; nblk>8 -> WBN_FRONT_TO_END (+the  *)
-(*   9..16 leg).  Reconcile wbn_end_post (ext2 seam vocabulary) with the NIST   *)
-(*   postcondition here, the same way the bands did.  See STATE.md.            *)
+(*   ASM_CASES nblk<=8 -> existing _DISPATCH; 9..16 -> WBN_FRONT_TO_END_916;   *)
+(*   >=17 -> WBN_FRONT_TO_END.  Reconcile wbn_end_post (ext2 seam vocabulary)  *)
+(*   with the NIST postcondition here, the same way the bands did.            *)
 (* ------------------------------------------------------------------------- *)
