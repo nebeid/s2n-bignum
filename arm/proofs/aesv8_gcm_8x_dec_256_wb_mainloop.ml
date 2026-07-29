@@ -3523,3 +3523,157 @@ let WB_TAIL_GEN_6 = prove(wbn_tail_backleg_goal 6,
   REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 6 THEN WB_TAIL_6_TAC);;
 let WB_TAIL_GEN_7 = prove(wbn_tail_backleg_goal 7,
   REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 7 THEN WB_TAIL_7_TAC);;
+
+(* ========================================================================= *)
+(* SESSION-045 -- PHASE 6 STEP 2b: WBN_PREP_TO_END assembly infrastructure.  *)
+(*                                                                           *)
+(* SOUNDNESS FIX to the (uncommitted) session-044 STEP-2b recipe.  That      *)
+(* recipe fed WB_TAIL_GEN_r (which keep X1,X9 in their weak precond) by      *)
+(* ENSURES_PRECONDITION_THM from wbn_prepretail_post_ext2, claiming all 20   *)
+(* non-aconv conjuncts reconcile "by pure ARITH".  Session-045 FOUND that 2  *)
+(* of them are UNDERIVABLE, not ARITH:                                       *)
+(*    ext2 delivers  read X1 s = word (128 * nblk),  read X9 s = word (16*nblk) *)
+(*    but a SPECL'd tail (in_p:=in_p+128(k+1), nblk-role:=r) wants           *)
+(*                    read X1 s = word (128 * r),    read X9 s = word (16*r).  *)
+(* For nblk = 8*(k+1)+r >= 17 these differ, so ext2_post ==> shifted_weak_q_at_r *)
+(* FAILS on X1/X9 exactly.  objdump: X1,X9 are DEAD in the tail range         *)
+(* [0xed4,0x11b0) (0 reads), so the sound fix is to DROP X1,X9 from the tail  *)
+(* precond too (6 dropped cells, not 4) and re-prove the tail leg from the    *)
+(* 63-conjunct weak precond.  WB_TAIL_GEN2_1 below CONFIRMS the tail sim      *)
+(* needs neither (hyps=0, ~133s, identical WB_PREP_TAC r THEN WB_TAIL_r_TAC). *)
+(* ------------------------------------------------------------------------- *)
+
+(* num_of_bytelist = num_of_wordlist on byte lists (needed by WBN_INPUT_SLICE). *)
+let NUM_OF_BYTELIST_EQ_WORDLIST = prove
+ (`!l:byte list. num_of_bytelist l = num_of_wordlist l`,
+  LIST_INDUCT_TAC THEN
+  ASM_REWRITE_TAC[num_of_bytelist; num_of_wordlist; DIMINDEX_8] THEN ARITH_TAC);;
+
+(* Input-read restriction: the whole-buffer read restricts to any 16-byte    *)
+(* block boundary 128*(k+1).  This discharges the shifted tail precond's      *)
+(* `read (memory :> bytes (in_p+128(k+1),16)) s = num_of_bytelist (SUB_LIST...)` *)
+(* conjunct from ext2's `read (memory :> bytes (in_p,16*nblk)) s = ... ibytes`.  *)
+(* (session-045, hyps=0).                                                     *)
+let WBN_INPUT_SLICE = prove
+ (`!(nblk:num) (in_p:int64) (ibytes:byte list) (k:num) (s:armstate).
+     LENGTH ibytes = 16 * nblk /\ 8 * (k + 1) < nblk /\
+     read (memory :> bytes (in_p,16 * nblk)) s = num_of_bytelist ibytes
+     ==> read (memory :> bytes (word_add in_p (word (128 * (k + 1))),16)) s =
+         num_of_bytelist (SUB_LIST (128 * (k + 1),16) ibytes)`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(ISPECL [`in_p:int64`; `16 * nblk`; `128 * (k+1)`; `read memory (s:armstate)`]
+    READ_BYTES_DIV) THEN
+  REWRITE_TAC[GSYM READ_COMPONENT_COMPOSE] THEN DISCH_TAC THEN
+  SUBGOAL_THEN `read (memory :> bytes (word_add in_p (word (128 * (k + 1))),16)) s =
+     (read (memory :> bytes (word_add in_p (word (128 * (k + 1))),
+                             16 * nblk - 128 * (k + 1))) s) MOD 2 EXP (8 * 16)`
+   SUBST1_TAC THENL
+   [MP_TAC(ISPECL [`word_add in_p (word (128 * (k+1))):int64`;
+                   `16 * nblk - 128 * (k+1)`; `16`; `read memory (s:armstate)`]
+       READ_BYTES_MOD) THEN
+    REWRITE_TAC[GSYM READ_COMPONENT_COMPOSE] THEN
+    SUBGOAL_THEN `MIN (16 * nblk - 128 * (k + 1)) 16 = 16` SUBST1_TAC THENL
+     [ASM_ARITH_TAC; ALL_TAC] THEN
+    DISCH_THEN(SUBST1_TAC o SYM) THEN REFL_TAC; ALL_TAC] THEN
+  FIRST_X_ASSUM(SUBST1_TAC o SYM) THEN ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[NUM_OF_BYTELIST_EQ_WORDLIST] THEN
+  REWRITE_TAC[NUM_OF_WORDLIST_SUB_LIST; DIMINDEX_8] THEN
+  AP_THM_TAC THEN AP_TERM_TAC THEN AP_TERM_TAC THEN ARITH_TAC);;
+
+(* 6-cell drop: the 4 session-044 cells PLUS the dead X1,X9. *)
+let wbn_tail_drop_lhs6 = wbn_tail_drop_lhs @
+  [`read X1 (s:armstate)`; `read X9 (s:armstate)`];;
+let wbn_weak_q_at6 k =
+  let cs = conjuncts (snd(dest_abs (q_at k))) in
+  let kept = filter (fun c -> not (is_eq c && mem (lhs c) wbn_tail_drop_lhs6)) cs in
+  mk_abs(`s:armstate`, end_itlist (curry mk_conj) kept);;
+let wbn_tail_backleg_goal6 r =
+  let (vars, hyps, pre0, post, frame) = wbn_dissect_band r in
+  ignore pre0;
+  let ens = list_mk_comb(`ensures arm`, [wbn_weak_q_at6 r; post; frame]) in
+  list_mk_forall(vars, mk_imp(hyps, ens));;
+
+(* r=1 VALIDATED session-045 (hyps=0, ~133s): confirms the r=1 tail reads     *)
+(* none of the 6 dropped cells (X1/X9 dead as objdump shows).  Same tactic.   *)
+let WB_TAIL_GEN2_1 = prove(wbn_tail_backleg_goal6 1,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 1 THEN WB_TAIL_1_TAC);;
+
+(* r=2..8: same back-leg from the 6-cell-drop weak precond.  NOT yet run this *)
+(* session (each ~130-315s; the r=1 validation + the shared WB_TAIL_r_TAC     *)
+(* machinery make these low-risk).  Uncomment + run next session, then commit; *)
+(* the ckpt rebuild bakes them (mirrors the WB_TAIL_GEN_r cost).              *)
+(*
+let WB_TAIL_GEN2_2 = prove(wbn_tail_backleg_goal6 2,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 2 THEN WB_TAIL_2_TAC);;
+let WB_TAIL_GEN2_3 = prove(wbn_tail_backleg_goal6 3,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 3 THEN WB_TAIL_3_TAC);;
+let WB_TAIL_GEN2_4 = prove(wbn_tail_backleg_goal6 4,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 4 THEN WB_TAIL_4_TAC);;
+let WB_TAIL_GEN2_5 = prove(wbn_tail_backleg_goal6 5,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 5 THEN WB_TAIL_5_TAC);;
+let WB_TAIL_GEN2_6 = prove(wbn_tail_backleg_goal6 6,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 6 THEN WB_TAIL_6_TAC);;
+let WB_TAIL_GEN2_7 = prove(wbn_tail_backleg_goal6 7,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 7 THEN WB_TAIL_7_TAC);;
+let WB_TAIL_GEN2_8 = prove(wbn_tail_backleg_goal6 8,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 8 THEN WB_TAIL_8_TAC);;
+*)
+
+(* ------------------------------------------------------------------------- *)
+(* WBN_PREP_TO_END_r recipe (VALIDATED for r=1 down to a full close this       *)
+(* session; the reconciliation tactic below took ext2_post ==>                *)
+(* shifted_weak_q_at6_1 to exactly its 4 trivial residuals -- 3 flags + the    *)
+(* input-read -- all now discharged by the helpers above + a per-subgoal       *)
+(* WORD_RULE.  Assembly of the ensures theorem itself is owed next session).   *)
+(*                                                                           *)
+(* shift_vals r (SPECL order = wb_front_vars minus nblk, 27 terms):           *)
+(*   [pc; stackpointer;                                                        *)
+(*    word_add out_p (word (128*((nblk-9) DIV 8+1)));  xi_p; ivec_p;           *)
+(*    word_add in_p (word (128*((nblk-9) DIV 8+1)));   key_p; htbl_p;          *)
+(*    SUB_LIST (128*((nblk-9) DIV 8+1), 16*r) ibytes;             (:byte list) *)
+(*    word_bytereverse wbn_caught_up;                             (:int128)    *)
+(*    gcm_ctr_add (word (8*((nblk-9) DIV 8+1))) ctr0;             (:int128)    *)
+(*    k0..k14; h]   -- annotate every ibytes/int128 or SPECL invents tyvars.   *)
+(*                                                                           *)
+(* WBN_PREP_TO_END_r : ensures arm wbn_prepretail_post_ext2                    *)
+(*                       (shifted band_post r) wbn_front_C_tm                   *)
+(*   under hyp  nblk = 8*((nblk-9) DIV 8 + 1) + r.  Build via:                  *)
+(*   MATCH_MP_TAC ENSURES_FRAME_SUBSUMED (narrow tail frame -> wide ext2 frame  *)
+(*     wbn_front_C_tm; SUBSUMED via SUBSUMED_ASSIGNS_BYTES on out_p sub-region  *)
+(*     bytes(out_p+128(k+1),16) subsumed bytes(out_p,16*nblk))                  *)
+(*   THEN MATCH_MP_TAC ENSURES_PRECONDITION_THM                                 *)
+(*     EXISTS_TAC (shifted weak_q_at6 r) THEN CONJ_TAC THENL                     *)
+(*     [ <the pre-implication, tactic below>;                                    *)
+(*       MP_TAC(SPECL (shift_vals r) WB_TAIL_GEN2_r) THEN ANTS (nonoverlapping/  *)
+(*         LENGTH from ext2 wide hyps; SUB_LIST_LENGTH + 16*r<=remaining) ].      *)
+(*                                                                           *)
+(* PRE-IMPLICATION tactic  (!s. ext2_post s ==> shifted_weak_q_at6_r s), r=1     *)
+(* validated to 0 residuals with the helpers:                                   *)
+(*   REPEAT GEN_TAC THEN STRIP_TAC THEN                                          *)
+(*   ASM_REWRITE_TAC[WORD_BYTEREVERSE_BYTEREVERSE] THEN                          *)
+(*   SUBGOAL_THEN `16 * nblk = 128 * ((nblk-9) DIV 8 + 1) + 16*r` ASSUME_TAC     *)
+(*     THENL [UNDISCH_TAC `nblk = 8*((nblk-9) DIV 8+1)+r` THEN ARITH_TAC; ALL] THEN *)
+(*   -- flags first, BEFORE any CONJ split, so the fact hits all of them:        *)
+(*   SUBGOAL_THEN `word_sub (word_add in_p (word (128*((nblk-9)DIV8+1)+16*r)))    *)
+(*      (word_add in_p (word (128*((nblk-9)DIV8+1)))):int64 = word (16*r)`        *)
+(*     ASSUME_TAC THENL [CONV_TAC WORD_RULE; ALL] THEN  (* r=1: word 16 *)        *)
+(*   REWRITE_TAC[GSYM GCM_CTR_ADD_1; GCM_CTR_ADD_COMPOSE] THEN                    *)
+(*   REWRITE_TAC[SUB_LIST_MIN_RIGHT; ARITH_RULE `16*8*x=128*x`;                   *)
+(*               ARITH_RULE `MIN 16 (16*r)=16` (r>=1)] THEN                       *)
+(*   (for the input-read conjunct) MP_TAC(SPECL[...] WBN_INPUT_SLICE) + ANTS THEN *)
+(*   UNDISCH `16*nblk=...` THEN DISCH_THEN(fun th->REWRITE_TAC[th]) THEN          *)
+(*   ABBREV_TAC `q=(nblk-9) DIV 8` THEN                                          *)
+(*   REWRITE_TAC[the `8*q+N=8*(q+1)+(N-8)` (N=8..15) + `((a+1)+..)=a+j` rules] THEN *)
+(*   ASM_REWRITE_TAC[] THEN                                                       *)
+(*   REPEAT CONJ_TAC THEN                                                         *)
+(*   TRY(AP_THM_TAC THEN AP_TERM_TAC THEN AP_TERM_TAC THEN AP_TERM_TAC) THEN      *)
+(*   TRY(CONV_TAC WORD_RULE).                                                     *)
+(*                                                                           *)
+(* Then WBN_PREP_TO_END = 8-way case split on r = 1+(nblk-9) MOD 8 (VALIDATED    *)
+(* r in 1..8 for nblk>=17); POST combines the shifted band_post (last r stores + *)
+(* xi_p tag) with ext2's carried output forall [conjunct 64] and folds the tag   *)
+(* caught_up ++ [last r blocks] = full-nblk GHASH via GHASH_ACC_APPEND           *)
+(* (common/polyval_ghash.ml:62) -- the one genuinely NEW algebra step.  THEN     *)
+(* chain onto WBN_FRONT_TO_PREP_EXT2 by ENSURES_TRANS_SIMPLE (EXISTS_TAC          *)
+(* wbn_prepretail_post_ext2).                                                     *)
+(* ------------------------------------------------------------------------- *)
