@@ -3677,3 +3677,106 @@ let WB_TAIL_GEN2_8 = prove(wbn_tail_backleg_goal6 8,
 (* chain onto WBN_FRONT_TO_PREP_EXT2 by ENSURES_TRANS_SIMPLE (EXISTS_TAC          *)
 (* wbn_prepretail_post_ext2).                                                     *)
 (* ------------------------------------------------------------------------- *)
+
+(* ========================================================================= *)
+(* SESSION-047 -- PHASE 6 STEP 2b: WBN_PREP_TO_END_r landed (r=1).           *)
+(*                                                                           *)
+(* The seam post `wbn_prepretail_post_ext2` (the loop/prepretail EXT2 exit    *)
+(* at pc+3796) feeds the shifted r-block tail WB_TAIL_GEN2_r by precondition- *)
+(* weakening.  WBN_PREP_TO_END_r : ensures arm wbn_prepretail_post_ext2       *)
+(* (shifted band_post r) wbn_front_C_tm, under the length hyp                 *)
+(*   nblk = 8*((nblk-9) DIV 8 + 1) + r.                                       *)
+(*                                                                           *)
+(* SOUNDNESS (session-046/047): the r-block tail's own ANTS (NONOVERLAPPING_  *)
+(* TAC over the shifted out_p/xi_p/ivec_p regions) needs 3 disjointness       *)
+(* clauses the ext2 wide hyps do NOT carry:                                   *)
+(*    nonoverlapping (out_p,16*nblk) (xi_p,16)                                *)
+(*    nonoverlapping (out_p,16*nblk) (ivec_p,16)                              *)
+(*    nonoverlapping (xi_p,16)       (ivec_p,16)                              *)
+(* These ARE genuine whole-function preconditions (the output buffer must be  *)
+(* disjoint from the Xi accumulator and the ivec; xi_p disjoint from ivec_p)  *)
+(* -- same class as the s004 in_p/out_p gap and s015 (out_p)(sp,80) gap.  In  *)
+(* the real band contract q_at r, xi_p (out_p,16*r) ivec_p at the size-16     *)
+(* (=16*nblk when nblk=1) granularity are present; at the whole-length        *)
+(* 16*nblk granularity dissect_band 1 shows only xi_p (ivec_p,16) literally,  *)
+(* so session-047 threads all 3 as SIDE-CONDITIONS on WBN_PREP_TO_END_r       *)
+(* (reviewer's alternative to widening wbn_front_hyps_wide_tm -- lighter, no  *)
+(* chain re-prove).  They flow up to the final theorem's precond and are      *)
+(* supplied by the guard/subroutine wrapper (the band contract has them).     *)
+(* ------------------------------------------------------------------------- *)
+
+(* SPECL order = wb_front_vars minus nblk, 27 terms; splices the OCaml value  *)
+(* wbn_caught_up (NOT a backtick literal -- that would introduce a free var). *)
+let shift_vals r =
+  let rt = mk_small_numeral r in
+  let slice = subst [rt, `r_:num`]
+                `SUB_LIST (128 * ((nblk - 9) DIV 8 + 1), 16 * r_) (ibytes:byte list)` in
+  let xi_shifted = mk_comb(`word_bytereverse:int128->int128`, wbn_caught_up) in
+  [ `pc:num`; `stackpointer:int64`;
+    `word_add out_p (word (128 * ((nblk - 9) DIV 8 + 1))):int64`;
+    `xi_p:int64`; `ivec_p:int64`;
+    `word_add in_p (word (128 * ((nblk - 9) DIV 8 + 1))):int64`;
+    `key_p:int64`; `htbl_p:int64`;
+    slice; xi_shifted;
+    `gcm_ctr_add (word (8 * ((nblk - 9) DIV 8 + 1))) ctr0:int128`;
+    `k0:int128`;`k1:int128`;`k2:int128`;`k3:int128`;`k4:int128`;`k5:int128`;`k6:int128`;`k7:int128`;
+    `k8:int128`;`k9:int128`;`k10:int128`;`k11:int128`;`k12:int128`;`k13:int128`;`k14:int128`;`h:int128`];;
+
+(* the 3 side-condition clauses (whole-length granularity). *)
+let wbn_prep_to_end_extra_clauses =
+  [`nonoverlapping (out_p:int64,16 * nblk) (xi_p:int64,16)`;
+   `nonoverlapping (out_p:int64,16 * nblk) (ivec_p:int64,16)`;
+   `nonoverlapping (xi_p:int64,16) (ivec_p:int64,16)`];;
+
+(* WBN_PREP_TO_END_r goal: ext2 seam post -> shifted band_post r, under the   *)
+(* length hyp + the 3 side conditions.  tail_r = the WB_TAIL_GEN2_r theorem.  *)
+let wbn_prep_to_end_goal r tail_r =
+  let tail = SPECL (shift_vals r) tail_r in
+  let _,targs = strip_comb (snd(dest_imp(concl tail))) in
+  let shifted_post = el 2 targs in
+  let nblk_eq = subst[mk_small_numeral r,`r_:num`]
+                  `nblk = 8 * ((nblk - 9) DIV 8 + 1) + r_` in
+  let hyps = end_itlist (curry mk_conj)
+    (wbn_front_hyps_wide_tm :: nblk_eq :: wbn_prep_to_end_extra_clauses) in
+  let ens = list_mk_comb(`ensures arm`,
+    [wbn_prepretail_post_ext2; shifted_post; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(hyps, ens));;
+
+(* the r=1 reconciliation tactic (session-046, validated live session-047).   *)
+let WBN_PREP_TO_END_1 = prove(wbn_prep_to_end_goal 1 WB_TAIL_GEN2_1,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC ENSURES_FRAME_SUBSUMED THEN
+  EXISTS_TAC (el 3 (snd(strip_comb (snd(dest_imp(concl(SPECL (shift_vals 1) WB_TAIL_GEN2_1))))))) THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN SUBSUMED_MAYCHANGE_TAC;
+    ALL_TAC] THEN
+  MATCH_MP_TAC ENSURES_PRECONDITION_THM THEN
+  EXISTS_TAC (el 1 (snd(strip_comb (snd(dest_imp(concl(SPECL (shift_vals 1) WB_TAIL_GEN2_1))))))) THEN
+  CONJ_TAC THENL
+   [GEN_TAC THEN REWRITE_TAC[] THEN STRIP_TAC THEN
+    ASM_REWRITE_TAC[WORD_BYTEREVERSE_BYTEREVERSE] THEN
+    ABBREV_TAC `q = (nblk - 9) DIV 8` THEN
+    SUBGOAL_THEN `16 * nblk = 128 * (q + 1) + 16` ASSUME_TAC THENL
+     [UNDISCH_TAC `nblk = 8 * (q + 1) + 1` THEN ARITH_TAC; ALL_TAC] THEN
+    REWRITE_TAC[GSYM GCM_CTR_ADD_1; GCM_CTR_ADD_COMPOSE] THEN
+    MP_TAC(SPECL [`nblk:num`;`in_p:int64`;`ibytes:byte list`;`q:num`;`x:armstate`]
+      WBN_INPUT_SLICE) THEN
+    ANTS_TAC THENL
+     [ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
+      DISCH_THEN(fun th -> REWRITE_TAC[REWRITE_RULE[ARITH_RULE `16 * 1 = 16`] th])] THEN
+    REWRITE_TAC[SUB_LIST_MIN_RIGHT; ARITH_RULE `MIN 16 (16 * 1) = 16`;
+                ARITH_RULE `16 * 8 * (q + 1) = 128 * (q + 1)`] THEN
+    ASM_REWRITE_TAC[] THEN REWRITE_TAC[ARITH_RULE `16 * 1 = 16`] THEN
+    SUBGOAL_THEN `word_sub (word_add in_p (word (128 * (q + 1) + 16)))
+                  (word_add in_p (word (128 * (q + 1)))):int64 = word 16`
+      SUBST_ALL_TAC THENL
+     [CONV_TAC WORD_RULE; ALL_TAC] THEN
+    REPEAT CONJ_TAC THEN TRY REFL_TAC THEN TRY (CONV_TAC WORD_RULE) THEN
+    REPLICATE_TAC 14 AP_THM_TAC THEN AP_TERM_TAC THEN AP_THM_TAC THEN
+    AP_TERM_TAC THEN CONV_TAC WORD_RULE;
+    MP_TAC (SPECL (shift_vals 1) WB_TAIL_GEN2_1) THEN ANTS_TAC THENL
+     [CONJ_TAC THENL
+        [REWRITE_TAC[LENGTH_SUB_LIST] THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
+         ALL_TAC] THEN
+      REPEAT CONJ_TAC THEN (FIRST_ASSUM ACCEPT_TAC ORELSE NONOVERLAPPING_TAC);
+      DISCH_THEN ACCEPT_TAC]]);;
