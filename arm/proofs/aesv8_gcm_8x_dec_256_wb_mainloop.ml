@@ -990,6 +990,61 @@ let WBN_MACHINE_REDUCE_IS_PROP3_PACK = prove
   CONV_TAC WORD_BLAST);;
 
 (* ------------------------------------------------------------------------- *)
+(* session-062 (Q19 R1' close, part 2 of 2): BLOCK-ALGEBRA reconciliation     *)
+(* facts.  These bridge the machine s289 accumulators (Q17/Q19/Q18 = the       *)
+(* separable Sigma-PL/PH/PM triple, in raw word_reversefields/word_join/       *)
+(* byteswap128-tower form) to the abstract kara_acc projection of an 8-quad    *)
+(* list, so KARA_ACC_PACK_HELPER + KARATSUBA_BLOCK_PACKS_TO_PMUL_CLEAN can      *)
+(* pack them to Sum_k word_pmul input_k h_k = BODY_Q19_CLOSE_ALGEBRA's prop3   *)
+(* argument.  All are pure free-variable WORD_BLAST/WORD_RULE identities.      *)
+(* --------------------------------------------------------------------------- *)
+
+(* fact 1: the two byte-reversal spellings coincide (machine uses reversefields *)
+(* 8, the spec/kara side uses word_bytereverse). *)
+let WRF8_IS_BYTEREVERSE = prove
+ (`!x:int128. word_reversefields 8 x = word_bytereverse x`,
+  GEN_TAC THEN CONV_TAC WORD_BLAST);;
+
+(* fact 2: karatsuba_mid is byteswap-invariant (it XORs the two 64-halves, and *)
+(* byteswap128 swaps them).  Lets the htable mid cell `karatsuba_mid h` satisfy *)
+(* KARATSUBA_BLOCK_PACKS_TO_PMUL_CLEAN's `subword hk (0,64) = karatsuba_mid     *)
+(* (byteswap128 h)` precondition. *)
+let KMID_BYTESWAP_INV = prove
+ (`!h:int128. karatsuba_mid h = karatsuba_mid (byteswap128 h)`,
+  GEN_TAC THEN REWRITE_TAC[karatsuba_mid; byteswap128] THEN CONV_TAC WORD_BLAST);;
+
+(* fact 3 (block-0 SOFAR lane-collapse): block 0's operand enters via a rot64'd *)
+(* word_join of the running accumulator SOFAR with the first ciphertext block.  *)
+(* The reduce takes the (64,64) / (0,64) sub-lane of the XOR of the two joins,  *)
+(* which collapses to the plain (0,64) / (64,64) sub-lane of `word_xor S X`.    *)
+let LANE_COLLAPSE = prove
+ (`(!S X:int128. word_subword (word_xor (word_subword (word_join S S:256 word) (64,128):128 word)
+                            (word_subword (word_join X X:256 word) (64,128):128 word)) (64,64):64 word
+    = word_subword (word_xor S X) (0,64):64 word) /\
+   (!S X:int128. word_subword (word_xor (word_subword (word_join S S:256 word) (64,128):128 word)
+                            (word_subword (word_join X X:256 word) (64,128):128 word)) (0,64):64 word
+    = word_subword (word_xor S X) (64,64):64 word)`,
+  CONJ_TAC THEN REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
+
+(* fact 4 (pmull2/pmull PAIR mid-input lanes): the machine computes the PM mid  *)
+(* products two blocks at a time (a pmull2 then pmull over the packed lanes of  *)
+(* blocks A and B).  The (64,64)/(0,64) sub-lane of the XOR of the hi-join and  *)
+(* lo-join recovers each single block's (lo XOR hi) mid-input. *)
+let PM_LANE_HI = prove
+ (`!A B:int128.
+    word_subword (word_xor (word_join (word_subword (A:int128) (64,64):64 word) (word_subword (B:int128) (64,64):64 word):128 word)
+                           (word_join (word_subword A (0,64):64 word) (word_subword B (0,64):64 word):128 word)) (64,64):64 word
+    = word_xor (word_subword A (64,64):64 word) (word_subword A (0,64):64 word)`,
+  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
+
+let PM_LANE_LO = prove
+ (`!A B:int128.
+    word_subword (word_xor (word_join (word_subword (A:int128) (64,64):64 word) (word_subword (B:int128) (64,64):64 word):128 word)
+                           (word_join (word_subword A (0,64):64 word) (word_subword B (0,64):64 word):128 word)) (0,64):64 word
+    = word_xor (word_subword B (64,64):64 word) (word_subword B (0,64):64 word)`,
+  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
+
+(* ------------------------------------------------------------------------- *)
 (* 6. Route-(b) tool: strengthen an ensures postcondition with a frame-       *)
 (*    PRESERVED fact, with NO re-simulation.  Pure ensures/eventually logic.  *)
 (*                                                                            *)
