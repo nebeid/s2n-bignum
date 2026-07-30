@@ -1044,6 +1044,64 @@ let PM_LANE_LO = prove
     = word_xor (word_subword B (64,64):64 word) (word_subword B (0,64):64 word)`,
   REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
 
+(* session-063: swapped-RHS variants of PM_LANE_HI/LO — same pmull2/pmull PAIR *)
+(* form, but the extracted mid-input is spelled in the (0,64)^(64,64) lane      *)
+(* order that karatsuba_block_pm produces (word_pmul's first arg is atomic to   *)
+(* WORD_RULE, so the lane XOR must match SYNTACTICALLY, not just up to comm).   *)
+let PM_LANE_HI' = prove
+ (`!A B:int128.
+    word_subword (word_xor (word_join (word_subword (A:int128) (64,64):64 word) (word_subword (B:int128) (64,64):64 word):128 word)
+                           (word_join (word_subword A (0,64):64 word) (word_subword B (0,64):64 word):128 word)) (64,64):64 word
+    = word_xor (word_subword A (0,64):64 word) (word_subword A (64,64):64 word)`,
+  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
+
+let PM_LANE_LO' = prove
+ (`!A B:int128.
+    word_subword (word_xor (word_join (word_subword (A:int128) (64,64):64 word) (word_subword (B:int128) (64,64):64 word):128 word)
+                           (word_join (word_subword A (0,64):64 word) (word_subword B (0,64):64 word):128 word)) (0,64):64 word
+    = word_xor (word_subword B (0,64):64 word) (word_subword B (64,64):64 word)`,
+  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
+
+(* session-063 (block-0/block-1 SOFAR-pair PM mid-inputs): the FIRST pmull2/    *)
+(* pmull PAIR folds in the running accumulator SOFAR, so block 0's operand      *)
+(* enters as a rot64'd word_join of SOFAR with the first ciphertext block       *)
+(* (not the plain packed pair the later blocks use).  These two lane lemmas     *)
+(* recover the block-0 (outer (64,64), over word_xor SOFAR cph0) and block-1    *)
+(* (outer (0,64), over cph1) mid-inputs, in karatsuba_block_pm's (0,64)^(64,64) *)
+(* lane order.  Pure WORD_BLAST over free ss (=SOFAR), xx0 (=rev cph0), xx1     *)
+(* (=rev cph1).  Together with PM_LANE'_HI/LO (the plain pairs {2,3}{4,5}{6,7}) *)
+(* they reduce all 8 machine PM mid-inputs to kara form so PROJ_EQ PM closes.   *)
+let LANE_COLLAPSE_PM_A = prove
+ (`!ss xx0 xx1:int128.
+    word_subword
+     (word_xor
+      (word_join
+       (word_subword (word_xor (word_subword (word_join (ss:int128) ss:256 word) (64,128):128 word)
+                               (word_subword (word_join (xx0:int128) xx0:256 word) (64,128):128 word)) (0,64):64 word)
+       (word_subword xx1 (64,64):64 word):128 word)
+      (word_join
+       (word_subword (word_xor (word_subword (word_join (ss:int128) ss:256 word) (64,128):128 word)
+                               (word_subword (word_join (xx0:int128) xx0:256 word) (64,128):128 word)) (64,64):64 word)
+       (word_subword xx1 (0,64):64 word):128 word)) (64,64):64 word
+    = word_xor (word_subword (word_xor ss xx0) (0,64):64 word)
+               (word_subword (word_xor ss xx0) (64,64):64 word)`,
+  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
+
+let LANE_COLLAPSE_PM_B = prove
+ (`!ss xx0 xx1:int128.
+    word_subword
+     (word_xor
+      (word_join
+       (word_subword (word_xor (word_subword (word_join (ss:int128) ss:256 word) (64,128):128 word)
+                               (word_subword (word_join (xx0:int128) xx0:256 word) (64,128):128 word)) (0,64):64 word)
+       (word_subword xx1 (64,64):64 word):128 word)
+      (word_join
+       (word_subword (word_xor (word_subword (word_join (ss:int128) ss:256 word) (64,128):128 word)
+                               (word_subword (word_join (xx0:int128) xx0:256 word) (64,128):128 word)) (64,64):64 word)
+       (word_subword xx1 (0,64):64 word):128 word)) (0,64):64 word
+    = word_xor (word_subword xx1 (0,64):64 word) (word_subword xx1 (64,64):64 word)`,
+  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
+
 (* ------------------------------------------------------------------------- *)
 (* 6. Route-(b) tool: strengthen an ensures postcondition with a frame-       *)
 (*    PRESERVED fact, with NO re-simulation.  Pure ensures/eventually logic.  *)
