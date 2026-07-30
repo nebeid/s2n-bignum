@@ -945,21 +945,21 @@ let WBN_MACHINE_REDUCE_IS_PROP3_PACK = prove
         (word_join
          (word_xor
           (word_xor (word_xor (word_xor PM PL) PH)
-          (word_pmul (word_subword PL (0,64)) (word 13979173243358019584)))
-         (word_subword (word_join PL PL) (64,128)))
+          (word_pmul (word_subword PL (0,64) :64 word) (word 13979173243358019584 :64 word)))
+         (word_subword (word_join PL PL :256 word) (64,128)))
         (word_xor
          (word_xor (word_xor (word_xor PM PL) PH)
-         (word_pmul (word_subword PL (0,64)) (word 13979173243358019584)))
-        (word_subword (word_join PL PL) (64,128))))
+         (word_pmul (word_subword PL (0,64) :64 word) (word 13979173243358019584 :64 word)))
+        (word_subword (word_join PL PL :256 word) (64,128))) :256 word)
        (64,128)))
       (word_pmul
        (word_subword
         (word_xor
          (word_xor (word_xor (word_xor PM PL) PH)
-         (word_pmul (word_subword PL (0,64)) (word 13979173243358019584)))
-        (word_subword (word_join PL PL) (64,128)))
-       (0,64))
-      (word 13979173243358019584)) =
+         (word_pmul (word_subword PL (0,64) :64 word) (word 13979173243358019584 :64 word)))
+        (word_subword (word_join PL PL :256 word) (64,128)))
+       (0,64) :64 word)
+      (word 13979173243358019584 :64 word)) =
      polyval_reduce_prop3 (pack_corrected PL PH PM)`,
   REPEAT GEN_TAC THEN
   REWRITE_TAC[pack_corrected; polyval_reduce_prop3; LET_DEF; LET_END_DEF] THEN
