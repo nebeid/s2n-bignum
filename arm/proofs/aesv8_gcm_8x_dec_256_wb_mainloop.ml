@@ -1102,6 +1102,114 @@ let LANE_COLLAPSE_PM_B = prove
     = word_xor (word_subword xx1 (0,64):64 word) (word_subword xx1 (64,64):64 word)`,
   REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
 
+(* --------------------------------------------------------------------------- *)
+(* session-064 (Q19 R1' WIRE-IN): compose the value-equality + close the CHEAT. *)
+(*                                                                             *)
+(* build_q19_reduce_clean pl_t ph_t pm_t : given the three s289 accumulator     *)
+(* terms (= read Q17/Q19/Q18 s289, over h/xi/ibytes/i), produces the CLEAN      *)
+(* theorem  |- <machine reduce byteform> = ghash_polyval_acc (byteswap128 h)    *)
+(*   (word_bytereverse xi) (MAP word_bytereverse (list_of_seq blk (8*(i+1))))   *)
+(* hyps=0 — the invariant's Q19-at-(i+1) fold.  It chains:                      *)
+(*   reduce_id  : byteform = polyval_reduce_prop3 (pack_corrected PL PH PM)     *)
+(*                                        [WBN_MACHINE_REDUCE_IS_PROP3_PACK]     *)
+(*   KARA_PACK_EQ (kqok): pack_corrected PL PH PM = SPEC_TOWERS                  *)
+(*   body_ready2 : ghash..(8(i+1)) = polyval_reduce_prop3 SPEC_TOWERS           *)
+(*                                        [BODY_Q19_CLOSE_ALGEBRA + involution]  *)
+(* The 8 kqok side-conditions (subword hk_j (0,64) = karatsuba_mid ..) are      *)
+(* discharged by choosing hk_j := word_join (word 0)(karatsuba_mid ..) so kqok  *)
+(* holds unconditionally (SUBWORD_JOIN0 + KMID_BYTESWAP_INV) — a hyps-free      *)
+(* lemma.  PROJ_PM is kept CONDITIONAL on kqok (hk free) then INST'd+MP'd — the *)
+(* bake-hk-upfront variant fails PROJ_PM (subword(join 0 kmid) not plain kmid). *)
+let SUBWORD_JOIN0 = prove
+ (`!X:64 word. word_subword (word_join (word 0:64 word) X :128 word) (0,64):64 word = X`,
+  GEN_TAC THEN CONV_TAC WORD_BLAST);;
+
+let build_q19_reduce_clean pl_t ph_t pm_t =
+  let bsh = `byteswap128 h` in
+  let rec tower n = if n <= 1 then bsh else mk_comb(mk_comb(`polyval_dot`, tower(n-1)), bsh) in
+  let inst_list = map (fun n -> (mk_comb(`byteswap128`, tower n), mk_var("h"^string_of_int n, `:int128`))) (2--8) in
+  let body_inst2 = INST inst_list BODY_Q19_CLOSE_ALGEBRA in
+  let body_ready2 = REWRITE_RULE[BYTESWAP128_INVOLUTION]
+       (MP body_inst2 (prove(fst(dest_imp(concl body_inst2)), REWRITE_TAC[BYTESWAP128_INVOLUTION]))) in
+  let spec_towers = rand(rhs(concl body_ready2)) in
+  let rec strip_xor t = match t with Comb(Comb(Const("word_xor",_),a),b) -> strip_xor a @ strip_xor b | _ -> [t] in
+  let spec_leaves = strip_xor spec_towers in
+  let spec_input j = rand(rator (List.nth spec_leaves j)) in
+  let mk_quadT j = let inp = spec_input j in let tw = tower(8-j) in
+    mk_pair(inp, mk_pair(mk_comb(`byteswap128`, tw), mk_pair(mk_var("hk"^string_of_int j, `:int128`), tw))) in
+  let quadsT = mk_list(map mk_quadT (0--7), `:int128#int128#int128#int128`) in
+  let kqok_hyp j = mk_eq(mk_comb(mk_comb(`word_subword:int128->num#num->64 word`, mk_var("hk"^string_of_int j,`:int128`)), `(0,64)`),
+                  mk_comb(`karatsuba_mid`, mk_comb(`byteswap128`, tower (8-j)))) in
+  let kqok_hyps = map kqok_hyp (0--7) in
+  let projtac = REWRITE_TAC[project_triples; kara_acc; karatsuba_block_pl; karatsuba_block_ph; karatsuba_block_pm] THEN
+      CONV_TAC(DEPTH_CONV GEN_BETA_CONV) THEN REWRITE_TAC[FST; SND] in
+  let mk_proj sel concrete = mk_eq(mk_comb(sel, subst [quadsT, `QUADS:(int128#int128#int128#int128)list`]
+              `kara_acc (project_triples QUADS) (word 0:int128) (word 0:int128) (word 0:int128)`), concrete) in
+  let PROJ_PL = BETA_RULE(prove(mk_proj `FST:int128#int128#int128->int128` pl_t,
+     projtac THEN REWRITE_TAC[WRF8_IS_BYTEREVERSE; LANE_COLLAPSE; BYTESWAP128_INVOLUTION] THEN CONV_TAC WORD_RULE)) in
+  let PROJ_PH = BETA_RULE(prove(mk_proj `\t:int128#int128#int128. FST(SND t)` ph_t,
+     projtac THEN REWRITE_TAC[WRF8_IS_BYTEREVERSE; LANE_COLLAPSE; BYTESWAP128_INVOLUTION] THEN CONV_TAC WORD_RULE)) in
+  let PROJ_PM = BETA_RULE(prove(mk_imp(list_mk_conj kqok_hyps, mk_proj `\t:int128#int128#int128. SND(SND t)` pm_t),
+     STRIP_TAC THEN projtac THEN ASM_REWRITE_TAC[] THEN
+     REWRITE_TAC[WRF8_IS_BYTEREVERSE; LANE_COLLAPSE_PM_A; LANE_COLLAPSE_PM_B; PM_LANE_HI'; PM_LANE_LO'; BYTESWAP128_INVOLUTION] THEN CONV_TAC WORD_RULE)) in
+  let kp = rand(lhs(concl PROJ_PL)) in
+  let KARA_QUAD_OK_T = prove(mk_imp(list_mk_conj kqok_hyps, mk_comb(`kara_quad_ok`, quadsT)),
+    STRIP_TAC THEN REWRITE_TAC[kara_quad_ok] THEN REPEAT CONJ_TAC THEN ASM_REWRITE_TAC[] THEN
+    CONV_TAC SYM_CONV THEN MATCH_ACCEPT_TAC KMID_BYTESWAP_INV) in
+  let TESTQT = prove(mk_eq(subst [quadsT, `QUADS:(int128#int128#int128#int128)list`] `kara_quad_pmul QUADS (word 0:256 word)`, spec_towers),
+    REWRITE_TAC[kara_quad_pmul; WORD_XOR_0_LEFT] THEN CONV_TAC WORD_RULE) in
+  let helper = MP (SPECL [quadsT; `word 0:256 word`] KARA_ACC_PACK_HELPER)
+                  (MP KARA_QUAD_OK_T (end_itlist CONJ (map ASSUME kqok_hyps))) in
+  let KARA_PACK_EQ = prove(mk_imp(list_mk_conj kqok_hyps,
+        mk_eq(list_mk_comb(`pack_corrected`, [pl_t; ph_t; pm_t]), spec_towers)),
+    STRIP_TAC THEN
+    (let pm_thm = MP PROJ_PM (end_itlist CONJ (map ASSUME kqok_hyps)) in
+     let sndkp = mk_comb(`SND:int128#int128#int128->int128#int128`, kp) in
+     let sndkp_eq = TRANS (GSYM(ISPEC sndkp PAIR)) (MK_COMB(AP_TERM `(,):int128->int128->int128#int128` PROJ_PH, pm_thm)) in
+     let kp_triple = TRANS (GSYM(ISPEC kp PAIR)) (MK_COMB(AP_TERM `(,):int128->int128#int128->int128#int128#int128` PROJ_PL, sndkp_eq)) in
+     REWRITE_TAC[GSYM TESTQT] THEN MP_TAC helper THEN
+     REWRITE_TAC[LET_DEF; LET_END_DEF] THEN SUBST1_TAC kp_triple THEN
+     CONV_TAC(DEPTH_CONV GEN_BETA_CONV) THEN REWRITE_TAC[WORD_XOR_0_LEFT] THEN
+     DISCH_THEN(SUBST1_TAC o SYM) THEN REFL_TAC)) in
+  let reduce_id = SPECL [pl_t;ph_t;pm_t] WBN_MACHINE_REDUCE_IS_PROP3_PACK in
+  let q19_final = TRANS (TRANS reduce_id (AP_TERM `polyval_reduce_prop3` (UNDISCH_ALL KARA_PACK_EQ))) (SYM body_ready2) in
+  let q19_disch = itlist DISCH (hyp q19_final) q19_final in
+  let hk_inst = map (fun j ->
+     let kmid = mk_comb(`karatsuba_mid`, mk_comb(`byteswap128`, tower (8-j))) in
+     (mk_comb(mk_comb(`word_join:64 word->64 word->128 word`, `word 0:64 word`), kmid),
+      mk_var("hk"^string_of_int j, `:int128`))) (0--7) in
+  let inst_thm = INST hk_inst q19_disch in
+  MP inst_thm (prove(fst(dest_imp(concl inst_thm)),
+     REWRITE_TAC[] THEN REPEAT CONJ_TAC THEN CONV_TAC WORD_BLAST));;
+
+(* Wire-in tactics.  The extract stashes pl/ph/pm@s289 into refs (before the      *)
+(* ABBREV that makes the reduce window small); the close (run at the Q19 postcond  *)
+(* conjunct) rebuilds the CLEAN thm from those refs and ACCEPTs it after mapping   *)
+(* its concrete byteform LHS back to the goal's PL/PH/PM-abbreviated form + the    *)
+(* 8*(i+1)=8*i+8 index normalization the postcond prep applied. *)
+let wbn_q19_pl = ref `T` and wbn_q19_ph = ref `T` and wbn_q19_pm = ref `T`;;
+let WBN_Q19_EXTRACT_ABBREV_TAC (sN:string) : tactic =
+  fun (asl,w) ->
+    let st = mk_var(sN,`:armstate`) in
+    let get_rhs q =
+      let c = find (fun c -> match c with
+        | Comb(Comb(Const("=",_),Comb(Comb(Const("read",_),qc),s)),_) when qc=q && s=st -> true
+        | _ -> false) (map (concl o snd) asl) in
+      rand c in
+    wbn_q19_pl := get_rhs `Q17`;
+    wbn_q19_ph := get_rhs `Q19`;
+    wbn_q19_pm := get_rhs `Q18`;
+    (ABBREV_TAC (mk_eq(`PL:int128`, !wbn_q19_pl)) THEN
+     ABBREV_TAC (mk_eq(`PH:int128`, !wbn_q19_ph)) THEN
+     ABBREV_TAC (mk_eq(`PM:int128`, !wbn_q19_pm))) (asl,w);;
+let WBN_Q19_CLOSE_TAC : tactic =
+  fun (asl,w) ->
+    let clean = build_q19_reduce_clean (!wbn_q19_pl) (!wbn_q19_ph) (!wbn_q19_pm) in
+    let defthms = filter (fun th -> match concl th with
+      | Comb(Comb(Const("=",_),_),Var(("PL"|"PH"|"PM"),_)) -> true | _ -> false) (map snd asl) in
+    let clean' = REWRITE_RULE (ARITH_RULE `8 * (i + 1) = 8 * i + 8` :: defthms) clean in
+    ACCEPT_TAC clean' (asl,w);;
+
 (* ------------------------------------------------------------------------- *)
 (* 6. Route-(b) tool: strengthen an ensures postcondition with a frame-       *)
 (*    PRESERVED fact, with NO re-simulation.  Pure ensures/eventually logic.  *)
@@ -2210,10 +2318,13 @@ let WBN_MAIN_LOOP = prove(wbn_main_loop_goal,
     REV32_FOLD_TAC "Q23" "s288" `word (8*i+18):32 word` THEN
     ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (289--289) THEN
     CTR_INCR_NORM_TAC "s289" 18 THEN
-    (* --- Q19 is CHEATed below, so drop the whole GHASH cluster Q16-Q19 BEFORE  *)
-    (*     the reduce window: the concrete [sp+64]-modulus pmull that overflowed *)
-    (*     GCM_SIMD_SIMPLIFY (s014) is then gone; reduce steps NOSIMP + fast. --- *)
-    DISCARD_QREGS_TAC ["Q16";"Q17";"Q18";"Q19"] THEN
+    (* --- session-064 Q19 R1' WIRE-IN: instead of DISCARDing the GHASH cluster,   *)
+    (*     ABBREV the three s289 accumulators (Q17/Q19/Q18 = PL/PH/PM) opaque so    *)
+    (*     the reduce byteform stays small (629ch), then KEEP Q16-Q19 through the   *)
+    (*     reduce (KEEPDATA_NOSIMP keeps Q0-Q19 incl keystream AND the abbreviated  *)
+    (*     Q19).  read Q19 s326 lands = WBN_MACHINE_REDUCE_IS_PROP3_PACK's LHS[PL,   *)
+    (*     PH,PM]; the postcond Q19 conjunct then closes via WBN_Q19_CLOSE_TAC.     *)
+    WBN_Q19_EXTRACT_ABBREV_TAC "s289" THEN
     ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (290--305) THEN
     (* ldp@306 loads Q12,Q13 ; ldp@309 loads Q14,Q15 *)
     RESOLVE_LDP2_TAC AESV8_GCM_8X_DEC_256_WB_EXEC "Q12" "Q13" 4 5 "s305" "s306" THEN
@@ -2265,9 +2376,11 @@ let WBN_MAIN_LOOP = prove(wbn_main_loop_goal,
     REPEAT CONJ_TAC THENL
      [ (* [0-2] plaintext Q5,Q6,Q7 *)
        PLAINTEXT_CLOSE_TAC; PLAINTEXT_CLOSE_TAC; PLAINTEXT_CLOSE_TAC;
-       (* [3] Q19 GHASH acc — scoped, disclosed CHEAT (route DECIDED: tail
-          FOLD_MID_HPOW + WA_UNIFY port, separate follow-up session). *)
-       CHEAT_TAC;
+       (* [3] Q19 GHASH acc — session-064 R1' close (was CHEAT): the goal is
+          <machine reduce byteform over PL/PH/PM> = ghash..(8*i+8), closed by the
+          CLEAN value-equality WBN_Q19_CLOSE_TAC builds from the stashed s289
+          accumulators (WBN_MACHINE_REDUCE_IS_PROP3_PACK + block-algebra). *)
+       WBN_Q19_CLOSE_TAC;
        (* [4-5] X0/X2 pointer advances *)
        CONV_TAC WORD_RULE; CONV_TAC WORD_RULE;
        (* [6] store-forall: old (j<8*(i+1)) from the invariant's own store-forall
