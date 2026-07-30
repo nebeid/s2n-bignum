@@ -917,6 +917,78 @@ let BODY_Q19_CLOSE_ALGEBRA = prove
   REWRITE_TAC[ARITH_RULE `16 * 8 * i = 16 * (8*i+0)`] THEN
   MATCH_MP_TAC SPEC_TO_BYTEFORM_WB8_ACC THEN ASM_REWRITE_TAC[]);;
 
+(* --------------------------------------------------------------------------- *)
+(* session-061 (Q19 R1' close, part 1 of 2): THE REDUCE-DATAFLOW value-equality *)
+(* the reviewer flagged as the "real proof work".  The body's GHASH reduce      *)
+(* window (asm 0x924..0x9b4) reads three separable 128-bit accumulators at s289 *)
+(*   PL = Q17 = Sum_k karatsuba_block_pl,  PH = Q19 = Sum_k karatsuba_block_ph,  *)
+(*   PM = Q18 = Sum_k karatsuba_block_pm,  Barrett modulus raw in Q16,          *)
+(* then runs the shared Barrett W-reduction, landing read Q19 s326 in EXACTLY   *)
+(* the byteform LHS below (over OPAQUE PL/PH/PM — the sim keeps them abbreviated *)
+(* so the reduce window stays small).  This lemma says that byteform is         *)
+(* polyval_reduce_prop3 (pack_corrected PL PH PM) — the pre-byte-reversal prop3  *)
+(* on the Karatsuba-corrected packed value.  It is the machine analogue of      *)
+(* common/ghash_nblock_karatsuba.ml's KARATSUBA_REDUCE_AS_PROP3 (same reduce,    *)
+(* proven the same way: KARATSUBA_LIMB_* to reduce the pack lanes, then two      *)
+(* pmul abbreviations (wa/wv) so the residual is a pure opaque-atom bit identity *)
+(* closed by WORD_BLAST).  Reconciles s056 (the s326 OUTPUT is byteform, NOT a   *)
+(* karatsuba_reduce_shared instance) with R1' (the krs INPUT triple lives at     *)
+(* s289): here the OUTPUT = prop3 ∘ pack_corrected of the INPUT triple, no outer *)
+(* word_reversefields — exactly matching BODY_Q19_CLOSE_ALGEBRA's prop3 RHS.     *)
+(* NOTE: the 4 KARATSUBA_LIMB_* must be listed individually — the bundled CONJ   *)
+(* KARATSUBA_LIMBS does NOT rewrite via REWRITE_TAC (nested-CONJ matcher).       *)
+let WBN_MACHINE_REDUCE_IS_PROP3_PACK = prove
+ (`!PL PH PM:int128.
+     word_xor
+      (word_xor PH
+       (word_subword
+        (word_join
+         (word_xor
+          (word_xor (word_xor (word_xor PM PL) PH)
+          (word_pmul (word_subword PL (0,64)) (word 13979173243358019584)))
+         (word_subword (word_join PL PL) (64,128)))
+        (word_xor
+         (word_xor (word_xor (word_xor PM PL) PH)
+         (word_pmul (word_subword PL (0,64)) (word 13979173243358019584)))
+        (word_subword (word_join PL PL) (64,128))))
+       (64,128)))
+      (word_pmul
+       (word_subword
+        (word_xor
+         (word_xor (word_xor (word_xor PM PL) PH)
+         (word_pmul (word_subword PL (0,64)) (word 13979173243358019584)))
+        (word_subword (word_join PL PL) (64,128)))
+       (0,64))
+      (word 13979173243358019584)) =
+     polyval_reduce_prop3 (pack_corrected PL PH PM)`,
+  REPEAT GEN_TAC THEN
+  REWRITE_TAC[pack_corrected; polyval_reduce_prop3; LET_DEF; LET_END_DEF] THEN
+  CONV_TAC(DEPTH_CONV BETA_CONV) THEN
+  SUBGOAL_THEN
+   `word_subword (word_join (PL:int128) (PL:int128) :256 word) (64,128) :128 word =
+    word_join (word_subword PL (0,64):64 word) (word_subword PL (64,64):64 word)`
+   SUBST1_TAC THENL [CONV_TAC WORD_BLAST; ALL_TAC] THEN
+  REWRITE_TAC[KARATSUBA_LIMB_0_63; KARATSUBA_LIMB_64_127;
+              KARATSUBA_LIMB_128_191; KARATSUBA_LIMB_192_255] THEN
+  ABBREV_TAC `wa:int128 = word_pmul (word_subword (PL:int128) (0,64):64 word)
+                                    (word 13979173243358019584:64 word)` THEN
+  SUBGOAL_THEN
+   `word_subword
+      (word_xor (word_xor (word_xor (word_xor PM PL) PH) (wa:int128))
+                (word_join (word_subword (PL:int128) (0,64):64 word)
+                           (word_subword PL (64,64):64 word)))
+      (0,64) :64 word =
+    word_xor (word_xor (word_subword (PL:int128) (64,64):64 word)
+                       (word_subword (word_xor (word_xor PL PH) PM) (0,64):64 word))
+             (word_subword (wa:int128) (0,64):64 word)`
+   SUBST1_TAC THENL [CONV_TAC WORD_BLAST; ALL_TAC] THEN
+  ABBREV_TAC `wv:int128 = word_pmul
+     (word_xor (word_xor (word_subword (PL:int128) (64,64):64 word)
+                         (word_subword (word_xor (word_xor PL PH) PM) (0,64):64 word))
+               (word_subword (wa:int128) (0,64):64 word))
+     (word 13979173243358019584:64 word)` THEN
+  CONV_TAC WORD_BLAST);;
+
 (* ------------------------------------------------------------------------- *)
 (* 6. Route-(b) tool: strengthen an ensures postcondition with a frame-       *)
 (*    PRESERVED fact, with NO re-simulation.  Pure ensures/eventually logic.  *)
