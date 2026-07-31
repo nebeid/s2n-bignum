@@ -3331,6 +3331,17 @@ let WBN_Q9_INDEX_LT = prove
   MP_TAC(SPECL[`nblk - 9`;`8`] DIVISION) THEN ANTS_TAC THENL [ARITH_TAC; ALL_TAC] THEN
   ABBREV_TAC `k = (nblk - 9) DIV 8` THEN ASM_ARITH_TAC);;
 
+(* index bound for the first-tail-block lane, 9<= variant (8*k+8 < nblk, k=0 here).
+   Proves the SAME conclusion as WBN_Q9_INDEX_LT from the weaker 9<=nblk band.
+   (session-069) hoisted here from its original spot down in the 9..16 section so
+   the unified prepretail sim WBN_PREPRETAIL_EXT2_UNIFIED can consume it; also still
+   used by the FRONT-916 / PREP_TO_END_916 chain below. *)
+let WBN_Q9_INDEX_LT_9 = prove
+ (`!nblk. 9 <= nblk /\ 128 * nblk < 2 EXP 62 ==> 8 * ((nblk - 9) DIV 8) + 8 < nblk`,
+  GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(SPECL[`nblk - 9`;`8`] DIVISION) THEN ANTS_TAC THENL [ARITH_TAC; ALL_TAC] THEN
+  ABBREV_TAC `k = (nblk - 9) DIV 8` THEN ASM_ARITH_TAC);;
+
 (* NOTE (session-068 dead-code removal): the bare-post prepretail theorem
    WBN_PREPRETAIL (and its goal wbn_prepretail_goal) was fully superseded by the
    output-forall + Q9 augmented WBN_PREPRETAIL_EXT2 below (a full standalone
@@ -3535,8 +3546,42 @@ let WBN_PREPRETAIL_EXT2_TAC idx_lt_thm =
   TRY MONOTONE_MAYCHANGE_TAC THEN
   TRY (ASM_REWRITE_TAC[]);;
 
+(* SPEED (session-069): the prepretail EXT2 sim (~137s) was run TWICE per cold
+   load -- here (17<=nblk) and again at WBN_PREPRETAIL_EXT2_916 (9..16) -- with
+   IDENTICAL pre/post/sim, differing ONLY in the index lemma fed to the WBN_Q9_SPEC
+   ANTS (WBN_Q9_INDEX_LT vs _9).  But WBN_Q9_INDEX_LT_9 proves that side condition
+   (8*((nblk-9)DIV8)+8 < nblk) from the WEAKER 9<=nblk band, so a single sim on the
+   unified 9<=nblk band is sound and covers both; each band theorem then follows by
+   pure hyp-strengthening (MATCH_MP + ASM_ARITH, <0.1s, hyps=0).  This deletes one
+   full ~137s sim from every cold load.  The unified band term is built with the
+   file's own recursive-replace idiom (17<=nblk -> 9<=nblk), matching how
+   wbn_front_hyps_916_tm is built. *)
+let wbn_front_hyps_9_tm =
+  let rec repl t = match t with
+    | Comb(Comb(Const("/\\",_),a),b) -> mk_conj(repl a, repl b)
+    | _ -> if t = `17 <= nblk` then `9 <= nblk` else t in
+  repl wbn_front_hyps_wide_tm;;
+
+let wbn_prepretail_ext2_uni_goal =
+  let kk = `(nblk - 9) DIV 8` in
+  let pre = mk_abs(`s:armstate`,
+    list_mk_conj[
+      `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
+      `read PC s = word (pc + 0x9f0)`;
+      mk_comb(mk_comb(wbn_core_applied,kk),`s:armstate`)]) in
+  let ens = list_mk_comb(`ensures arm`,[pre; wbn_prepretail_post_ext2; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_9_tm, ens));;
+
+(* The one and only prepretail EXT2 sim, on the unified 9<=nblk band. *)
+let WBN_PREPRETAIL_EXT2_UNIFIED =
+  prove(wbn_prepretail_ext2_uni_goal, WBN_PREPRETAIL_EXT2_TAC WBN_Q9_INDEX_LT_9);;
+
+(* 17<=nblk band: statement-identical to the pre-069 WBN_PREPRETAIL_EXT2 (aconv
+   verified); now a no-sim hyp-strengthening of the unified theorem. *)
 let WBN_PREPRETAIL_EXT2 =
-  prove(wbn_prepretail_ext2_goal, WBN_PREPRETAIL_EXT2_TAC WBN_Q9_INDEX_LT);;
+  prove(wbn_prepretail_ext2_goal,
+    REPEAT GEN_TAC THEN STRIP_TAC THEN MATCH_MP_TAC WBN_PREPRETAIL_EXT2_UNIFIED THEN
+    ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC);;
 
 (* WBN_LOOP_PREP_EXT2 / WBN_FRONT_TO_PREP_EXT2: the EXT2-post analogues,          *)
 (* chaining through WBN_PREPRETAIL_EXT2.  Same ENSURES_TRANS_SIMPLE /             *)
@@ -4374,12 +4419,9 @@ let DIV8_916 = prove
   MP_TAC(SPECL[`nblk - 1`;`8`] DIVISION) THEN ANTS_TAC THENL [ARITH_TAC; ALL_TAC] THEN
   ASM_ARITH_TAC);;
 
-(* index bound for the first-tail-block lane, 9<= variant (8*k+8 < nblk, k=0 here). *)
-let WBN_Q9_INDEX_LT_9 = prove
- (`!nblk. 9 <= nblk /\ 128 * nblk < 2 EXP 62 ==> 8 * ((nblk - 9) DIV 8) + 8 < nblk`,
-  GEN_TAC THEN STRIP_TAC THEN
-  MP_TAC(SPECL[`nblk - 9`;`8`] DIVISION) THEN ANTS_TAC THENL [ARITH_TAC; ALL_TAC] THEN
-  ABBREV_TAC `k = (nblk - 9) DIV 8` THEN ASM_ARITH_TAC);;
+(* index bound for the first-tail-block lane, 9<= variant (8*k+8 < nblk, k=0 here).
+   NOTE (session-069): hoisted up next to WBN_Q9_INDEX_LT (~line 3332) because the
+   unified prepretail sim WBN_PREPRETAIL_EXT2_UNIFIED now consumes it. *)
 
 (* 0x42c b.ge (loop-entry test, X0=in_p<X5): FALLS THROUGH for 9..16 too. *)
 let WB_LOOPENTER_FLAGS_916 = prove
@@ -4545,8 +4587,11 @@ let WBN_FRONT_TO_PREP_916 = prove(wbn_front_to_prep_916_goal,
     REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
     REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC]);;
 
-(* PREPRETAIL-916: identical to WBN_PREPRETAIL_EXT2 but with the 9..16 band and
-   WBN_Q9_INDEX_LT_9 (the only 17<=nblk step).  Same scoped Q16/Q19 CHEAT. *)
+(* PREPRETAIL-916: same statement as before (9..16 band), now derived (no sim)
+   from WBN_PREPRETAIL_EXT2_UNIFIED by hyp-strengthening -- see the session-069
+   SPEED note at WBN_PREPRETAIL_EXT2_UNIFIED.  Statement-identical to the pre-069
+   full-sim version (aconv verified); the shared sim ran on the 9<=nblk band that
+   already subsumes 9..16, so this is a pure MATCH_MP + ASM_ARITH close. *)
 let wbn_prepretail_ext2_916_goal =
   let kk = `(nblk - 9) DIV 8` in
   let pre = mk_abs(`s:armstate`,
@@ -4558,7 +4603,9 @@ let wbn_prepretail_ext2_916_goal =
   list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_916_tm, ens));;
 
 let WBN_PREPRETAIL_EXT2_916 =
-  prove(wbn_prepretail_ext2_916_goal, WBN_PREPRETAIL_EXT2_TAC WBN_Q9_INDEX_LT_9);;
+  prove(wbn_prepretail_ext2_916_goal,
+    REPEAT GEN_TAC THEN STRIP_TAC THEN MATCH_MP_TAC WBN_PREPRETAIL_EXT2_UNIFIED THEN
+    ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC);;
 
 (* FRONT-916 ; PREPRETAIL-916 composed to the ext2 seam (pc+0x20 -> pc+3796).       *)
 (* The PRECONDITION bridge collapses (nblk-9)DIV8 to 0 (q=0 for 9..16), matching     *)
