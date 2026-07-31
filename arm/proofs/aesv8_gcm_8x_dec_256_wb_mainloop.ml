@@ -5939,7 +5939,60 @@ let WBN_END_OUTPUT_BYTE_LIST = prove
 (* overflow).  CHEAT-FREE (the former Q19/[11] RINNER=LINNER identity was closed  *)
 (* by the R1' route in sessions 064-065); no new_axiom anywhere.                  *)
 
-let AESV8_GCM_8X_DEC_256_WB_CORRECT =
+(* The statement is spelled out literally (XTS / John-Harrison style) so the
+   reader sees the full pre/post/frame contract first.  It is the DISPATCH
+   ensures-body verbatim, with the `nblk<=8` bound replaced by `1<=nblk` plus the
+   two size bounds the Phase-8 wrapper/guard supplies (128*nblk<2 EXP 62 and
+   val in_p+16*nblk<2 EXP 63 -- for nblk<=8 they follow from small nblk; for
+   symbolic large nblk they rule out pointer/length overflow).  The load-time
+   soundness gate re-derives this statement from the frozen _DISPATCH by term
+   surgery and asserts aconv-equality, so any drift of this literal fails the
+   load (see the `let () = ...` gate at end of file). *)
+
+let AESV8_GCM_8X_DEC_256_WB_CORRECT = prove
+ (`!pc stackpointer in_p out_p xi_p ivec_p key_p htbl_p nblk ibytes rk H
+    tag0 ctr0.
+    1 <= nblk /\
+    128 * nblk < 2 EXP 62 /\
+    val in_p + 16 * nblk < 2 EXP 63 /\
+    LENGTH ibytes = 16 * nblk /\
+    LENGTH rk = 15 /\
+    aligned 16 stackpointer /\
+    ALLPAIRS nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16]
+    [word pc,4560; in_p,16 * nblk; key_p,240; htbl_p,192; stackpointer,80] /\
+    PAIRWISE nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16] /\
+    ALL (nonoverlapping (stackpointer,80))
+    [word pc,4560; in_p,16 * nblk; key_p,240; htbl_p,192]
+    ==> ensures arm
+         (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
+              read PC s = word (pc + 32) /\
+              read SP s = stackpointer /\
+              C_ARGUMENTS
+              [in_p; word (128 * nblk); out_p; xi_p; ivec_p; key_p; htbl_p]
+              s /\
+              byte_list_at ibytes in_p (word (16 * nblk)) s /\
+              read (memory :> bytes128 xi_p) s = word_reversefields 8 tag0 /\
+              read (memory :> bytes128 ivec_p) s = ctr0 /\
+              wordlist_from_memory (key_p,15) s = rk /\
+              htable_mem_8 (ghash_twist H) htbl_p s)
+         (\s. read PC s = word (pc + 4528) /\
+              byte_list_at (gcm_dec_pt_bytes (16 * nblk) ibytes ctr0 rk) out_p
+              (word (16 * nblk)) s /\
+              read (memory :> bytes128 xi_p) s =
+              word_reversefields 8
+              (nist_ghash H tag0
+              (list_of_seq (nist_input_block ibytes) nblk)))
+         (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+          MAYCHANGE
+          [memory :> bytes (out_p,16 * nblk); memory :> bytes (xi_p,16);
+           memory :> bytes (ivec_p,16);
+           memory :> bytes (word_add stackpointer (word 64),16)] ,,
+          MAYCHANGE
+          [Q0; Q1; Q2; Q3; Q4; Q5; Q6; Q7; Q8; Q9; Q10; Q11; Q12; Q13; Q14;
+           Q15; Q16; Q17; Q18; Q19; Q20; Q21; Q22; Q23; Q24; Q25; Q26; Q27;
+           Q28; Q29; Q30; Q31])`,
+  (* The proof reconciles the raw per-block chain vocab with the NIST DISPATCH
+     vocab; these helper lets are local to the proof (JH idiom). *)
   (* identification substitution: raw chain vars -> DISPATCH NIST vars *)
   let idsub =
     [`word_reversefields 8 (tag0:int128)`,`xi:int128`;
@@ -5985,63 +6038,12 @@ let AESV8_GCM_8X_DEC_256_WB_CORRECT =
         REWRITE_TAC[ALLPAIRS; PAIRWISE; ALL; MAP; NONOVERLAPPING_CLAUSES] THEN
         REPEAT CONJ_TAC THEN TRY(FIRST_ASSUM ACCEPT_TAC) THEN TRY(ASM_ARITH_TAC) THEN
         ASM_MESON_TAC[NONOVERLAPPING_MODULO_SYM; nonoverlapping]]] in
-  (* The unified goal, spelled out literally (XTS / John-Harrison style) so the
-     reader sees the full pre/post/frame contract at the source.  It is the
-     DISPATCH ensures-body verbatim, with the `nblk<=8` bound replaced by
-     `1<=nblk` plus the two size bounds the Phase-8 wrapper/guard supplies
-     (128*nblk<2 EXP 62 and val in_p+16*nblk<2 EXP 63 -- for nblk<=8 they follow
-     from small nblk; for symbolic large nblk they rule out pointer/length
-     overflow).  The load-time soundness gate re-derives this statement from the
-     frozen _DISPATCH by term surgery and asserts aconv-equality, so any drift of
-     this literal fails the load (see the `let () = ...` gate at end of file). *)
-  let correct_goal = `!pc stackpointer in_p out_p xi_p ivec_p key_p htbl_p nblk
-        ibytes rk H tag0 ctr0.
-      1 <= nblk /\
-      128 * nblk < 2 EXP 62 /\
-      val in_p + 16 * nblk < 2 EXP 63 /\
-      LENGTH ibytes = 16 * nblk /\
-      LENGTH rk = 15 /\
-      aligned 16 stackpointer /\
-      ALLPAIRS nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16]
-      [word pc,4560; in_p,16 * nblk; key_p,240; htbl_p,192; stackpointer,80] /\
-      PAIRWISE nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16] /\
-      ALL (nonoverlapping (stackpointer,80))
-      [word pc,4560; in_p,16 * nblk; key_p,240; htbl_p,192]
-      ==> ensures arm
-          (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
-               read PC s = word (pc + 32) /\
-               read SP s = stackpointer /\
-               C_ARGUMENTS
-               [in_p; word (128 * nblk); out_p; xi_p; ivec_p; key_p; htbl_p]
-               s /\
-               byte_list_at ibytes in_p (word (16 * nblk)) s /\
-               read (memory :> bytes128 xi_p) s = word_reversefields 8 tag0 /\
-               read (memory :> bytes128 ivec_p) s = ctr0 /\
-               wordlist_from_memory (key_p,15) s = rk /\
-               htable_mem_8 (ghash_twist H) htbl_p s)
-          (\s. read PC s = word (pc + 4528) /\
-               byte_list_at (gcm_dec_pt_bytes (16 * nblk) ibytes ctr0 rk) out_p
-               (word (16 * nblk)) s /\
-               read (memory :> bytes128 xi_p) s =
-               word_reversefields 8
-               (nist_ghash H tag0
-               (list_of_seq (nist_input_block ibytes) nblk)))
-          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-           MAYCHANGE
-           [memory :> bytes (out_p,16 * nblk); memory :> bytes (xi_p,16);
-            memory :> bytes (ivec_p,16);
-            memory :> bytes (word_add stackpointer (word 64),16)] ,,
-           MAYCHANGE
-           [Q0; Q1; Q2; Q3; Q4; Q5; Q6; Q7; Q8; Q9; Q10; Q11; Q12; Q13; Q14;
-            Q15; Q16; Q17; Q18; Q19; Q20; Q21; Q22; Q23; Q24; Q25; Q26; Q27;
-            Q28; Q29; Q30; Q31])` in
-  prove(correct_goal,
-    REPEAT GEN_TAC THEN STRIP_TAC THEN
-    ASM_CASES_TAC `nblk <= 8` THENL
-     [ASM_MESON_TAC[AESV8_GCM_8X_DEC_256_WB_DISPATCH]; ALL_TAC] THEN
-    ASM_CASES_TAC `nblk <= 16` THENL
-     [WBN_CHAIN_TO_NIST_TAC WBN_FRONT_TO_END_916;
-      WBN_CHAIN_TO_NIST_TAC WBN_FRONT_TO_END]);;
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  ASM_CASES_TAC `nblk <= 8` THENL
+   [ASM_MESON_TAC[AESV8_GCM_8X_DEC_256_WB_DISPATCH]; ALL_TAC] THEN
+  ASM_CASES_TAC `nblk <= 16` THENL
+   [WBN_CHAIN_TO_NIST_TAC WBN_FRONT_TO_END_916;
+    WBN_CHAIN_TO_NIST_TAC WBN_FRONT_TO_END]);;
 
 (* ------------------------------------------------------------------------- *)
 (* PHASE 8 (session-067): AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT.          *)
