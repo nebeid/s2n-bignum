@@ -3363,19 +3363,6 @@ let wbn_prepretail_post =
       close behind the scoped disclosed CHEAT below (= the [11] RINNER=LINNER identity at
       :2085; the prepretail's own final in-flight GHASH fold is the SAME identity). *)
 
-let wbn_prepretail_goal =
-  let kk = `(nblk - 9) DIV 8` in
-  let pre = mk_abs(`s:armstate`,
-    list_mk_conj[
-      `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
-      `read PC s = word (pc + 0x9f0)`;
-      mk_comb(mk_comb(wbn_core_applied,kk),`s:armstate`)]) in
-  let ens = list_mk_comb(`ensures arm`,[pre; wbn_prepretail_post; wbn_front_C_tm]) in
-  (* SESSION-036: quantify over wb_front_vars ONLY (xi' dropped -- the caught-up tag is now a
-     function of the pinned inputs, not a fresh var).  wbn_prepretail_post is closed over
-     wb_front_vars, so the goal is closed. *)
-  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
-
 (* index bound for the first tail block lane (8*k+8 < nblk when nblk>=17). *)
 let WBN_Q9_INDEX_LT = prove
  (`!nblk. 17 <= nblk /\ 128 * nblk < 2 EXP 62 ==> 8 * ((nblk - 9) DIV 8) + 8 < nblk`,
@@ -3383,137 +3370,26 @@ let WBN_Q9_INDEX_LT = prove
   MP_TAC(SPECL[`nblk - 9`;`8`] DIVISION) THEN ANTS_TAC THENL [ARITH_TAC; ALL_TAC] THEN
   ABBREV_TAC `k = (nblk - 9) DIV 8` THEN ASM_ARITH_TAC);;
 
-(* The prepretail proof.  Sim recipe VALIDATED end-to-end session-033/035 (~2min, no hang):
-   init at the loop invariant (i:=k), counter folds 1..14, KEEPDATA bulk 15..240,
-   DISCARD Q16-Q19 before the [sp+64] modulus reduce (Q19 CHEATed -> dodges the s014
-   concrete-modulus hang), NOSIMP reduce+tail-setup 241..313 -> read PC s313 = pc+3796.
-   wb_front_fold_tac folds the 8 aese/aesmc keystream towers to aes13(...).
-   Close: ENSURES_FINAL_STATE_TAC + ASM_REWRITE for the 62 preserved/shifted conjuncts;
-   the 2 GHASH conjuncts (Q16,Q19, on xi') behind the scoped disclosed CHEAT. *)
-let WBN_PREPRETAIL = prove
- (wbn_prepretail_goal,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN REWRITE_TAC[wbn_loop_inv_core] THEN
-  CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN ENSURES_INIT_TAC "s0" THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_dec]) THEN
-  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV let_CONV)) THEN
-  FIRST_X_ASSUM(fun th ->
-    let c = concl th in
-    if can (find_term (fun t->match t with Const("byteswap128",_)->true|_->false)) c &&
-       can (find_term (fun t->match t with Const("karatsuba_mid",_)->true|_->false)) c
-    then STRIP_ASSUME_TAC th else NO_TAC) THEN
-  ABBREV_TAC `k = (nblk - 9) DIV 8` THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (1--1) THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (2--2) THEN GCM_SIMD_SIMPLIFY_TAC THEN
-  REV32_FOLD_TAC "Q5" "s2" `word (8*k+13):32 word` THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (3--3) THEN GCM_SIMD_SIMPLIFY_TAC THEN
-  CTR_INCR_NORM_TAC "s3" 13 THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (4--7) THEN GCM_SIMD_SIMPLIFY_TAC THEN
-  REV32_FOLD_TAC "Q6" "s7" `word (8*k+14):32 word` THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (8--9) THEN GCM_SIMD_SIMPLIFY_TAC THEN
-  CTR_INCR_NORM_TAC "s9" 14 THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (10--14) THEN GCM_SIMD_SIMPLIFY_TAC THEN
-  REV32_FOLD_TAC "Q7" "s14" `word (8*k+15):32 word` THEN
-  ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (15--120) THEN
-  ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (121--211) THEN
-  ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (212--240) THEN
-  (* session-065 Q19 R1' WIRE-IN (was DISCARD_QREGS): step to s242 (the state
-     where PL/PH/PM = Q17/Q19/Q18 are all COMPLETE -- PM's final eor3 @0xdb4 is
-     instr 242; the s240 the discard used had PM incomplete), ABBREV them opaque,
-     then run the reduce KEEPING Q16-Q19 (byteform stays small over PL/PH/PM). *)
-  ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (241--242) THEN
-  WBN_Q19_EXTRACT_ABBREV_TAC "s242" THEN
-  ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (243--306) THEN
-  ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (307--313) THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[GSYM aes13]) THEN
-  RULE_ASSUM_TAC(REWRITE_RULE(map GSYM wb_ctr_lanes_thms)) THEN
-  ENSURES_FINAL_STATE_TAC THEN
-  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
-  REPEAT CONJ_TAC THEN
-  (* Q16/Q19 caught-up GHASH = the [11] RINNER=LINNER identity: scoped disclosed CHEAT (same
-     as :2085; closes when the human's Q19 route lands).  The sim DISCARDS Q16-Q19 before the
-     [sp+64] reduce, so these two conjuncts have no supporting assumption -- they are the ONLY
-     goals mentioning `ghash_polyval_acc` (verified s036: it occurs nowhere else in the post),
-     so keying the guard on it fires on exactly Q16 and Q19.  Everything else is a verbatim
-     harvested assumption (ASM_REWRITE) or the MAYCHANGE frame (MONOTONE). *)
-  TRY(W(fun (asl,w) ->
-        if can (find_term (fun t -> is_const t && fst(dest_const t) = "ghash_polyval_acc")) w
-        then WBN_Q19_PREPRETAIL_CLOSE_TAC `k:num` else NO_TAC)) THEN
-  TRY MONOTONE_MAYCHANGE_TAC THEN
-  TRY (ASM_REWRITE_TAC[]));;
+(* NOTE (session-068 dead-code removal): the bare-post prepretail theorem
+   WBN_PREPRETAIL (and its goal wbn_prepretail_goal) was fully superseded by the
+   output-forall + Q9 augmented WBN_PREPRETAIL_EXT2 below (a full standalone
+   re-sim, ~131s) and was never consumed by any live chain; it has been deleted
+   (each cold load ran that ~131s prepretail sim three times -- bare / _EXT /
+   _EXT2 -- only the last is used).  The base post term `wbn_prepretail_post` is
+   retained: WBN_PREPRETAIL_EXT2's post is built from it (via
+   wbn_prepretail_post_ext). *)
 
 (* ------------------------------------------------------------------------- *)
 (* Section 12. PHASE 6 -- recompose the nblk>8 chain.                         *)
 (* ------------------------------------------------------------------------- *)
 
-(* WBN_LOOP_PREP: LOOP ; PREPRETAIL, i.e. pc+0x4a0 (loop head, core 0) ->      *)
-(* pc+3796 (tail entry, wbn_prepretail_post), over the shared front frame.     *)
-(* Both legs share the SAME quantifier prefix (wb_front_vars), hyps            *)
-(* (wbn_front_hyps_wide_tm) and frame (wbn_front_C_tm); WBN_MAIN_LOOP.post is  *)
-(* aconv WBN_PREPRETAIL.pre (both = decodes /\ PC=pc+0x9f0 /\ wbn_core_applied  *)
-(* k), so the two chain by ENSURES_TRANS_SIMPLE with no re-sim and no new       *)
-(* CHEAT (the scoped Q19 CHEAT is sealed inside WBN_PREPRETAIL).  The           *)
-(* C ,, C = C obligation is the same 4-region-frame idempotence UP2_ABI_TAC    *)
-(* discharges (ABI expand THEN MAYCHANGE_IDEMPOT_TAC).  Validated hyps=0        *)
-(* (session-037).                                                              *)
-let wbn_loop_prep_goal =
-  let loop_pre = mk_abs(`s:armstate`,
-    list_mk_conj[
-      `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
-      `read PC s = word (pc + 0x4a0)`;
-      mk_comb(mk_comb(wbn_core_applied,`0`),`s:armstate`)]) in
-  let ens = list_mk_comb(`ensures arm`,[loop_pre; wbn_prepretail_post; wbn_front_C_tm]) in
-  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
-
-let WBN_LOOP_PREP = prove(wbn_loop_prep_goal,
-  REPEAT GEN_TAC THEN DISCH_TAC THEN
-  MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
-  EXISTS_TAC (rand(rator(snd(dest_imp(snd(strip_forall(concl WBN_MAIN_LOOP))))))) THEN
-  CONJ_TAC THENL
-   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_IDEMPOT_TAC;
-    ALL_TAC] THEN
-  CONJ_TAC THENL
-   [MP_TAC(SPECL wb_front_vars WBN_MAIN_LOOP) THEN
-    ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC];
-    MP_TAC(SPECL wb_front_vars WBN_PREPRETAIL) THEN
-    ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC]]);;
-
-(* WBN_FRONT_TO_PREP: FRONT ; (LOOP ; PREPRETAIL), i.e. the full nblk>8 straight *)
-(* chain from function entry (pc+0x20) through the loop and prepretail to the    *)
-(* tail entry (pc+3796).  Chains WBN_LOOP_INVARIANT_ENTRY (pc+0x20 -> pc+0x4a0,  *)
-(* establishes wbn_loop_invariant...0) with WBN_LOOP_PREP by ENSURES_TRANS_      *)
-(* SIMPLE at the intermediate wbn_entry_post.  The entry post carries the FULL   *)
-(* wbn_loop_invariant...0 (PC+decode baked in) whereas WBN_LOOP_PREP's pre uses  *)
-(* the PC-free wbn_loop_inv_core...0; ENSURES_PRECONDITION_THM bridges them via  *)
-(* WBN_INV_SPLIT (the C1/C2 decode+PC conjuncts are duplicated, collapsed by     *)
-(* TAUT after the pc+0x4a0 = pc+1184 numeral rewrite).  Validated hyps=0          *)
-(* (session-037).  No new CHEAT (scoped Q19/Q16 stays sealed in WBN_PREPRETAIL). *)
-let wbn_front_to_prep_goal =
-  let ens = list_mk_comb(`ensures arm`,
-    [wbn_front_P_tm; wbn_prepretail_post; wbn_front_C_tm]) in
-  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
-
-let WBN_FRONT_TO_PREP = prove(wbn_front_to_prep_goal,
-  REPEAT GEN_TAC THEN DISCH_TAC THEN
-  MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
-  EXISTS_TAC wbn_entry_post THEN
-  CONJ_TAC THENL
-   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_IDEMPOT_TAC;
-    ALL_TAC] THEN
-  CONJ_TAC THENL
-   [MP_TAC(SPECL wb_front_vars WBN_LOOP_INVARIANT_ENTRY) THEN
-    ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC];
-    MATCH_MP_TAC ENSURES_PRECONDITION_THM THEN
-    (* ENSURES_PRECONDITION_THM needs the PRE (loop_pre = PC-free core at 0)   *)
-    (* of WBN_LOOP_PREP, not its post; peel rator TWICE (s039 cold-load fix:    *)
-    (* the committed single-rator picked the post, making the implication leg   *)
-    (* entry_post ==> prepretail_post which is not a TAUT).                      *)
-    EXISTS_TAC (rand(rator(rator(snd(dest_imp(snd(strip_forall(concl WBN_LOOP_PREP)))))))) THEN
-    CONJ_TAC THENL
-     [GEN_TAC THEN REWRITE_TAC[WBN_INV_SPLIT] THEN
-      CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN
-      REWRITE_TAC[ARITH_RULE `pc + 0x4a0 = pc + 1184`] THEN CONV_TAC TAUT;
-      MP_TAC(SPECL wb_front_vars WBN_LOOP_PREP) THEN
-      ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC]]]);;
+(* NOTE (session-068 dead-code removal): the bare-post recompose theorems
+   WBN_LOOP_PREP (LOOP;PREPRETAIL) and WBN_FRONT_TO_PREP (FRONT;LOOP;PREPRETAIL),
+   plus their goals wbn_loop_prep_goal / wbn_front_to_prep_goal, were superseded
+   by the EXT2 recompose (WBN_LOOP_PREP_EXT2 / WBN_FRONT_TO_PREP_EXT2 below, which
+   _CORRECT actually uses) and were never consumed; deleted.  The ENSURES_TRANS_
+   SIMPLE + ENSURES_PRECONDITION_THM route they documented survives verbatim in
+   the EXT2 versions. *)
 
 (* ------------------------------------------------------------------------- *)
 (* SESSION-040 -- the OUTPUT-STORE-FORALL augmentation of the prepretail post. *)
@@ -3550,114 +3426,14 @@ let wbn_prepretail_post_ext =
     mk_conj(snd(dest_abs wbn_prepretail_post),
             snd(dest_abs wbn_out_forall)));;
 
-(* WBN_PREPRETAIL_EXT: identical sim to WBN_PREPRETAIL (validated session-040,  *)
-(* ~131s) but with the output-store forall appended to the post -- it survives  *)
-(* the KEEPDATA sim to s313 and closes by the same ASM_REWRITE tail.  The two   *)
-(* Q16/Q19 GHASH conjuncts stay behind the same scoped disclosed CHEAT (the     *)
-(* [11] RINNER=LINNER identity).  hyps=0.                                       *)
-let wbn_prepretail_ext_goal =
-  let kk = `(nblk - 9) DIV 8` in
-  let pre = mk_abs(`s:armstate`,
-    list_mk_conj[
-      `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
-      `read PC s = word (pc + 0x9f0)`;
-      mk_comb(mk_comb(wbn_core_applied,kk),`s:armstate`)]) in
-  let ens = list_mk_comb(`ensures arm`,[pre; wbn_prepretail_post_ext; wbn_front_C_tm]) in
-  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
-
-let WBN_PREPRETAIL_EXT = prove(wbn_prepretail_ext_goal,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN REWRITE_TAC[wbn_loop_inv_core] THEN
-  CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN ENSURES_INIT_TAC "s0" THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_dec]) THEN
-  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV let_CONV)) THEN
-  FIRST_X_ASSUM(fun th ->
-    let c = concl th in
-    if can (find_term (fun t->match t with Const("byteswap128",_)->true|_->false)) c &&
-       can (find_term (fun t->match t with Const("karatsuba_mid",_)->true|_->false)) c
-    then STRIP_ASSUME_TAC th else NO_TAC) THEN
-  ABBREV_TAC `k = (nblk - 9) DIV 8` THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (1--1) THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (2--2) THEN GCM_SIMD_SIMPLIFY_TAC THEN
-  REV32_FOLD_TAC "Q5" "s2" `word (8*k+13):32 word` THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (3--3) THEN GCM_SIMD_SIMPLIFY_TAC THEN
-  CTR_INCR_NORM_TAC "s3" 13 THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (4--7) THEN GCM_SIMD_SIMPLIFY_TAC THEN
-  REV32_FOLD_TAC "Q6" "s7" `word (8*k+14):32 word` THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (8--9) THEN GCM_SIMD_SIMPLIFY_TAC THEN
-  CTR_INCR_NORM_TAC "s9" 14 THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (10--14) THEN GCM_SIMD_SIMPLIFY_TAC THEN
-  REV32_FOLD_TAC "Q7" "s14" `word (8*k+15):32 word` THEN
-  ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (15--120) THEN
-  ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (121--211) THEN
-  ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (212--240) THEN
-  (* session-065 Q19 R1' WIRE-IN (was DISCARD_QREGS): step to s242 (the state
-     where PL/PH/PM = Q17/Q19/Q18 are all COMPLETE -- PM's final eor3 @0xdb4 is
-     instr 242; the s240 the discard used had PM incomplete), ABBREV them opaque,
-     then run the reduce KEEPING Q16-Q19 (byteform stays small over PL/PH/PM). *)
-  ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (241--242) THEN
-  WBN_Q19_EXTRACT_ABBREV_TAC "s242" THEN
-  ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (243--306) THEN
-  ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (307--313) THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[GSYM aes13]) THEN
-  RULE_ASSUM_TAC(REWRITE_RULE(map GSYM wb_ctr_lanes_thms)) THEN
-  ENSURES_FINAL_STATE_TAC THEN
-  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
-  REPEAT CONJ_TAC THEN
-  TRY(W(fun (asl,w) ->
-        if can (find_term (fun t -> is_const t && fst(dest_const t) = "ghash_polyval_acc")) w
-        then WBN_Q19_PREPRETAIL_CLOSE_TAC `k:num` else NO_TAC)) THEN
-  TRY MONOTONE_MAYCHANGE_TAC THEN
-  TRY (ASM_REWRITE_TAC[]));;
-
-(* WBN_LOOP_PREP_EXT / WBN_FRONT_TO_PREP_EXT: the EXT-post analogues of          *)
-(* WBN_LOOP_PREP / WBN_FRONT_TO_PREP, chaining through WBN_PREPRETAIL_EXT.       *)
-(* Same ENSURES_TRANS_SIMPLE / ENSURES_PRECONDITION_THM route (incl. the s039   *)
-(* two-rator peel).  Both hyps=0 (validated session-040).                       *)
-let wbn_loop_prep_ext_goal =
-  let loop_pre = mk_abs(`s:armstate`,
-    list_mk_conj[
-      `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
-      `read PC s = word (pc + 0x4a0)`;
-      mk_comb(mk_comb(wbn_core_applied,`0`),`s:armstate`)]) in
-  let ens = list_mk_comb(`ensures arm`,[loop_pre; wbn_prepretail_post_ext; wbn_front_C_tm]) in
-  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
-
-let WBN_LOOP_PREP_EXT = prove(wbn_loop_prep_ext_goal,
-  REPEAT GEN_TAC THEN DISCH_TAC THEN
-  MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
-  EXISTS_TAC (rand(rator(snd(dest_imp(snd(strip_forall(concl WBN_MAIN_LOOP))))))) THEN
-  CONJ_TAC THENL
-   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_IDEMPOT_TAC;
-    ALL_TAC] THEN
-  CONJ_TAC THENL
-   [MP_TAC(SPECL wb_front_vars WBN_MAIN_LOOP) THEN
-    ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC];
-    MP_TAC(SPECL wb_front_vars WBN_PREPRETAIL_EXT) THEN
-    ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC]]);;
-
-let wbn_front_to_prep_ext_goal =
-  let ens = list_mk_comb(`ensures arm`,
-    [wbn_front_P_tm; wbn_prepretail_post_ext; wbn_front_C_tm]) in
-  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
-
-let WBN_FRONT_TO_PREP_EXT = prove(wbn_front_to_prep_ext_goal,
-  REPEAT GEN_TAC THEN DISCH_TAC THEN
-  MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
-  EXISTS_TAC wbn_entry_post THEN
-  CONJ_TAC THENL
-   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_IDEMPOT_TAC;
-    ALL_TAC] THEN
-  CONJ_TAC THENL
-   [MP_TAC(SPECL wb_front_vars WBN_LOOP_INVARIANT_ENTRY) THEN
-    ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC];
-    MATCH_MP_TAC ENSURES_PRECONDITION_THM THEN
-    EXISTS_TAC (rand(rator(rator(snd(dest_imp(snd(strip_forall(concl WBN_LOOP_PREP_EXT)))))))) THEN
-    CONJ_TAC THENL
-     [GEN_TAC THEN REWRITE_TAC[WBN_INV_SPLIT] THEN
-      CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN
-      REWRITE_TAC[ARITH_RULE `pc + 0x4a0 = pc + 1184`] THEN CONV_TAC TAUT;
-      MP_TAC(SPECL wb_front_vars WBN_LOOP_PREP_EXT) THEN
-      ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC]]]);;
+(* NOTE (session-068 dead-code removal): the EXT-post prepretail theorem
+   WBN_PREPRETAIL_EXT (another full ~131s re-sim) and its EXT recompose
+   WBN_LOOP_PREP_EXT / WBN_FRONT_TO_PREP_EXT (with goals wbn_prepretail_ext_goal /
+   wbn_loop_prep_ext_goal / wbn_front_to_prep_ext_goal) were an intermediate step
+   between the bare post and the EXT2 post; the EXT2 versions below carry a
+   strictly larger post and are what _CORRECT uses, so the EXT theorems were never
+   consumed and have been deleted.  The post term wbn_prepretail_post_ext (above)
+   is KEPT -- WBN_PREPRETAIL_EXT2's post is wbn_prepretail_post_ext /\ <Q9>. *)
 
 (* ------------------------------------------------------------------------- *)
 (* SESSION-040 -- WBN_Q9_SPEC: the first-tail-block resolver for the seam.     *)
