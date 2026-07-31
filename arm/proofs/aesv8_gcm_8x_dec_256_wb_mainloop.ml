@@ -5344,15 +5344,56 @@ let AESV8_GCM_8X_DEC_256_WB_CORRECT =
         REWRITE_TAC[ALLPAIRS; PAIRWISE; ALL; MAP; NONOVERLAPPING_CLAUSES] THEN
         REPEAT CONJ_TAC THEN TRY(FIRST_ASSUM ACCEPT_TAC) THEN TRY(ASM_ARITH_TAC) THEN
         ASM_MESON_TAC[NONOVERLAPPING_MODULO_SYM; nonoverlapping]]] in
-  (* the unified goal: DISPATCH statement, `nblk<=8` dropped, size bounds added *)
-  let correct_goal =
-    let dvars, dbody = strip_forall (concl AESV8_GCM_8X_DEC_256_WB_DISPATCH) in
-    let dhyps, dens = dest_imp dbody in
-    let hyps0 = filter (fun c -> c <> `nblk <= 8`) (conjuncts dhyps) in
-    let hyps' = `1 <= nblk` :: `128 * nblk < 2 EXP 62` ::
-                `val (in_p:int64) + 16 * nblk < 2 EXP 63` ::
-                (filter (fun c -> c <> `1 <= nblk`) hyps0) in
-    list_mk_forall(dvars, mk_imp(list_mk_conj hyps', dens)) in
+  (* The unified goal, spelled out literally (XTS / John-Harrison style) so the
+     reader sees the full pre/post/frame contract at the source.  It is the
+     DISPATCH ensures-body verbatim, with the `nblk<=8` bound replaced by
+     `1<=nblk` plus the two size bounds the Phase-8 wrapper/guard supplies
+     (128*nblk<2 EXP 62 and val in_p+16*nblk<2 EXP 63 -- for nblk<=8 they follow
+     from small nblk; for symbolic large nblk they rule out pointer/length
+     overflow).  The load-time soundness gate re-derives this statement from the
+     frozen _DISPATCH by term surgery and asserts aconv-equality, so any drift of
+     this literal fails the load (see the `let () = ...` gate at end of file). *)
+  let correct_goal = `!pc stackpointer in_p out_p xi_p ivec_p key_p htbl_p nblk
+        ibytes rk H tag0 ctr0.
+      1 <= nblk /\
+      128 * nblk < 2 EXP 62 /\
+      val in_p + 16 * nblk < 2 EXP 63 /\
+      LENGTH ibytes = 16 * nblk /\
+      LENGTH rk = 15 /\
+      aligned 16 stackpointer /\
+      ALLPAIRS nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16]
+      [word pc,4560; in_p,16 * nblk; key_p,240; htbl_p,192; stackpointer,80] /\
+      PAIRWISE nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16] /\
+      ALL (nonoverlapping (stackpointer,80))
+      [word pc,4560; in_p,16 * nblk; key_p,240; htbl_p,192]
+      ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
+               read PC s = word (pc + 32) /\
+               read SP s = stackpointer /\
+               C_ARGUMENTS
+               [in_p; word (128 * nblk); out_p; xi_p; ivec_p; key_p; htbl_p]
+               s /\
+               byte_list_at ibytes in_p (word (16 * nblk)) s /\
+               read (memory :> bytes128 xi_p) s = word_reversefields 8 tag0 /\
+               read (memory :> bytes128 ivec_p) s = ctr0 /\
+               wordlist_from_memory (key_p,15) s = rk /\
+               htable_mem_8 (ghash_twist H) htbl_p s)
+          (\s. read PC s = word (pc + 4528) /\
+               byte_list_at (gcm_dec_pt_bytes (16 * nblk) ibytes ctr0 rk) out_p
+               (word (16 * nblk)) s /\
+               read (memory :> bytes128 xi_p) s =
+               word_reversefields 8
+               (nist_ghash H tag0
+               (list_of_seq (nist_input_block ibytes) nblk)))
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE
+           [memory :> bytes (out_p,16 * nblk); memory :> bytes (xi_p,16);
+            memory :> bytes (ivec_p,16);
+            memory :> bytes (word_add stackpointer (word 64),16)] ,,
+           MAYCHANGE
+           [Q0; Q1; Q2; Q3; Q4; Q5; Q6; Q7; Q8; Q9; Q10; Q11; Q12; Q13; Q14;
+            Q15; Q16; Q17; Q18; Q19; Q20; Q21; Q22; Q23; Q24; Q25; Q26; Q27;
+            Q28; Q29; Q30; Q31])` in
   prove(correct_goal,
     REPEAT GEN_TAC THEN STRIP_TAC THEN
     ASM_CASES_TAC `nblk <= 8` THENL
@@ -5524,9 +5565,26 @@ let () =
   let whole_fn = [AESV8_GCM_8X_DEC_256_WB_CORRECT;
                   AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT;
                   AESV8_GCM_8X_DEC_256_WB_GUARD] in
-  if exists (fun th -> hyp th <> []) whole_fn then
+  (* Drift gate for the readable literal _CORRECT: re-derive the statement we
+     expect from the FROZEN _DISPATCH by term surgery (nblk<=8 -> 1<=nblk + the
+     two size bounds; ensures-body verbatim) and assert alpha-equivalence.  The
+     literal in the source above is proved directly; this check catches any
+     future edit that silently drifts it from the DISPATCH contract.
+     (_SUBROUTINE_CORRECT is already a source-literal with no analogous frozen
+     surgery-anchor; it is covered by the hyps=0 / axioms=3 checks below.) *)
+  let correct_anchor =
+    let dvars, dbody = strip_forall (concl AESV8_GCM_8X_DEC_256_WB_DISPATCH) in
+    let dhyps, dens = dest_imp dbody in
+    let hyps0 = filter (fun c -> c <> `nblk <= 8`) (conjuncts dhyps) in
+    let hyps' = `1 <= nblk` :: `128 * nblk < 2 EXP 62` ::
+                `val (in_p:int64) + 16 * nblk < 2 EXP 63` ::
+                (filter (fun c -> c <> `1 <= nblk`) hyps0) in
+    list_mk_forall(dvars, mk_imp(list_mk_conj hyps', dens)) in
+  if not (aconv (concl AESV8_GCM_8X_DEC_256_WB_CORRECT) correct_anchor) then
+    failwith "WB dec _CORRECT: literal drifted from the DISPATCH contract (aconv)"
+  else if exists (fun th -> hyp th <> []) whole_fn then
     failwith "WB dec whole-function theorems: unexpected hypotheses"
   else if List.length (axioms()) <> 3 then
     failwith "WB dec whole-function: unexpected axiom count (new_axiom introduced?)"
   else Format.print_string
-    "WB dec whole-function: CORRECT + SUBROUTINE_CORRECT + GUARD hyps=0, axioms=3\n";;
+    "WB dec whole-function: CORRECT (aconv DISPATCH) + SUBROUTINE_CORRECT + GUARD hyps=0, axioms=3\n";;
