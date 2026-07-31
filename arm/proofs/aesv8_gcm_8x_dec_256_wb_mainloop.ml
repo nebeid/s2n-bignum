@@ -6073,41 +6073,7 @@ let AESV8_GCM_8X_DEC_256_WB_CORRECT = prove
 (* Inherits _CORRECT's soundness: CHEAT-free, no new_axiom.                     *)
 (* ------------------------------------------------------------------------- *)
 
-let AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT =
-  let EXEC = AESV8_GCM_8X_DEC_256_WB_EXEC in
-  (* the core, SP set to the post-prologue in-frame value *)
-  let WB_CORE_INST =
-    SPECL [`pc:num`; `word_sub stackpointer (word 80):int64`;
-           `in_p:int64`; `out_p:int64`; `xi_p:int64`; `ivec_p:int64`;
-           `key_p:int64`; `htbl_p:int64`; `nblk:num`; `ibytes:byte list`;
-           `rk:int128 list`; `H:int128`; `tag0:int128`; `ctr0:int128`]
-          AESV8_GCM_8X_DEC_256_WB_CORRECT in
-  (* val(word(16*nblk))=16*nblk from 128*nblk<2 EXP 62 (so 16*nblk<2 EXP 64) *)
-  let VAL16EQ = prove
-   (`128 * nblk < 2 EXP 62 ==> val (word (16 * nblk):int64) = 16 * nblk`,
-    DISCH_TAC THEN MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN
-    ASM_ARITH_TAC) in
-  (* unfold folded input mem preds + concretize the byte bound in the core *)
-  let WB_CORE_INST_UF2 =
-    REWRITE_RULE[byte_list_at; wordlist_from_memory; htable_mem_8; DIMINDEX_128;
-                 fst EXEC; UNDISCH VAL16EQ] WB_CORE_INST in
-  (* guard fall-through: cbz/b.ne both fall through for bit_len = 128*nblk *)
-  let WB_GUARD_FALLTHROUGH_TAC =
-    SUBGOAL_THEN `val (word (128 * nblk):int64) = 128 * nblk` ASSUME_TAC THENL
-     [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC;
-      ALL_TAC] THEN
-    SUBGOAL_THEN `~(128 * nblk = 0)` ASSUME_TAC THENL
-     [ASM_ARITH_TAC; ALL_TAC] THEN
-    SUBGOAL_THEN `val (word_and (word (128 * nblk):int64) (word 127)) = 0`
-      ASSUME_TAC THENL
-     [SUBGOAL_THEN `(127:num) = 2 EXP 7 - 1` SUBST1_TAC THENL
-       [CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
-      REWRITE_TAC[VAL_WORD_AND_MASK_WORD] THEN ASM_REWRITE_TAC[] THEN
-      SUBGOAL_THEN `(2:num) EXP 7 = 128` SUBST1_TAC THENL
-       [CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
-      REWRITE_TAC[MOD_MULT];
-      ALL_TAC] in
-  prove
+let AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT = prove
    (`!pc stackpointer in_p out_p xi_p ivec_p key_p htbl_p nblk ibytes rk H
       tag0 ctr0 returnaddress.
       1 <= nblk /\
@@ -6146,7 +6112,42 @@ let AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT =
            [memory :> bytes (out_p,16 * nblk); memory :> bytes (xi_p,16);
             memory :> bytes (ivec_p,16);
             memory :> bytes (word_sub stackpointer (word 80),80)])`,
-    REWRITE_TAC[byte_list_at; wordlist_from_memory; htable_mem_8; DIMINDEX_128;
+  (* The wrapper is hand-rolled (see the PHASE 8 note above); these helper lets
+     are local to the proof (JH idiom). *)
+  let EXEC = AESV8_GCM_8X_DEC_256_WB_EXEC in
+  (* the core, SP set to the post-prologue in-frame value *)
+  let WB_CORE_INST =
+    SPECL [`pc:num`; `word_sub stackpointer (word 80):int64`;
+           `in_p:int64`; `out_p:int64`; `xi_p:int64`; `ivec_p:int64`;
+           `key_p:int64`; `htbl_p:int64`; `nblk:num`; `ibytes:byte list`;
+           `rk:int128 list`; `H:int128`; `tag0:int128`; `ctr0:int128`]
+          AESV8_GCM_8X_DEC_256_WB_CORRECT in
+  (* val(word(16*nblk))=16*nblk from 128*nblk<2 EXP 62 (so 16*nblk<2 EXP 64) *)
+  let VAL16EQ = prove
+   (`128 * nblk < 2 EXP 62 ==> val (word (16 * nblk):int64) = 16 * nblk`,
+    DISCH_TAC THEN MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN
+    ASM_ARITH_TAC) in
+  (* unfold folded input mem preds + concretize the byte bound in the core *)
+  let WB_CORE_INST_UF2 =
+    REWRITE_RULE[byte_list_at; wordlist_from_memory; htable_mem_8; DIMINDEX_128;
+                 fst EXEC; UNDISCH VAL16EQ] WB_CORE_INST in
+  (* guard fall-through: cbz/b.ne both fall through for bit_len = 128*nblk *)
+  let WB_GUARD_FALLTHROUGH_TAC =
+    SUBGOAL_THEN `val (word (128 * nblk):int64) = 128 * nblk` ASSUME_TAC THENL
+     [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC;
+      ALL_TAC] THEN
+    SUBGOAL_THEN `~(128 * nblk = 0)` ASSUME_TAC THENL
+     [ASM_ARITH_TAC; ALL_TAC] THEN
+    SUBGOAL_THEN `val (word_and (word (128 * nblk):int64) (word 127)) = 0`
+      ASSUME_TAC THENL
+     [SUBGOAL_THEN `(127:num) = 2 EXP 7 - 1` SUBST1_TAC THENL
+       [CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
+      REWRITE_TAC[VAL_WORD_AND_MASK_WORD] THEN ASM_REWRITE_TAC[] THEN
+      SUBGOAL_THEN `(2:num) EXP 7 = 128` SUBST1_TAC THENL
+       [CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
+      REWRITE_TAC[MOD_MULT];
+      ALL_TAC] in
+  REWRITE_TAC[byte_list_at; wordlist_from_memory; htable_mem_8; DIMINDEX_128;
                 fst EXEC] THEN
     REWRITE_TAC[NONOVERLAPPING_CLAUSES; PAIRWISE; ALLPAIRS; ALL] THEN
     REWRITE_TAC[C_ARGUMENTS; C_RETURN; SOME_FLAGS] THEN
