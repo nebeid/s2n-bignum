@@ -6209,13 +6209,14 @@ let () =
   let whole_fn = [AESV8_GCM_8X_DEC_256_WB_CORRECT;
                   AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT;
                   AESV8_GCM_8X_DEC_256_WB_GUARD] in
-  (* Drift gate for the readable literal _CORRECT: re-derive the statement we
-     expect from the FROZEN _DISPATCH by term surgery (nblk<=8 -> 1<=nblk + the
-     two size bounds; ensures-body verbatim) and assert alpha-equivalence.  The
-     literal in the source above is proved directly; this check catches any
-     future edit that silently drifts it from the DISPATCH contract.
-     (_SUBROUTINE_CORRECT is already a source-literal with no analogous frozen
-     surgery-anchor; it is covered by the hyps=0 / axioms=3 checks below.) *)
+  (* Drift gate for the readable literals.  Both exported statements above are
+     proved directly; here we re-derive what we EXPECT them to say from the
+     FROZEN _DISPATCH by term surgery and assert alpha-equivalence, catching any
+     future edit that silently drifts a literal from the DISPATCH contract.
+
+     correct_anchor: the DISPATCH ensures-body verbatim, with the `nblk<=8` bound
+     replaced by `1<=nblk` plus the two size bounds (128*nblk<2 EXP 62 and
+     val in_p+16*nblk<2 EXP 63). *)
   let correct_anchor =
     let dvars, dbody = strip_forall (concl AESV8_GCM_8X_DEC_256_WB_DISPATCH) in
     let dhyps, dens = dest_imp dbody in
@@ -6224,11 +6225,44 @@ let () =
                 `val (in_p:int64) + 16 * nblk < 2 EXP 63` ::
                 (filter (fun c -> c <> `1 <= nblk`) hyps0) in
     list_mk_forall(dvars, mk_imp(list_mk_conj hyps', dens)) in
+  (* subroutine_anchor: the ABI wrapper, term-derived from correct_anchor (hence
+     also from the frozen _DISPATCH) -- SP shifted to the post-prologue in-frame
+     value word_sub stackpointer (word 80) throughout (the two stack nonoverlap
+     pairs and the frame's stack mem cell), entry PC pc+32 -> pc (function entry),
+     exit PC pc+4528 -> returnaddress, read X30 s = returnaddress added to the
+     pre after the SP conjunct, an extra `returnaddress` forall var, and the
+     `,, MAYCHANGE [Q0..Q31]` core-scratch frame dropped (subsumed by the ABI
+     frame in the wrapper). *)
+  let subroutine_anchor =
+    let cvars, cbody = strip_forall correct_anchor in
+    let base = subst
+      [`word pc:int64`,`word (pc + 32):int64`;
+       `returnaddress:int64`,`word (pc + 4528):int64`;
+       `word_sub stackpointer (word 80):int64,80`,`stackpointer:int64,80`;
+       `word_sub stackpointer (word 80):int64,80`,
+       `word_add stackpointer (word 64):int64,16`]
+      cbody in
+    let chyps, cens = dest_imp base in
+    let eop, eargs = strip_comb cens in
+    let sv, preb = dest_abs (el 1 eargs) and frame = el 3 eargs in
+    let cs = conjuncts preb in
+    let spc = find (fun c -> can (find_term (fun x -> x = `SP`)) c) cs in
+    let x30c = subst [`X30`,`SP`; `returnaddress:int64`,`stackpointer:int64`] spc in
+    let cs' = itlist (fun c acc -> if c = spc then c :: x30c :: acc else c :: acc)
+                     cs [] in
+    let pre' = mk_abs(sv, list_mk_conj cs') in
+    let frame' = mk_comb(mk_comb(rator(rator frame), rand(rator frame)),
+                         rand(rator(rand frame))) in
+    let cens' = list_mk_comb(eop, [el 0 eargs; pre'; el 2 eargs; frame']) in
+    list_mk_forall(cvars @ [`returnaddress:int64`], mk_imp(chyps, cens')) in
   if not (aconv (concl AESV8_GCM_8X_DEC_256_WB_CORRECT) correct_anchor) then
     failwith "WB dec _CORRECT: literal drifted from the DISPATCH contract (aconv)"
+  else if not (aconv (concl AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT)
+                     subroutine_anchor) then
+    failwith "WB dec _SUBROUTINE_CORRECT: literal drifted from the CORRECT contract (aconv)"
   else if exists (fun th -> hyp th <> []) whole_fn then
     failwith "WB dec whole-function theorems: unexpected hypotheses"
   else if List.length (axioms()) <> 3 then
     failwith "WB dec whole-function: unexpected axiom count (new_axiom introduced?)"
   else Format.print_string
-    "WB dec whole-function: CORRECT (aconv DISPATCH) + SUBROUTINE_CORRECT + GUARD hyps=0, axioms=3\n";;
+    "WB dec whole-function: CORRECT (aconv DISPATCH) + SUBROUTINE_CORRECT (aconv CORRECT) + GUARD hyps=0, axioms=3\n";;
