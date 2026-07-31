@@ -5360,3 +5360,137 @@ let AESV8_GCM_8X_DEC_256_WB_CORRECT =
     ASM_CASES_TAC `nblk <= 16` THENL
      [WBN_CHAIN_TO_NIST_TAC WBN_FRONT_TO_END_916;
       WBN_CHAIN_TO_NIST_TAC WBN_FRONT_TO_END]);;
+
+(* ------------------------------------------------------------------------- *)
+(* PHASE 8 (session-067): AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT.          *)
+(* The ABI subroutine wrapper for the valid path (bit_len = 128*nblk).  Binary *)
+(* layout (objdump): the entry GUARD (nop;cbz x1;ands zr,x1,#0x7f;b.ne, offs   *)
+(* 0x0..0xc) precedes the d8-d15 callee-save spills (stp d8,d9,[sp,#-80]!;      *)
+(* stp d10,d11;d12,d13;d14,d15, offs 0x10..0x1c); the core runs pc+0x20..pc+   *)
+(* 0x11ac (= _CORRECT); the epilogue (mov x0,x9; ldp d10..d15; ldp d8,d9,[sp], *)
+(* #80; ret, offs 0x11b0..0x11c4) restores.  X30 is NOT saved (returns via LR).*)
+(*                                                                             *)
+(* Stock ARM_ADD_RETURN_STACK_TAC does not apply: the guard's b.ne sits in the *)
+(* prologue (its ARM_STEPS stalls on the symbolic conditional-PC) and the SP   *)
+(* offset needs the core instantiated by hand.  So the wrapper is hand-rolled: *)
+(*  - WB_CORE_INST = _CORRECT SPECL'd stackpointer := word_sub stackpointer     *)
+(*    (word 80) (so the in-frame SP = the caller SP after the prologue's        *)
+(*    stp ...,[sp,#-80]!);                                                      *)
+(*  - WB_CORE_INST_UF2 unfolds the folded input mem predicates (byte_list_at /  *)
+(*    wordlist_from_memory / htable_mem_8) AND concretizes val(word(16*nblk)) = *)
+(*    16*nblk (from 128*nblk<2 EXP 62) so ARM_STEPS carries the quantified      *)
+(*    input byte read past the disjoint stack stores (else it drops it);        *)
+(*  - WB_GUARD_FALLTHROUGH_TAC injects the guard fall-through facts             *)
+(*    (val(word(128*nblk))=128*nblk; ~(128*nblk=0); val(word_and .. 127)=0) so  *)
+(*    the prologue steps clean; then ARM_STEPS 1--8 (guard+saves), ARM_BIGSTEP  *)
+(*    s9 (crosses the core), ARM_STEPS 10--15 (epilogue), ENSURES_FINAL.        *)
+(* The d8-d15 preservation now closes because the F1-narrowed core frame        *)
+(* bytes(sp+64,16) is DISJOINT from the [sp,64) spill area (session-066).       *)
+(* Inherits _CORRECT's soundness: CHEAT-free, no new_axiom.                     *)
+(* ------------------------------------------------------------------------- *)
+
+let AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT =
+  let EXEC = AESV8_GCM_8X_DEC_256_WB_EXEC in
+  (* the core, SP set to the post-prologue in-frame value *)
+  let WB_CORE_INST =
+    SPECL [`pc:num`; `word_sub stackpointer (word 80):int64`;
+           `in_p:int64`; `out_p:int64`; `xi_p:int64`; `ivec_p:int64`;
+           `key_p:int64`; `htbl_p:int64`; `nblk:num`; `ibytes:byte list`;
+           `rk:int128 list`; `H:int128`; `tag0:int128`; `ctr0:int128`]
+          AESV8_GCM_8X_DEC_256_WB_CORRECT in
+  (* val(word(16*nblk))=16*nblk from 128*nblk<2 EXP 62 (so 16*nblk<2 EXP 64) *)
+  let VAL16EQ = prove
+   (`128 * nblk < 2 EXP 62 ==> val (word (16 * nblk):int64) = 16 * nblk`,
+    DISCH_TAC THEN MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN
+    ASM_ARITH_TAC) in
+  (* unfold folded input mem preds + concretize the byte bound in the core *)
+  let WB_CORE_INST_UF2 =
+    REWRITE_RULE[byte_list_at; wordlist_from_memory; htable_mem_8; DIMINDEX_128;
+                 fst EXEC; UNDISCH VAL16EQ] WB_CORE_INST in
+  (* guard fall-through: cbz/b.ne both fall through for bit_len = 128*nblk *)
+  let WB_GUARD_FALLTHROUGH_TAC =
+    SUBGOAL_THEN `val (word (128 * nblk):int64) = 128 * nblk` ASSUME_TAC THENL
+     [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC;
+      ALL_TAC] THEN
+    SUBGOAL_THEN `~(128 * nblk = 0)` ASSUME_TAC THENL
+     [ASM_ARITH_TAC; ALL_TAC] THEN
+    SUBGOAL_THEN `val (word_and (word (128 * nblk):int64) (word 127)) = 0`
+      ASSUME_TAC THENL
+     [SUBGOAL_THEN `(127:num) = 2 EXP 7 - 1` SUBST1_TAC THENL
+       [CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
+      REWRITE_TAC[VAL_WORD_AND_MASK_WORD] THEN ASM_REWRITE_TAC[] THEN
+      SUBGOAL_THEN `(2:num) EXP 7 = 128` SUBST1_TAC THENL
+       [CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
+      REWRITE_TAC[MOD_MULT];
+      ALL_TAC] in
+  prove
+   (`!pc stackpointer in_p out_p xi_p ivec_p key_p htbl_p nblk ibytes rk H
+      tag0 ctr0 returnaddress.
+      1 <= nblk /\
+      128 * nblk < 2 EXP 62 /\
+      val in_p + 16 * nblk < 2 EXP 63 /\
+      LENGTH ibytes = 16 * nblk /\
+      LENGTH rk = 15 /\
+      aligned 16 stackpointer /\
+      ALLPAIRS nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16]
+      [word pc,4560; in_p,16 * nblk; key_p,240; htbl_p,192;
+       word_sub stackpointer (word 80),80] /\
+      PAIRWISE nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16] /\
+      ALL (nonoverlapping (word_sub stackpointer (word 80),80))
+      [word pc,4560; in_p,16 * nblk; key_p,240; htbl_p,192]
+      ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
+               read PC s = word pc /\
+               read SP s = stackpointer /\
+               read X30 s = returnaddress /\
+               C_ARGUMENTS
+               [in_p; word (128 * nblk); out_p; xi_p; ivec_p; key_p; htbl_p]
+               s /\
+               byte_list_at ibytes in_p (word (16 * nblk)) s /\
+               read (memory :> bytes128 xi_p) s = word_reversefields 8 tag0 /\
+               read (memory :> bytes128 ivec_p) s = ctr0 /\
+               wordlist_from_memory (key_p,15) s = rk /\
+               htable_mem_8 (ghash_twist H) htbl_p s)
+          (\s. read PC s = returnaddress /\
+               byte_list_at (gcm_dec_pt_bytes (16 * nblk) ibytes ctr0 rk) out_p
+               (word (16 * nblk)) s /\
+               read (memory :> bytes128 xi_p) s =
+               word_reversefields 8
+               (nist_ghash H tag0 (list_of_seq (nist_input_block ibytes) nblk)))
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE
+           [memory :> bytes (out_p,16 * nblk); memory :> bytes (xi_p,16);
+            memory :> bytes (ivec_p,16);
+            memory :> bytes (word_sub stackpointer (word 80),80)])`,
+    REWRITE_TAC[byte_list_at; wordlist_from_memory; htable_mem_8; DIMINDEX_128;
+                fst EXEC] THEN
+    REWRITE_TAC[NONOVERLAPPING_CLAUSES; PAIRWISE; ALLPAIRS; ALL] THEN
+    REWRITE_TAC[C_ARGUMENTS; C_RETURN; SOME_FLAGS] THEN
+    REPEAT GEN_TAC THEN
+    DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC) THEN
+    SUBGOAL_THEN `val (word (16 * nblk):int64) = 16 * nblk` ASSUME_TAC THENL
+     [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC;
+      ALL_TAC] THEN
+    ASM_REWRITE_TAC[] THEN
+    MP_TAC WB_CORE_INST_UF2 THEN ANTS_TAC THENL
+     [ASM_REWRITE_TAC[NONOVERLAPPING_CLAUSES; PAIRWISE; ALLPAIRS; ALL] THEN
+      REPEAT CONJ_TAC THEN TRY(FIRST_ASSUM ACCEPT_TAC) THEN
+      MATCH_MP_TAC ALIGNED_WORD_SUB THEN ASM_REWRITE_TAC[] THEN
+      REWRITE_TAC[aligned; WORD_VAL] THEN CONV_TAC WORD_REDUCE_CONV THEN
+      REWRITE_TAC[DIMINDEX_64] THEN CONJ_TAC THEN CONV_TAC NUM_DIVIDES_CONV;
+      ALL_TAC] THEN
+    REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; MODIFIABLE_SIMD_REGS;
+       MODIFIABLE_GPRS; MODIFIABLE_UPPER_SIMD_REGS; fst EXEC] THEN
+    DISCH_THEN(fun th ->
+      (ENSURES_EXISTING_PRESERVED_TAC `SP` THEN
+       MAP_EVERY (fun c -> ENSURES_PRESERVED_DREG_TAC ("init_"^fst(dest_const c)) c)
+         [`D8`;`D9`;`D10`;`D11`;`D12`;`D13`;`D14`;`D15`]) THEN
+      REWRITE_TAC(!simulation_precanon_thms) THEN ENSURES_INIT_TAC "s0" THEN
+      WB_GUARD_FALLTHROUGH_TAC THEN
+      ARM_STEPS_TAC EXEC (1--8) THEN MP_TAC th) THEN
+    ARM_BIGSTEP_TAC EXEC "s9" THENL
+     [REWRITE_TAC[C_ARGUMENTS] THEN ASM_REWRITE_TAC[];
+      REWRITE_TAC(!simulation_precanon_thms) THEN ARM_STEPS_TAC EXEC (10--15) THEN
+      ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+      REWRITE_TAC[WORD_BLAST `(word_zx:int128->int64)(word_zx(x:int64)) = x`] THEN
+      CONV_TAC WORD_RULE]);;
