@@ -3475,7 +3475,20 @@ let wbn_prepretail_ext2_goal =
   let ens = list_mk_comb(`ensures arm`,[pre; wbn_prepretail_post_ext2; wbn_front_C_tm]) in
   list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
 
-let WBN_PREPRETAIL_EXT2 = prove(wbn_prepretail_ext2_goal,
+(* The prepretail ext2 sim, parameterized by the first-tail-block index bound
+   (idx_lt_thm : `... ==> 8 * ((nblk-9) DIV 8) + 8 < nblk`).  The 17<=nblk and
+   9..16 legs (WBN_PREPRETAIL_EXT2 / _916) differ ONLY in that lemma
+   (WBN_Q9_INDEX_LT vs WBN_Q9_INDEX_LT_9) and in their hyp band; every ARM step,
+   fold, and close is identical, so the ~131s recipe lives here once.
+   Recipe: init at the loop invariant (i:=k), counter folds 1..14, KEEPDATA bulk
+   15..240; session-065 Q19 R1' wire-in (step to s242 where PL/PH/PM=Q17/Q19/Q18
+   are complete -- PM's final eor3@0xdb4 is instr 242 -- ABBREV them opaque, then
+   the reduce KEEPING Q16-Q19 so the byteform stays small); resolve the incoming
+   Q9 at s311 (before ldr q9 @0xecc=step 312) to spec form via WBN_Q9_SPEC +
+   idx_lt_thm; ENSURES_FINAL + ASM_REWRITE for the preserved/shifted conjuncts;
+   the 2 GHASH conjuncts close via WBN_Q19_PREPRETAIL_CLOSE_TAC (R1' route,
+   CHEAT-free since s065). *)
+let WBN_PREPRETAIL_EXT2_TAC idx_lt_thm =
   REPEAT GEN_TAC THEN STRIP_TAC THEN REWRITE_TAC[wbn_loop_inv_core] THEN
   CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN ENSURES_INIT_TAC "s0" THEN
   RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_dec]) THEN
@@ -3500,21 +3513,14 @@ let WBN_PREPRETAIL_EXT2 = prove(wbn_prepretail_ext2_goal,
   ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (15--120) THEN
   ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (121--211) THEN
   ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (212--240) THEN
-  (* session-065 Q19 R1' WIRE-IN (was DISCARD_QREGS): step to s242 (the state
-     where PL/PH/PM = Q17/Q19/Q18 are all COMPLETE -- PM's final eor3 @0xdb4 is
-     instr 242; the s240 the discard used had PM incomplete), ABBREV them opaque,
-     then run the reduce KEEPING Q16-Q19 (byteform stays small over PL/PH/PM). *)
   ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (241--242) THEN
   WBN_Q19_EXTRACT_ABBREV_TAC "s242" THEN
   ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (243--306) THEN
   ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (307--311) THEN
-  (* Resolve the incoming Q9 at s311 (before the ldr q9 @0xecc = step 312) so   *)
-  (* the load auto-resolves it to spec form.  The whole-buffer input-bytes fact  *)
-  (* is live at s311 under KEEPDATA; WBN_Q9_INDEX_LT gives 8*(k+1) < nblk.        *)
   MP_TAC(SPECL [`nblk:num`; `in_p:int64`; `ibytes:byte list`; `k:num`; `s311:armstate`]
     WBN_Q9_SPEC) THEN
   ANTS_TAC THENL
-   [ASM_REWRITE_TAC[] THEN MP_TAC(SPEC `nblk:num` WBN_Q9_INDEX_LT) THEN
+   [ASM_REWRITE_TAC[] THEN MP_TAC(SPEC `nblk:num` idx_lt_thm) THEN
     ASM_REWRITE_TAC[] THEN ARITH_TAC;
     DISCH_TAC] THEN
   ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (312--313) THEN
@@ -3527,7 +3533,10 @@ let WBN_PREPRETAIL_EXT2 = prove(wbn_prepretail_ext2_goal,
         if can (find_term (fun t -> is_const t && fst(dest_const t) = "ghash_polyval_acc")) w
         then WBN_Q19_PREPRETAIL_CLOSE_TAC `k:num` else NO_TAC)) THEN
   TRY MONOTONE_MAYCHANGE_TAC THEN
-  TRY (ASM_REWRITE_TAC[]));;
+  TRY (ASM_REWRITE_TAC[]);;
+
+let WBN_PREPRETAIL_EXT2 =
+  prove(wbn_prepretail_ext2_goal, WBN_PREPRETAIL_EXT2_TAC WBN_Q9_INDEX_LT);;
 
 (* WBN_LOOP_PREP_EXT2 / WBN_FRONT_TO_PREP_EXT2: the EXT2-post analogues,          *)
 (* chaining through WBN_PREPRETAIL_EXT2.  Same ENSURES_TRANS_SIMPLE /             *)
@@ -4548,56 +4557,8 @@ let wbn_prepretail_ext2_916_goal =
   let ens = list_mk_comb(`ensures arm`,[pre; wbn_prepretail_post_ext2; wbn_front_C_tm]) in
   list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_916_tm, ens));;
 
-let WBN_PREPRETAIL_EXT2_916 = prove(wbn_prepretail_ext2_916_goal,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN REWRITE_TAC[wbn_loop_inv_core] THEN
-  CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN ENSURES_INIT_TAC "s0" THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_dec]) THEN
-  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV let_CONV)) THEN
-  FIRST_X_ASSUM(fun th ->
-    let c = concl th in
-    if can (find_term (fun t->match t with Const("byteswap128",_)->true|_->false)) c &&
-       can (find_term (fun t->match t with Const("karatsuba_mid",_)->true|_->false)) c
-    then STRIP_ASSUME_TAC th else NO_TAC) THEN
-  ABBREV_TAC `k = (nblk - 9) DIV 8` THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (1--1) THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (2--2) THEN GCM_SIMD_SIMPLIFY_TAC THEN
-  REV32_FOLD_TAC "Q5" "s2" `word (8*k+13):32 word` THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (3--3) THEN GCM_SIMD_SIMPLIFY_TAC THEN
-  CTR_INCR_NORM_TAC "s3" 13 THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (4--7) THEN GCM_SIMD_SIMPLIFY_TAC THEN
-  REV32_FOLD_TAC "Q6" "s7" `word (8*k+14):32 word` THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (8--9) THEN GCM_SIMD_SIMPLIFY_TAC THEN
-  CTR_INCR_NORM_TAC "s9" 14 THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (10--14) THEN GCM_SIMD_SIMPLIFY_TAC THEN
-  REV32_FOLD_TAC "Q7" "s14" `word (8*k+15):32 word` THEN
-  ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (15--120) THEN
-  ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (121--211) THEN
-  ARM_STEPS_FOLD_KEEPDATA_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (212--240) THEN
-  (* session-065 Q19 R1' WIRE-IN (was DISCARD_QREGS): step to s242 (the state
-     where PL/PH/PM = Q17/Q19/Q18 are all COMPLETE -- PM's final eor3 @0xdb4 is
-     instr 242; the s240 the discard used had PM incomplete), ABBREV them opaque,
-     then run the reduce KEEPING Q16-Q19 (byteform stays small over PL/PH/PM). *)
-  ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (241--242) THEN
-  WBN_Q19_EXTRACT_ABBREV_TAC "s242" THEN
-  ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (243--306) THEN
-  ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (307--311) THEN
-  MP_TAC(SPECL [`nblk:num`; `in_p:int64`; `ibytes:byte list`; `k:num`; `s311:armstate`]
-    WBN_Q9_SPEC) THEN
-  ANTS_TAC THENL
-   [ASM_REWRITE_TAC[] THEN MP_TAC(SPEC `nblk:num` WBN_Q9_INDEX_LT_9) THEN
-    ASM_REWRITE_TAC[] THEN ARITH_TAC;
-    DISCH_TAC] THEN
-  ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (312--313) THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[GSYM aes13]) THEN
-  RULE_ASSUM_TAC(REWRITE_RULE(map GSYM wb_ctr_lanes_thms)) THEN
-  ENSURES_FINAL_STATE_TAC THEN
-  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
-  REPEAT CONJ_TAC THEN
-  TRY(W(fun (asl,w) ->
-        if can (find_term (fun t -> is_const t && fst(dest_const t) = "ghash_polyval_acc")) w
-        then WBN_Q19_PREPRETAIL_CLOSE_TAC `k:num` else NO_TAC)) THEN
-  TRY MONOTONE_MAYCHANGE_TAC THEN
-  TRY (ASM_REWRITE_TAC[]));;
+let WBN_PREPRETAIL_EXT2_916 =
+  prove(wbn_prepretail_ext2_916_goal, WBN_PREPRETAIL_EXT2_TAC WBN_Q9_INDEX_LT_9);;
 
 (* FRONT-916 ; PREPRETAIL-916 composed to the ext2 seam (pc+0x20 -> pc+3796).       *)
 (* The PRECONDITION bridge collapses (nblk-9)DIV8 to 0 (q=0 for 9..16), matching     *)
