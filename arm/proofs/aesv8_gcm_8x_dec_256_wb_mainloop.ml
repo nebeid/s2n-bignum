@@ -190,17 +190,8 @@ let D_GT_128 = prove
   POP_ASSUM_LIST(K ALL_TAC) THEN DISCH_TAC THEN
   MP_TAC(SPECL [`nblk - 1`; `8`] DIVISION) THEN ASM_ARITH_TAC);;
 
-(* byte-level restatement (proved as warm-up; kept for the seam arithmetic) *)
-let DIV128_16NBLK = prove
- (`!nblk. 1 <= nblk ==> (16 * nblk - 1) DIV 128 = (nblk - 1) DIV 8`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(SPECL [`nblk - 1`; `8`] DIVISION) THEN
-  ANTS_TAC THENL [ARITH_TAC; ALL_TAC] THEN
-  ABBREV_TAC `d = (nblk - 1) DIV 8` THEN ABBREV_TAC `m = (nblk - 1) MOD 8` THEN
-  STRIP_TAC THEN
-  SUBGOAL_THEN `nblk = d * 8 + m + 1` SUBST1_TAC THENL
-   [ASM_ARITH_TAC; ALL_TAC] THEN
-  MATCH_MP_TAC DIV_UNIQ THEN EXISTS_TAC `16 * m + 15` THEN ASM_ARITH_TAC);;
+(* (session-068: DIV128_16NBLK, a byte-level warm-up restatement kept "for the
+   seam arithmetic", was never referenced -- deleted.) *)
 
 (* ------------------------------------------------------------------------- *)
 (* 2. Symbolic counter layer: gcm_ctr_add w = "add w to the be-top-lane".    *)
@@ -1030,24 +1021,13 @@ let LANE_COLLAPSE = prove
 (* products two blocks at a time (a pmull2 then pmull over the packed lanes of  *)
 (* blocks A and B).  The (64,64)/(0,64) sub-lane of the XOR of the hi-join and  *)
 (* lo-join recovers each single block's (lo XOR hi) mid-input. *)
-let PM_LANE_HI = prove
- (`!A B:int128.
-    word_subword (word_xor (word_join (word_subword (A:int128) (64,64):64 word) (word_subword (B:int128) (64,64):64 word):128 word)
-                           (word_join (word_subword A (0,64):64 word) (word_subword B (0,64):64 word):128 word)) (64,64):64 word
-    = word_xor (word_subword A (64,64):64 word) (word_subword A (0,64):64 word)`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-
-let PM_LANE_LO = prove
- (`!A B:int128.
-    word_subword (word_xor (word_join (word_subword (A:int128) (64,64):64 word) (word_subword (B:int128) (64,64):64 word):128 word)
-                           (word_join (word_subword A (0,64):64 word) (word_subword B (0,64):64 word):128 word)) (0,64):64 word
-    = word_xor (word_subword B (64,64):64 word) (word_subword B (0,64):64 word)`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-
-(* session-063: swapped-RHS variants of PM_LANE_HI/LO — same pmull2/pmull PAIR *)
-(* form, but the extracted mid-input is spelled in the (0,64)^(64,64) lane      *)
-(* order that karatsuba_block_pm produces (word_pmul's first arg is atomic to   *)
-(* WORD_RULE, so the lane XOR must match SYNTACTICALLY, not just up to comm).   *)
+(* session-063: the mid-input lane extractors used by the Q19 reduce.  Only the *)
+(* swapped-RHS PM_LANE_HI'/LO' variants below are consumed (build_q19_reduce_*  *)
+(* at :1154/:1247): they spell the extracted mid-input in the (0,64)^(64,64)    *)
+(* lane order that karatsuba_block_pm produces (word_pmul's first arg is atomic *)
+(* to WORD_RULE, so the lane XOR must match SYNTACTICALLY, not up to comm).     *)
+(* (session-068: the un-swapped PM_LANE_HI/LO were superseded by these and never *)
+(* referenced -- deleted.)                                                       *)
 let PM_LANE_HI' = prove
  (`!A B:int128.
     word_subword (word_xor (word_join (word_subword (A:int128) (64,64):64 word) (word_subword (B:int128) (64,64):64 word):128 word)
@@ -1903,21 +1883,10 @@ let DISCARD_STALE_QREG_TAC qn : tactic = fun (asl,w) ->
   | _ -> let mx = List.fold_left max 0 nums in
          DISCARD_ASSUMPTIONS_TAC (fun th ->
            (match state_num_of_qreg qn th with Some k -> k<mx | None -> false)) (asl,w);;
-let DISCARD_OLDSTATE_KEEPGH_LATEST_TAC s =
-  DISCARD_OLDSTATE_KEEPGH_TAC s THEN
-  DISCARD_STALE_QREG_TAC "Q16" THEN DISCARD_STALE_QREG_TAC "Q17" THEN
-  DISCARD_STALE_QREG_TAC "Q18" THEN DISCARD_STALE_QREG_TAC "Q19";;
-let ARM_STEPS_FOLD_KEEPGH_LATEST_TAC exec snums =
-  MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN GCM_SIMD_SIMPLIFY_TAC THEN
-              DISCARD_OLDSTATE_KEEPGH_LATEST_TAC s THEN CLARIFY_TAC) (statenames "s" snums);;
-(* NO-SIMPLIFY variant for the final GHASH reduce window (290..326): once Q16 is the
-   CONCRETE [sp+64] modulus (word 0xc2..00), GCM_SIMD_SIMPLIFY on the reduce pmulls
-   stack-overflows (session-014); step without it so the reduce stays symbolic and
-   read Q19 lands self-contained.  Q18 is abbreviated as `midacc` before this window
-   so the towers stay small. *)
-let ARM_STEPS_FOLD_KEEPGH_LATEST_NOSIMP_TAC exec snums =
-  MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN
-              DISCARD_OLDSTATE_KEEPGH_LATEST_TAC s THEN CLARIFY_TAC) (statenames "s" snums);;
+(* (session-068: the KEEPGH_LATEST stepper family -- DISCARD_OLDSTATE_KEEPGH_
+   LATEST_TAC and ARM_STEPS_FOLD_KEEPGH_LATEST_TAC / _NOSIMP_TAC -- was an early
+   body-sim variant superseded by the KEEPDATA family the live sims use; it was
+   never referenced and has been deleted.) *)
 
 (* WBN_NBLK_GE_9: moved here (session-024) from below the back-edge cluster so
    RAWCT_LEMMA_AT (Sec 10b) can reference it — the cold-load regression the
@@ -2192,17 +2161,9 @@ let PLAINTEXT_CLOSE_TAC =
               ARITH_RULE `(8*i+8)+7 = 8*i+15`] THEN
   REFL_TAC;;
 
-(* The htable H-power memory reads give  h_k = byteswap128 (polyval_dot ...)  (the ODD
-   powers h3/h5/h7 and, after unfolding, h2), but BODY_Q19_CLOSE_ALGEBRA's antecedent wants
-   byteswap128 h_k = polyval_dot ...  Bridge by byteswap128 involution: rewrite with the
-   h_k=... fact then BYTESWAP128_INVOLUTION.  VALIDATED (session-015) on the h2 rung. *)
-let BSWAP_INVOL_MASSAGE_TAC =
-  REPEAT(FIRST_X_ASSUM(fun th ->
-    let c = concl th in
-    if is_eq c &&
-       (match rhs c with Comb(Const("byteswap128",_),_) -> true | _ -> false)
-    then SUBST_ALL_TAC th else NO_TAC)) THEN
-  REWRITE_TAC[BYTESWAP128_INVOLUTION];;
+(* (session-068: BSWAP_INVOL_MASSAGE_TAC, an h_k=byteswap128(...) involution
+   bridge for an earlier BODY_Q19_CLOSE_ALGEBRA route, was never referenced --
+   deleted.) *)
 
 (* PC back-edge arithmetic bridge (session-009). *)
 let WBN_DIV_SHIFT = prove
