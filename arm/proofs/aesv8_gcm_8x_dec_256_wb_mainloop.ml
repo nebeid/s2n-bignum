@@ -5145,9 +5145,10 @@ let WBN_FRONT_TO_END_916 = prove(wbn_front_to_end_916_goal,
 (* ------------------------------------------------------------------------- *)
 (* PHASE 6 IS COMPLETE (session-051): WBN_PREP_TO_END_916 is CHEAT-free, so     *)
 (* the WHOLE nblk>8 chain (WBN_FRONT_TO_END for >=17, WBN_FRONT_TO_END_916 for  *)
-(* 9..16) is CHEAT-free EXCEPT the single scoped Q19/Q16 identity (the SAME     *)
-(* [11] RINNER=LINNER identity, instanced at :2085 in the loop body + the       *)
-(* guarded prepretail CHEATs :3054/:3217/:3395/:4572).  No new_axiom anywhere.   *)
+(* 9..16) is CHEAT-free.  The former scoped Q19/Q16 RINNER=LINNER identity (once *)
+(* at the loop body + the 4 guarded prepretail sites) was CLOSED by the Q19 R1'  *)
+(* route in sessions 064-065 (WBN_MACHINE_REDUCE_IS_PROP3_PACK +                 *)
+(* WBN_BODY_Q19_REDUCE_CLEAN, wired in).  No CHEAT, no new_axiom anywhere.        *)
 (* ------------------------------------------------------------------------- *)
 
 (* ------------------------------------------------------------------------- *)
@@ -5294,9 +5295,8 @@ let WBN_END_OUTPUT_BYTE_LIST = prove
 (* val in_p+16*nblk<2 EXP 63 ADDED to the antecedent (genuine preconditions the  *)
 (* Phase-8 wrapper/guard supplies -- for nblk<=8 they follow from small nblk;    *)
 (* for symbolic large nblk they must be assumed to avoid pointer/length          *)
-(* overflow).  CHEAT-FREE EXCEPT the single scoped Q19/[11] RINNER=LINNER        *)
-(* identity inherited by both >8 chains (loop body :2085 + guarded prepretail    *)
-(* CHEATs); no new_axiom anywhere.                                               *)
+(* overflow).  CHEAT-FREE (the former Q19/[11] RINNER=LINNER identity was closed  *)
+(* by the R1' route in sessions 064-065); no new_axiom anywhere.                  *)
 
 let AESV8_GCM_8X_DEC_256_WB_CORRECT =
   (* identification substitution: raw chain vars -> DISPATCH NIST vars *)
@@ -5494,3 +5494,39 @@ let AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT =
       ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
       REWRITE_TAC[WORD_BLAST `(word_zx:int128->int64)(word_zx(x:int64)) = x`] THEN
       CONV_TAC WORD_RULE]);;
+
+(* ------------------------------------------------------------------------- *)
+(* THE COMPLETE WHOLE-FUNCTION CONTRACT.                                       *)
+(*                                                                             *)
+(* AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT (above, this file) together with  *)
+(* AESV8_GCM_8X_DEC_256_WB_GUARD (arm/proofs/aesv8_gcm_8x_dec_256_wb.ml) form   *)
+(* the complete AAPCS64 subroutine contract of the whole-blocks binary, for     *)
+(* EVERY C-argument bit_len:                                                    *)
+(*   - valid   bit_len = word (128*nblk), 1 <= nblk (a positive multiple of 128 *)
+(*             bits): SUBROUTINE_CORRECT -- decrypts the 16*nblk-byte buffer to  *)
+(*             gcm_dec_pt_bytes and updates the running GHASH tag to nist_ghash, *)
+(*             preserving d8-d15/SP and restoring PC to the return address.      *)
+(*   - invalid ~(val bit_len = 0) /\ ~(val bit_len MOD 128 = 0) (bit_len set but *)
+(*             not a whole number of 128-bit blocks): GUARD -- the guard branch  *)
+(*             (tst x1,#0x7f; b.ne) rejects, returns 0 in X0, touches no memory. *)
+(* (The remaining bit_len = 0 case exits at the entry cbz x1 with the same       *)
+(*  ret-0 behaviour; it is not separately stated as it carries no cryptographic  *)
+(*  postcondition.)  This mirrors the nblk<=8 pairing DISPATCH + GUARD in        *)
+(*  wb.ml:4643-4708.                                                             *)
+(*                                                                             *)
+(* Soundness gate: both whole-function theorems (and the underlying CORRECT      *)
+(* for all nblk>=1) are hyps=0, and the file introduces NO new axiom -- the      *)
+(* Q19/GHASH identity that was scoped behind a CHEAT for ~15 sessions is closed  *)
+(* (sessions 061-065, R1' route).                                               *)
+(* ------------------------------------------------------------------------- *)
+
+let () =
+  let whole_fn = [AESV8_GCM_8X_DEC_256_WB_CORRECT;
+                  AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT;
+                  AESV8_GCM_8X_DEC_256_WB_GUARD] in
+  if exists (fun th -> hyp th <> []) whole_fn then
+    failwith "WB dec whole-function theorems: unexpected hypotheses"
+  else if List.length (axioms()) <> 3 then
+    failwith "WB dec whole-function: unexpected axiom count (new_axiom introduced?)"
+  else Format.print_string
+    "WB dec whole-function: CORRECT + SUBROUTINE_CORRECT + GUARD hyps=0, axioms=3\n";;
