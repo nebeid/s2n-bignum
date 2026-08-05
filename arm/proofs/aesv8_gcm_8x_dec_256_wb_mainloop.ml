@@ -3950,10 +3950,90 @@ let WB_PREP_TAC k =
   RULE_ASSUM_TAC(REWRITE_RULE[]) THEN
   lanes THEN cphs THEN habbrevs;;
 
+(* ========================================================================= *)
+(* SESSION-071 SPEED REFACTOR -- the shared per-block back-leg, proved ONCE.  *)
+(*                                                                            *)
+(* The back-leg sim `WB_PREP_TAC k THEN WB_TAIL_k_TAC` (init@s265 -> whole-   *)
+(* function exit pc+4528) was previously run TWICE per k: once inside         *)
+(* prove_band (from the full q_at k precond) and once as WB_TAIL_GEN2_k       *)
+(* (from a strictly WEAKER precond, q_at k minus 6 objdump-dead cells).  The  *)
+(* two goals share IDENTICAL post + frame (both via mk_band_goal k), so the   *)
+(* WEAK-precond back-leg IMPLIES the full-precond one by conjunct-drop         *)
+(* weakening (ENSURES_PRECONDITION_THM, no re-simulation).  We therefore      *)
+(* prove the WEAK back-leg (WB_TAIL_GEN2_k) ONCE, HERE, and reuse it in both  *)
+(* prove_band (below) and the nblk>8 recomposition (WBN_PREP_TO_END, later).  *)
+(* Net: 8 per-block tail sims instead of 16 (~1,700s / ~28min off cold load). *)
+(*                                                                            *)
+(* The 6 dropped cells (sp+72, xi_p, ivec_p, in_p block-0, X1, X9) are        *)
+(* objdump-confirmed never read by the tail range [0xed4,0x11b0); each        *)
+(* WB_TAIL_GEN2_k proving hyps=0 from the weak precond IS the in-proof audit  *)
+(* of that.  See session-044/045 notes (formerly at the WB_TAIL_GEN2 site).   *)
+(* ------------------------------------------------------------------------- *)
+
+(* the band goal split into (vars, hyps, pre, post, frame) *)
+let wbn_dissect_band k =
+  let g = mk_band_goal k in
+  let vars, body = strip_forall g in
+  let hyps, ens = dest_imp body in
+  let _, args = strip_comb ens in
+  (vars, hyps, el 1 args, el 2 args, el 3 args);;
+
+(* the 4 seam cells EXT2 drops -- objdump-confirmed never read by the tail,  *)
+(* re-confirmed in-proof by proving the back-leg from the precond without    *)
+(* them (session-044).  [sp+72]=0 is a pinned artifact; xi_p/ivec_p are      *)
+(* consumed only via the pre-seeded Q19/Q16 and Q0..Q7; in_p block-0 arrives *)
+(* pre-loaded in Q9 (WBN_Q9_SPEC).                                           *)
+let wbn_tail_drop_lhs = [
+  `read (memory :> bytes64 (word_add stackpointer (word 72))) (s:armstate)`;
+  `read (memory :> bytes128 xi_p) (s:armstate)`;
+  `read (memory :> bytes128 ivec_p) (s:armstate)`;
+  `read (memory :> bytes128 in_p) (s:armstate)`];;
+
+(* 6-cell drop: the 4 session-044 cells PLUS the dead X1,X9 (session-045).   *)
+let wbn_tail_drop_lhs6 = wbn_tail_drop_lhs @
+  [`read X1 (s:armstate)`; `read X9 (s:armstate)`];;
+let wbn_weak_q_at6 k =
+  let cs = conjuncts (snd(dest_abs (q_at k))) in
+  let kept = filter (fun c -> not (is_eq c && mem (lhs c) wbn_tail_drop_lhs6)) cs in
+  mk_abs(`s:armstate`, end_itlist (curry mk_conj) kept);;
+let wbn_tail_backleg_goal6 r =
+  let (vars, hyps, pre0, post, frame) = wbn_dissect_band r in
+  ignore pre0;
+  let ens = list_mk_comb(`ensures arm`, [wbn_weak_q_at6 r; post; frame]) in
+  list_mk_forall(vars, mk_imp(hyps, ens));;
+
+(* The 8 shared back-legs -- the ONLY per-block tail sims in the file now.    *)
+(* Each ~130-315s; each hyps=0 IS the per-r X1/X9 dead-cell audit.            *)
+let WB_TAIL_GEN2_1 = prove(wbn_tail_backleg_goal6 1,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 1 THEN WB_TAIL_1_TAC);;
+let WB_TAIL_GEN2_2 = prove(wbn_tail_backleg_goal6 2,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 2 THEN WB_TAIL_2_TAC);;
+let WB_TAIL_GEN2_3 = prove(wbn_tail_backleg_goal6 3,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 3 THEN WB_TAIL_3_TAC);;
+let WB_TAIL_GEN2_4 = prove(wbn_tail_backleg_goal6 4,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 4 THEN WB_TAIL_4_TAC);;
+let WB_TAIL_GEN2_5 = prove(wbn_tail_backleg_goal6 5,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 5 THEN WB_TAIL_5_TAC);;
+let WB_TAIL_GEN2_6 = prove(wbn_tail_backleg_goal6 6,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 6 THEN WB_TAIL_6_TAC);;
+let WB_TAIL_GEN2_7 = prove(wbn_tail_backleg_goal6 7,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 7 THEN WB_TAIL_7_TAC);;
+let WB_TAIL_GEN2_8 = prove(wbn_tail_backleg_goal6 8,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 8 THEN WB_TAIL_8_TAC);;
+(* --- mid-load heap compaction: bound GC cost after the 8 shared back-leg    *)
+(*     sims (the file's heaviest per-block work); mirrors the ckpt Gc.compact. *)
+Gc.compact();;
+
 (* The band prover: split at pc+3796 via FRAME_SUBSUMED + TRANS
    (ENSURES_SEQUENCE_TAC throws MAYCHANGE_IDEMPOT on this frame), discharge
-   the front leg with WB_FRONT_BUF, then prep + the band's verbatim tail. *)
-let prove_band k tail_tac =
+   the front leg with WB_FRONT_BUF; the back leg is then DISCHARGED (not
+   re-simulated) from the pre-proved WB_TAIL_GEN2_k by precondition-weakening
+   (q_at k ==> the 6-cell-dropped weak precond), the same ENSURES_PRECONDITION
+   idiom used for the shifted tail feed later in the file. *)
+let wbn_backlegs =
+  [WB_TAIL_GEN2_1; WB_TAIL_GEN2_2; WB_TAIL_GEN2_3; WB_TAIL_GEN2_4;
+   WB_TAIL_GEN2_5; WB_TAIL_GEN2_6; WB_TAIL_GEN2_7; WB_TAIL_GEN2_8];;
+let prove_band k =
   prove(mk_band_goal k,
     REPEAT GEN_TAC THEN STRIP_TAC THEN
     MATCH_MP_TAC ENSURES_FRAME_SUBSUMED THEN EXISTS_TAC (fdbl_at k) THEN
@@ -3963,19 +4043,23 @@ let prove_band k tail_tac =
     MATCH_MP_TAC ENSURES_TRANS THEN EXISTS_TAC (q_at k) THEN CONJ_TAC THENL
      [MATCH_MP_TAC (wbf_at k) THEN ASM_REWRITE_TAC[] THEN CONV_TAC NUM_REDUCE_CONV;
       ALL_TAC] THEN
-    WB_PREP_TAC k THEN tail_tac);;
+    MATCH_MP_TAC ENSURES_PRECONDITION_THM THEN EXISTS_TAC (wbn_weak_q_at6 k) THEN
+    CONJ_TAC THENL
+     [GEN_TAC THEN REWRITE_TAC[] THEN STRIP_TAC THEN ASM_REWRITE_TAC[];
+      MATCH_MP_TAC (el (k-1) wbn_backlegs) THEN
+      ASM_REWRITE_TAC[] THEN CONV_TAC NUM_REDUCE_CONV]);;
 
-(* ---- the 8 recomposed bands ----------------------------------------------- *)
-let AESV8_GCM_8X_DEC_256_WB_BUF_1BLOCK = prove_band 1 WB_TAIL_1_TAC;;
-let AESV8_GCM_8X_DEC_256_WB_BUF_2BLOCK = prove_band 2 WB_TAIL_2_TAC;;
-let AESV8_GCM_8X_DEC_256_WB_BUF_3BLOCK = prove_band 3 WB_TAIL_3_TAC;;
-let AESV8_GCM_8X_DEC_256_WB_BUF_4BLOCK = prove_band 4 WB_TAIL_4_TAC;;
-let AESV8_GCM_8X_DEC_256_WB_BUF_5BLOCK = prove_band 5 WB_TAIL_5_TAC;;
-let AESV8_GCM_8X_DEC_256_WB_BUF_6BLOCK = prove_band 6 WB_TAIL_6_TAC;;
-let AESV8_GCM_8X_DEC_256_WB_BUF_7BLOCK = prove_band 7 WB_TAIL_7_TAC;;
-let AESV8_GCM_8X_DEC_256_WB_BUF_8BLOCK = prove_band 8 WB_TAIL_8_TAC;;
+(* ---- the 8 recomposed bands (sim-free: reuse the WB_TAIL_GEN2_k back-leg) - *)
+let AESV8_GCM_8X_DEC_256_WB_BUF_1BLOCK = prove_band 1;;
+let AESV8_GCM_8X_DEC_256_WB_BUF_2BLOCK = prove_band 2;;
+let AESV8_GCM_8X_DEC_256_WB_BUF_3BLOCK = prove_band 3;;
+let AESV8_GCM_8X_DEC_256_WB_BUF_4BLOCK = prove_band 4;;
+let AESV8_GCM_8X_DEC_256_WB_BUF_5BLOCK = prove_band 5;;
+let AESV8_GCM_8X_DEC_256_WB_BUF_6BLOCK = prove_band 6;;
+let AESV8_GCM_8X_DEC_256_WB_BUF_7BLOCK = prove_band 7;;
+let AESV8_GCM_8X_DEC_256_WB_BUF_8BLOCK = prove_band 8;;
 (* --- mid-load heap compaction: bound GC cost across this large single-file *)
-(*     load (after BUF series (<=8-block per-block tail sims)); mirrors the needs-boundary/ckpt Gc.compact). --- *)
+(*     load (after the sim-free BUF series); mirrors the needs-boundary/ckpt Gc.compact). --- *)
 Gc.compact();;
 
 
@@ -9298,45 +9382,14 @@ let WBN_FRONT_TO_PREP_EXT2 = prove(wbn_front_to_prep_ext2_goal,
 (* KEY STRUCTURAL FACT (session-044): wb.ml's WB_TAIL_r_TAC tail proofs      *)
 (* already START at pc+3796 -- EXACTLY the EXT2 seam PC -- and drive to      *)
 (* pc+4528 (the whole-function exit) CHEAT-FREE (they discharge the r-block  *)
-(* GHASH via GMULT{r}_FULL_CORRECT_BA).  prove_band k's back-leg is          *)
-(* `WB_PREP_TAC k THEN WB_TAIL_k_TAC`, proving                               *)
-(*   ensures arm (q_at k) (band_post k) (band_frame k)                       *)
-(* where q_at k = wb_front_postcond @ nblk:=k.  So the tail leg we need is   *)
-(* structurally wb.ml's OWN back-leg, in the shifted (post-loop) variables.  *)
-(*                                                                           *)
-(* STEP 2a -- WB_TAIL_GEN_r: package that back-leg as a standalone           *)
-(* universally-quantified lemma, proven from the band precond MINUS the 4    *)
-(* cells the EXT2 seam does NOT carry (xi_p, ivec_p, [sp+72], in_p block-0). *)
-(* Proving it from the weakened precond DOES the in-proof dropped-cells      *)
-(* audit (the human's owed check) AND yields a lemma the EXT2 post can feed  *)
-(* by pure precondition-weakening (no re-simulation).                        *)
+(* GHASH via GMULT{r}_FULL_CORRECT_BA).  The shared per-block back-leg       *)
+(* WB_TAIL_GEN2_r -- `ensures arm (weak q_at r) (band_post r) (band_frame r)`*)
+(* -- is proved ONCE up front (session-071 refactor, at the prove_band site) *)
+(* and reused both by prove_band and here by the nblk>8 recomposition, which *)
+(* feeds it by precondition-weakening (no re-simulation).  wbn_dissect_band, *)
+(* wbn_tail_drop_lhs(6), wbn_weak_q_at6, wbn_tail_backleg_goal6 and the       *)
+(* WB_TAIL_GEN2_1..8 theorems are all defined at that earlier site.          *)
 (* ------------------------------------------------------------------------- *)
-
-(* the band goal split into (vars, hyps, pre, post, frame) *)
-let wbn_dissect_band k =
-  let g = mk_band_goal k in
-  let vars, body = strip_forall g in
-  let hyps, ens = dest_imp body in
-  let _, args = strip_comb ens in
-  (vars, hyps, el 1 args, el 2 args, el 3 args);;
-
-(* the 4 seam cells EXT2 drops -- objdump-confirmed never read by the tail,  *)
-(* re-confirmed in-proof by proving WB_TAIL_GEN_r from the precond without   *)
-(* them (session-044).  [sp+72]=0 is a pinned artifact; xi_p/ivec_p are      *)
-(* consumed only via the pre-seeded Q19/Q16 and Q0..Q7; in_p block-0 arrives *)
-(* pre-loaded in Q9 (WBN_Q9_SPEC).                                           *)
-let wbn_tail_drop_lhs = [
-  `read (memory :> bytes64 (word_add stackpointer (word 72))) (s:armstate)`;
-  `read (memory :> bytes128 xi_p) (s:armstate)`;
-  `read (memory :> bytes128 ivec_p) (s:armstate)`;
-  `read (memory :> bytes128 in_p) (s:armstate)`];;
-
-(* NOTE (session-068 dead-code removal): the original STEP 2a shipped a 4-cell
-   variant of the tail leg (wbn_weak_q_at / wbn_tail_backleg_goal / WB_TAIL_GEN_r,
-   r=1..8), which the session-045 soundness fix superseded with the 6-cell-drop
-   WB_TAIL_GEN2_r family below.  The 4-cell theorems were never consumed and have
-   been deleted; wbn_dissect_band and wbn_tail_drop_lhs (shared by the GEN2
-   builder) are kept. *)
 
 (* ========================================================================= *)
 (* SESSION-045 -- PHASE 6 STEP 2b: WBN_PREP_TO_END assembly infrastructure.  *)
@@ -9423,44 +9476,12 @@ let WBN_INPUT_SLICE_GEN = prove
   REWRITE_TAC[NUM_OF_WORDLIST_SUB_LIST; DIMINDEX_8] THEN
   AP_THM_TAC THEN AP_TERM_TAC THEN AP_TERM_TAC THEN ARITH_TAC);;
 
-(* 6-cell drop: the 4 session-044 cells PLUS the dead X1,X9. *)
-let wbn_tail_drop_lhs6 = wbn_tail_drop_lhs @
-  [`read X1 (s:armstate)`; `read X9 (s:armstate)`];;
-let wbn_weak_q_at6 k =
-  let cs = conjuncts (snd(dest_abs (q_at k))) in
-  let kept = filter (fun c -> not (is_eq c && mem (lhs c) wbn_tail_drop_lhs6)) cs in
-  mk_abs(`s:armstate`, end_itlist (curry mk_conj) kept);;
-let wbn_tail_backleg_goal6 r =
-  let (vars, hyps, pre0, post, frame) = wbn_dissect_band r in
-  ignore pre0;
-  let ens = list_mk_comb(`ensures arm`, [wbn_weak_q_at6 r; post; frame]) in
-  list_mk_forall(vars, mk_imp(hyps, ens));;
-
-(* r=1 VALIDATED session-045 (hyps=0, ~133s): confirms the r=1 tail reads     *)
-(* none of the 6 dropped cells (X1/X9 dead as objdump shows).  Same tactic.   *)
-let WB_TAIL_GEN2_1 = prove(wbn_tail_backleg_goal6 1,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 1 THEN WB_TAIL_1_TAC);;
-
-(* r=2..8: same back-leg from the 6-cell-drop weak precond (each ~130-315s;  *)
-(* WB_TAIL_GEN2_2 validated session-047 at ~165s; the others share the        *)
-(* WB_TAIL_r_TAC machinery).  Each hyps=0 IS the per-r X1/X9 dead-cell audit.  *)
-let WB_TAIL_GEN2_2 = prove(wbn_tail_backleg_goal6 2,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 2 THEN WB_TAIL_2_TAC);;
-let WB_TAIL_GEN2_3 = prove(wbn_tail_backleg_goal6 3,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 3 THEN WB_TAIL_3_TAC);;
-let WB_TAIL_GEN2_4 = prove(wbn_tail_backleg_goal6 4,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 4 THEN WB_TAIL_4_TAC);;
-let WB_TAIL_GEN2_5 = prove(wbn_tail_backleg_goal6 5,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 5 THEN WB_TAIL_5_TAC);;
-let WB_TAIL_GEN2_6 = prove(wbn_tail_backleg_goal6 6,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 6 THEN WB_TAIL_6_TAC);;
-let WB_TAIL_GEN2_7 = prove(wbn_tail_backleg_goal6 7,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 7 THEN WB_TAIL_7_TAC);;
-let WB_TAIL_GEN2_8 = prove(wbn_tail_backleg_goal6 8,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN WB_PREP_TAC 8 THEN WB_TAIL_8_TAC);;
-(* --- mid-load heap compaction: bound GC cost across this large single-file *)
-(*     load (after WB_TAIL_GEN2 series (nblk>8 back-leg tail sims)); mirrors the needs-boundary/ckpt Gc.compact). --- *)
-Gc.compact();;
+(* NOTE (session-071 speed refactor): the 6-cell-drop weak-precond builders     *)
+(* (wbn_tail_drop_lhs6, wbn_weak_q_at6, wbn_tail_backleg_goal6) and the eight    *)
+(* WB_TAIL_GEN2_1..8 back-leg theorems are now defined ONCE at the prove_band    *)
+(* site (session-071), so the per-block tail sim runs 8x per load, not 16x.      *)
+(* prove_band reuses them by precondition-weakening; the nblk>8 recomposition    *)
+(* below (INNER_TAIL_FEED_TAC / wbn_tail_gen2) references the same theorems.     *)
 
 (* ------------------------------------------------------------------------- *)
 (* WBN_PREP_TO_END_r recipe (VALIDATED for r=1 down to a full close this       *)
