@@ -9994,14 +9994,67 @@ let WBN_PREP_TO_END_FULL_r_TAC r =
       FIRST_ASSUM(fun th -> if is_forall(concl th) then MATCH_MP_TAC th else NO_TAC) THEN
       FIRST_X_ASSUM ACCEPT_TAC]];;
 
-(* r=2..8 full-post legs (session-049, each hyps=0, ~49s).  r=1 is FULL_1 above. *)
-let WBN_PREP_TO_END_FULL_2 = prove(wbn_prep_to_end_full_goal 2, WBN_PREP_TO_END_FULL_r_TAC 2);;
-let WBN_PREP_TO_END_FULL_3 = prove(wbn_prep_to_end_full_goal 3, WBN_PREP_TO_END_FULL_r_TAC 3);;
-let WBN_PREP_TO_END_FULL_4 = prove(wbn_prep_to_end_full_goal 4, WBN_PREP_TO_END_FULL_r_TAC 4);;
-let WBN_PREP_TO_END_FULL_5 = prove(wbn_prep_to_end_full_goal 5, WBN_PREP_TO_END_FULL_r_TAC 5);;
-let WBN_PREP_TO_END_FULL_6 = prove(wbn_prep_to_end_full_goal 6, WBN_PREP_TO_END_FULL_r_TAC 6);;
-let WBN_PREP_TO_END_FULL_7 = prove(wbn_prep_to_end_full_goal 7, WBN_PREP_TO_END_FULL_r_TAC 7);;
-let WBN_PREP_TO_END_FULL_8 = prove(wbn_prep_to_end_full_goal 8, WBN_PREP_TO_END_FULL_r_TAC 8);;
+(* ------------------------------------------------------------------------- *)
+(* SESSION-072 SPEED refactor: the r=2..8 suffix sim is BAND-AGNOSTIC          *)
+(* (WBN_PREP_TO_END_FULL_r_TAC uses no `17<=nblk`/`9<=nblk` literal and no      *)
+(* band-specific lemma; it only ABBREVs q=(nblk-9)DIV 8 symbolically).  The    *)
+(* two consumer families (FULL_r on `17<=nblk`, FULL_916_r on `9<=nblk/\       *)
+(* nblk<=16`) therefore ran the SAME ~49s sim TWICE (14 sims total).  Prove it *)
+(* ONCE on the strictly-weaker UNIFIED band `9<=nblk` (WBN_PREP_TO_END_FREE_r), *)
+(* then derive both consumers by pure hyp-strengthening (statement bit-        *)
+(* identical, so the dispatchers wbn_full_thm/wbn_full_916_thm are untouched).  *)
+(* Mirrors WBN_PREPRETAIL_EXT2_916 (:below) and the s071 GEN2 dedup.            *)
+(* Saves 7 sims (~343s).  ens is byte-identical across all three bands (only    *)
+(* the front-hyps band conjunct differs), so MATCH_MP_TAC + ASM_ARITH closes.   *)
+(* ------------------------------------------------------------------------- *)
+
+(* wide front-hyps with the band conjunct `17<=nblk` weakened to `9<=nblk`. *)
+let wbn_front_hyps_free_tm =
+  let rec repl t = match t with
+    | Comb(Comb(Const("/\\",_),a),b) -> mk_conj(repl a, repl b)
+    | _ -> if t = `17 <= nblk` then `9 <= nblk` else t in
+  repl wbn_front_hyps_wide_tm;;
+
+(* the unified band-free (9<=nblk) full-post goal for a given r. *)
+let wbn_prep_to_end_full_free_goal r =
+  let nblk_eq = subst[mk_small_numeral r,`r_:num`]
+                  `nblk = 8 * ((nblk - 9) DIV 8 + 1) + r_` in
+  let hyps = end_itlist (curry mk_conj)
+    (wbn_front_hyps_free_tm :: nblk_eq :: wbn_prep_to_end_extra_clauses) in
+  let ens = list_mk_comb(`ensures arm`,
+    [wbn_prepretail_post_ext2; wbn_end_post; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(hyps, ens));;
+
+(* r=2..8 on the unified 9<=nblk band -- the SINGLE sim per r (~49s each). *)
+let WBN_PREP_TO_END_FREE_2 = prove(wbn_prep_to_end_full_free_goal 2, WBN_PREP_TO_END_FULL_r_TAC 2);;
+let WBN_PREP_TO_END_FREE_3 = prove(wbn_prep_to_end_full_free_goal 3, WBN_PREP_TO_END_FULL_r_TAC 3);;
+let WBN_PREP_TO_END_FREE_4 = prove(wbn_prep_to_end_full_free_goal 4, WBN_PREP_TO_END_FULL_r_TAC 4);;
+let WBN_PREP_TO_END_FREE_5 = prove(wbn_prep_to_end_full_free_goal 5, WBN_PREP_TO_END_FULL_r_TAC 5);;
+let WBN_PREP_TO_END_FREE_6 = prove(wbn_prep_to_end_full_free_goal 6, WBN_PREP_TO_END_FULL_r_TAC 6);;
+let WBN_PREP_TO_END_FREE_7 = prove(wbn_prep_to_end_full_free_goal 7, WBN_PREP_TO_END_FULL_r_TAC 7);;
+let WBN_PREP_TO_END_FREE_8 = prove(wbn_prep_to_end_full_free_goal 8, WBN_PREP_TO_END_FULL_r_TAC 8);;
+(* --- Gc.compact after the 7 FREE suffix sims (this region's heavy sim cluster,
+       now the sole copy of what used to run 14x); mirrors the file's post-sim
+       compaction idiom (see the Gc.compact lines above). --- *)
+Gc.compact();;
+
+(* derive a banded consumer (wide OR 916) from the unified FREE_r by dropping the
+   band down to 9<=nblk: MATCH_MP_TAC on the byte-identical ens, ASM_REWRITE the
+   shared clauses, ASM_ARITH the band.  <0.1s, hyps=0.  Same idiom as
+   WBN_PREPRETAIL_EXT2_916 below. *)
+let wbn_prep_to_end_full_derive_tac free_thm =
+  REPEAT GEN_TAC THEN STRIP_TAC THEN MATCH_MP_TAC free_thm THEN
+  ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;;
+
+(* r=2..8 full-post legs (session-049 sims; session-072: now DERIVED from the
+   unified FREE_r, no re-sim).  r=1 is FULL_1 above.  Statement bit-identical. *)
+let WBN_PREP_TO_END_FULL_2 = prove(wbn_prep_to_end_full_goal 2, wbn_prep_to_end_full_derive_tac WBN_PREP_TO_END_FREE_2);;
+let WBN_PREP_TO_END_FULL_3 = prove(wbn_prep_to_end_full_goal 3, wbn_prep_to_end_full_derive_tac WBN_PREP_TO_END_FREE_3);;
+let WBN_PREP_TO_END_FULL_4 = prove(wbn_prep_to_end_full_goal 4, wbn_prep_to_end_full_derive_tac WBN_PREP_TO_END_FREE_4);;
+let WBN_PREP_TO_END_FULL_5 = prove(wbn_prep_to_end_full_goal 5, wbn_prep_to_end_full_derive_tac WBN_PREP_TO_END_FREE_5);;
+let WBN_PREP_TO_END_FULL_6 = prove(wbn_prep_to_end_full_goal 6, wbn_prep_to_end_full_derive_tac WBN_PREP_TO_END_FREE_6);;
+let WBN_PREP_TO_END_FULL_7 = prove(wbn_prep_to_end_full_goal 7, wbn_prep_to_end_full_derive_tac WBN_PREP_TO_END_FREE_7);;
+let WBN_PREP_TO_END_FULL_8 = prove(wbn_prep_to_end_full_goal 8, wbn_prep_to_end_full_derive_tac WBN_PREP_TO_END_FREE_8);;
 
 (* ------------------------------------------------------------------------- *)
 (* WBN_PREP_TO_END (session-049): the 8-way case split on r = 1+(nblk-9) MOD 8. *)
@@ -10404,14 +10457,17 @@ let WBN_PREP_TO_END_FULL_1_HAND_TAC =
       FIRST_ASSUM(fun th -> if is_forall(concl th) then MATCH_MP_TAC th else NO_TAC) THEN
       FIRST_X_ASSUM ACCEPT_TAC]];;
 
+(* r=1 keeps its hand tactic; r=2..8 DERIVE from the unified FREE_r sims proved
+   once above (session-072 SPEED dedup), no re-simulation.  Statement bit-
+   identical to the pre-072 full-sim version (9..16 band). *)
 let WBN_PREP_TO_END_FULL_916_1 = prove(wbn_prep_to_end_full_916_goal 1, WBN_PREP_TO_END_FULL_1_HAND_TAC);;
-let WBN_PREP_TO_END_FULL_916_2 = prove(wbn_prep_to_end_full_916_goal 2, WBN_PREP_TO_END_FULL_r_TAC 2);;
-let WBN_PREP_TO_END_FULL_916_3 = prove(wbn_prep_to_end_full_916_goal 3, WBN_PREP_TO_END_FULL_r_TAC 3);;
-let WBN_PREP_TO_END_FULL_916_4 = prove(wbn_prep_to_end_full_916_goal 4, WBN_PREP_TO_END_FULL_r_TAC 4);;
-let WBN_PREP_TO_END_FULL_916_5 = prove(wbn_prep_to_end_full_916_goal 5, WBN_PREP_TO_END_FULL_r_TAC 5);;
-let WBN_PREP_TO_END_FULL_916_6 = prove(wbn_prep_to_end_full_916_goal 6, WBN_PREP_TO_END_FULL_r_TAC 6);;
-let WBN_PREP_TO_END_FULL_916_7 = prove(wbn_prep_to_end_full_916_goal 7, WBN_PREP_TO_END_FULL_r_TAC 7);;
-let WBN_PREP_TO_END_FULL_916_8 = prove(wbn_prep_to_end_full_916_goal 8, WBN_PREP_TO_END_FULL_r_TAC 8);;
+let WBN_PREP_TO_END_FULL_916_2 = prove(wbn_prep_to_end_full_916_goal 2, wbn_prep_to_end_full_derive_tac WBN_PREP_TO_END_FREE_2);;
+let WBN_PREP_TO_END_FULL_916_3 = prove(wbn_prep_to_end_full_916_goal 3, wbn_prep_to_end_full_derive_tac WBN_PREP_TO_END_FREE_3);;
+let WBN_PREP_TO_END_FULL_916_4 = prove(wbn_prep_to_end_full_916_goal 4, wbn_prep_to_end_full_derive_tac WBN_PREP_TO_END_FREE_4);;
+let WBN_PREP_TO_END_FULL_916_5 = prove(wbn_prep_to_end_full_916_goal 5, wbn_prep_to_end_full_derive_tac WBN_PREP_TO_END_FREE_5);;
+let WBN_PREP_TO_END_FULL_916_6 = prove(wbn_prep_to_end_full_916_goal 6, wbn_prep_to_end_full_derive_tac WBN_PREP_TO_END_FREE_6);;
+let WBN_PREP_TO_END_FULL_916_7 = prove(wbn_prep_to_end_full_916_goal 7, wbn_prep_to_end_full_derive_tac WBN_PREP_TO_END_FREE_7);;
+let WBN_PREP_TO_END_FULL_916_8 = prove(wbn_prep_to_end_full_916_goal 8, wbn_prep_to_end_full_derive_tac WBN_PREP_TO_END_FREE_8);;
 
 let wbn_full_916_thm = Array.of_list
   [WBN_PREP_TO_END_FULL_916_1;  (* index 0 unused; use r directly 1..8 *)
