@@ -447,6 +447,20 @@ WB decrypt chain (`arm/proofs/aesv8_gcm_8x_dec_256_wb.ml`):
   (1783 -> 723 lines) and cutting the chain load ~19%. The savings are in term
   handling: every `SPECL`, `REWRITE_CONV`, and `ENSURES_TRANS` seam downstream
   manipulates the small form.
+* **Normalize an accumulator register to its clean spec atom AS SOON as the sim
+  produces it — not at the bridge.** The GHASH accumulator Q19 becomes byte-reversed
+  `xi` at the `ldr q19,[x3]; ext; rev64` window (WB steps ~178-189), but the stepper
+  leaves it as `word_join (word_reversefields lo) (word_reversefields hi)`. In that
+  shape it threads onward (via `Q16 = word_subword (word_join Q19 Q19) (64,128)`)
+  into the bridge state as an opaque `read Q16 s320` that the GMULT bridge **cannot
+  match** against `word_bytereverse xi`, and the tail will not close. Fix: prove the
+  one-liner `Q19_BREVXI : word_join (word_reversefields lo) (word_reversefields hi) =
+  word_bytereverse xi` by `WORD_BLAST`, and `RULE_ASSUM_TAC(REWRITE_RULE[Q19_BREVXI])`
+  immediately after the rev64 step. Applies identically to every band (this was the
+  single fix that unblocked the whole WB band ladder). General lesson: a register
+  carrying a spec-level value should be rewritten to that value at the step that
+  creates it, while the assumption is still small and local — deferring it until the
+  algebraic bridge means matching a large opaque term.
 * **Keep downstream tactics verbatim by rebinding, not editing.** If tail tactics
   match on the raw form (e.g. `REWRITE_TAC[GSYM AES256_XOR_ENCRYPT_RECONSTRUCT]`),
   rebind the lemma over the named definition once
