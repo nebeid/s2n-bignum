@@ -7874,7 +7874,18 @@ let WBN_MACHINE_REDUCE_IS_PROP3_PACK = prove
                          (word_subword (word_xor (word_xor PL PH) PM) (0,64):64 word))
                (word_subword (wa:int128) (0,64):64 word))
      (word 13979173243358019584:64 word)` THEN
-  CONV_TAC WORD_BLAST);;
+  (* SESSION-074 SPEED: the old monolithic `CONV_TAC WORD_BLAST` here bit-blasted
+     PL/PH/PM as full 128-bit free vars (~115s).  Instead reconstruct the LHS
+     result as word_join of its two 64-bit lanes (QQ0SPLIT), split the resulting
+     word_join=word_join with JOIN_EQ_SPLIT, and close each 64-bit lane with the
+     proven WB_TAIL lane finisher (LANE_FINISH_Z_TAC = WORD_SIMPLE_SUBWORD_CONV +
+     subword rewrites + WORD_RULE).  Same idiom as WB_TAIL_3..8's Q19 close.
+     Measured standalone 114.6s -> 5.5s (needs-chain warm load), proof-preserving
+     (hyps=0, statement unchanged -- SPECL consumers at build_q19_reduce_clean
+     are untouched). *)
+  GEN_REWRITE_TAC (LAND_CONV o ONCE_DEPTH_CONV) [QQ0SPLIT] THEN
+  REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
+  REWRITE_TAC[JOIN_EQ_SPLIT] THEN CONJ_TAC THEN LANE_FINISH_Z_TAC);;
 
 (* ------------------------------------------------------------------------- *)
 (* session-062 (Q19 R1' close, part 2 of 2): BLOCK-ALGEBRA reconciliation     *)
