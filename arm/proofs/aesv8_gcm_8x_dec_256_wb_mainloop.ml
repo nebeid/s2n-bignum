@@ -12745,6 +12745,111 @@ let GCM_DEC_PT_BYTES_WHOLE_SYM = prove
   MATCH_MP_TAC AES_CTR_FULL_TAIL_BYTES_WHOLE THEN
   REWRITE_TAC[LENGTH_GCM_DEC_BLOCKS_FROM] THEN ASM_ARITH_TAC);;
 
+(* ------------------------------------------------------------------------- *)
+(* POINTWISE data-output support (session-079).                                *)
+(*                                                                             *)
+(* WHY these exist: the exported data postcondition is otherwise ONLY the      *)
+(* whole-buffer byte-list form byte_list_at(gcm_dec_pt_bytes(16*nblk)..).      *)
+(* gcm_dec_pt_bytes INTERNALLY computes nfull=(len-1)DIV 16 and tail=len-16    *)
+(* nfull -- partial-block machinery that is DEAD at whole-block lengths (it    *)
+(* degenerates to nfull=nblk-1, tail=16, GCM_DEC_PT_BYTES_WHOLE_SYM).  A       *)
+(* reviewer must re-derive that to see the routine only handles whole blocks;  *)
+(* the statement reads as though arbitrary byte lengths are accepted (inherited*)
+(* from the masked-partial chain).  The pointwise form                         *)
+(*   !j. j<nblk ==> read(memory:>bytes128(out_p+16j)) s = EL j (aes_ctr ...)    *)
+(* removes that ambiguity and matches Mila's/John's sibling AES-GCM shape.  Do *)
+(* NOT "simplify" it away by folding it back into the byte-list form.          *)
+
+(* 16 bytes at offset 16*j of int128_list_to_bytes repack to EL j.  The reverse
+   direction of the int128-list/byte-list correspondence; no such lemma existed. *)
+let SUB_LIST_INT128_LIST_TO_BYTES_EL = prove
+ (`!cts j. j < LENGTH cts
+     ==> bytes_to_int128 (SUB_LIST (16 * j,16) (int128_list_to_bytes cts)) =
+         EL j cts`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN
+    `SUB_LIST (16 * j,16) (int128_list_to_bytes (cts:int128 list)) =
+     int128_to_bytes (EL j cts)`
+   SUBST1_TAC THENL
+   [REWRITE_TAC[LIST_EQ] THEN
+    REWRITE_TAC[LENGTH_SUB_LIST; LENGTH_INT128_LIST_TO_BYTES;
+                LENGTH_INT128_TO_BYTES] THEN
+    CONJ_TAC THENL
+     [ASM_SIMP_TAC[ARITH_RULE `j < n ==> MIN 16 (16 * n - 16 * j) = 16`];
+      X_GEN_TAC `i:num` THEN REWRITE_TAC[LENGTH_INT128_TO_BYTES] THEN
+      DISCH_TAC THEN
+      MP_TAC(ISPECL [`16 * j`; `int128_list_to_bytes (cts:int128 list)`;
+                     `16 * j + i`; `16`] EL_SUB_LIST_GENERAL) THEN
+      REWRITE_TAC[LENGTH_INT128_LIST_TO_BYTES] THEN
+      ANTS_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+      SUBGOAL_THEN `(16 * j + i) - 16 * j = i` SUBST1_TAC THENL
+       [ARITH_TAC; ALL_TAC] THEN
+      DISCH_THEN SUBST1_TAC THEN
+      MP_TAC(SPECL [`cts:int128 list`; `16 * j + i`] EL_INT128_LIST_TO_BYTES) THEN
+      ANTS_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+      DISCH_THEN SUBST1_TAC THEN
+      SUBGOAL_THEN `(16 * j + i) DIV 16 = j /\ (16 * j + i) MOD 16 = i`
+        (CONJUNCTS_THEN SUBST1_TAC) THENL
+       [ASM_SIMP_TAC[DIV_MULT_ADD; MOD_MULT_ADD; ARITH_EQ; DIV_LT; MOD_LT] THEN
+        REWRITE_TAC[ADD_CLAUSES];
+        ALL_TAC] THEN
+      ASM_SIMP_TAC[EL_INT128_TO_BYTES]];
+    REWRITE_TAC[BYTES_TO_INT128_OF_INT128_TO_BYTES]]);;
+
+(* byte_list_at(gcm_dec_pt_bytes ...) -> the per-block bytes128 reads.  At
+   whole-block lengths the partial-block machinery in gcm_dec_pt_bytes is dead
+   (GCM_DEC_PT_BYTES_WHOLE_SYM), so each 16-byte slice is exactly EL j of the
+   counter-mode stream.  This is the "reverse" s078 believed did not exist:
+   BYTE_LIST_AT_1BLOCKS gives byte_list_at -> per-block bytes128, and the repack
+   lemma above closes the 16-byte slice back to EL j. *)
+let WBN_OUTPUT_POINTWISE = prove
+ (`!nblk ibytes ctr0 rk out_p s.
+     1 <= nblk /\ 128 * nblk < 2 EXP 62 /\
+     byte_list_at (gcm_dec_pt_bytes (16 * nblk) ibytes ctr0 rk)
+                  out_p (word (16 * nblk)) s
+     ==> !j. j < nblk
+             ==> read (memory :> bytes128 (word_add out_p (word (16 * j)))) s =
+                 EL j (aes_ctr ctr0 (gcm_dec_blocks_from 0 nblk ibytes) rk)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN
+    `byte_list_at (int128_list_to_bytes
+        (aes_ctr ctr0 (gcm_dec_blocks_from 0 nblk ibytes) rk))
+        out_p (word (16 * nblk)) s`
+   ASSUME_TAC THENL
+   [ASM_MESON_TAC[GCM_DEC_PT_BYTES_WHOLE_SYM; aes_ctr_bytes]; ALL_TAC] THEN
+  SUBGOAL_THEN
+    `LENGTH (int128_list_to_bytes
+        (aes_ctr ctr0 (gcm_dec_blocks_from 0 nblk ibytes) rk)) =
+     val (word (16 * nblk):int64)`
+   ASSUME_TAC THENL
+   [REWRITE_TAC[LENGTH_INT128_LIST_TO_BYTES; LENGTH_AES_CTR;
+                LENGTH_GCM_DEC_BLOCKS_FROM] THEN
+    CONV_TAC SYM_CONV THEN
+    MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN
+    MP_TAC(ASSUME `128 * nblk < 2 EXP 62`) THEN ARITH_TAC;
+    ALL_TAC] THEN
+  X_GEN_TAC `j:num` THEN DISCH_TAC THEN
+  MP_TAC(ISPECL [`16 * j`; `int128_list_to_bytes
+                   (aes_ctr ctr0 (gcm_dec_blocks_from 0 nblk ibytes) rk)`;
+                 `out_p:int64`; `word (16 * nblk):int64`; `s:armstate`]
+         BYTE_LIST_AT_1BLOCKS) THEN
+  ASM_REWRITE_TAC[LENGTH_INT128_LIST_TO_BYTES; LENGTH_AES_CTR;
+                  LENGTH_GCM_DEC_BLOCKS_FROM] THEN
+  ANTS_TAC THENL
+   [FIRST_X_ASSUM(fun th ->
+      if is_eq(concl th) &&
+         (try can (find_term (fun t -> t = `val (word (16 * nblk):int64)`))
+                  (concl th) with _ -> false)
+      then SUBST1_TAC(SYM th) else NO_TAC) THEN
+    REWRITE_TAC[LENGTH_INT128_LIST_TO_BYTES; LENGTH_AES_CTR;
+                LENGTH_GCM_DEC_BLOCKS_FROM] THEN
+    MP_TAC(ASSUME `j < nblk`) THEN ARITH_TAC;
+    ALL_TAC] THEN
+  DISCH_THEN SUBST1_TAC THEN
+  MATCH_MP_TAC SUB_LIST_INT128_LIST_TO_BYTES_EL THEN
+  REWRITE_TAC[LENGTH_AES_CTR; LENGTH_GCM_DEC_BLOCKS_FROM] THEN
+  MP_TAC(ASSUME `j < nblk`) THEN ARITH_TAC);;
+
 (* Per-block value bridge: wbn_end_post's store form (word_xor(word_xor cph     *)
 (* aes13..)k14) is exactly EL j of aes_ctr over the gcm_dec_blocks_from list     *)
 (* with the 15-key list.  Standalone (keeps AES/counter algebra out of the       *)
@@ -13319,6 +13424,79 @@ let AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT_GCMKEY = prove
   REPEAT GEN_TAC THEN
   MATCH_ACCEPT_TAC(INST [`aes256_encrypt (word 0) rk`,`H:int128`]
                         (SPEC_ALL AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT)));;
+
+(* ------------------------------------------------------------------------- *)
+(* POINTWISE data corollary (session-079), reviewer-facing.  Same pre/frame as *)
+(* _CORRECT, but the data postcondition is the per-block form                  *)
+(*   !j. j<nblk ==> read(memory:>bytes128(out_p+16j)) s =                       *)
+(*                  EL j (aes_ctr ctr0 (gcm_dec_blocks_from 0 nblk ibytes) rk)   *)
+(* instead of the whole-buffer byte_list_at(gcm_dec_pt_bytes ...).  This makes   *)
+(* it manifest that the routine handles ONLY whole 16-byte blocks (the          *)
+(* partial-block nfull/tail machinery inside gcm_dec_pt_bytes is dead at        *)
+(* whole-block lengths -- see the WHY note at SUB_LIST_INT128_LIST_TO_BYTES_EL)  *)
+(* and matches the sibling AES-GCM proofs' shape.  Derived from _CORRECT by      *)
+(* postcondition weakening (the pointwise form is a CONSEQUENCE of the byte-list *)
+(* form via WBN_OUTPUT_POINTWISE): _CORRECT is NOT touched.  DO NOT fold this    *)
+(* back into the byte-list form.                                                *)
+let AESV8_GCM_8X_DEC_256_WB_CORRECT_POINTWISE = prove
+ (`!pc stackpointer in_p out_p xi_p ivec_p key_p htbl_p nblk ibytes rk H
+    tag0 ctr0.
+    1 <= nblk /\
+    128 * nblk < 2 EXP 62 /\
+    val in_p + 16 * nblk < 2 EXP 63 /\
+    LENGTH ibytes = 16 * nblk /\
+    LENGTH rk = 15 /\
+    aligned 16 stackpointer /\
+    ALLPAIRS nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16]
+    [word pc,4560; in_p,16 * nblk; key_p,240; htbl_p,192; stackpointer,80] /\
+    PAIRWISE nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16] /\
+    ALL (nonoverlapping (stackpointer,80))
+    [word pc,4560; in_p,16 * nblk; key_p,240; htbl_p,192]
+    ==> ensures arm
+         (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
+              read PC s = word (pc + 32) /\
+              read SP s = stackpointer /\
+              C_ARGUMENTS
+              [in_p; word (128 * nblk); out_p; xi_p; ivec_p; key_p; htbl_p]
+              s /\
+              byte_list_at ibytes in_p (word (16 * nblk)) s /\
+              read (memory :> bytes128 xi_p) s = word_reversefields 8 tag0 /\
+              read (memory :> bytes128 ivec_p) s = ctr0 /\
+              wordlist_from_memory (key_p,15) s = rk /\
+              htable_mem_8 (ghash_twist H) htbl_p s)
+         (\s. read PC s = word (pc + 4528) /\
+              (!j. j < nblk
+                   ==> read (memory :> bytes128
+                              (word_add out_p (word (16 * j)))) s =
+                       EL j (aes_ctr ctr0 (gcm_dec_blocks_from 0 nblk ibytes)
+                               rk)) /\
+              read (memory :> bytes128 xi_p) s =
+              word_reversefields 8
+              (nist_ghash H tag0
+              (list_of_seq (nist_input_block ibytes) nblk)))
+         (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+          MAYCHANGE
+          [memory :> bytes (out_p,16 * nblk); memory :> bytes (xi_p,16);
+           memory :> bytes (ivec_p,16);
+           memory :> bytes (word_add stackpointer (word 64),16)] ,,
+          MAYCHANGE
+          [Q0; Q1; Q2; Q3; Q4; Q5; Q6; Q7; Q8; Q9; Q10; Q11; Q12; Q13; Q14;
+           Q15; Q16; Q17; Q18; Q19; Q20; Q21; Q22; Q23; Q24; Q25; Q26; Q27;
+           Q28; Q29; Q30; Q31])`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC ENSURES_POSTCONDITION_THM THEN
+  EXISTS_TAC
+    `\s. read PC s = word (pc + 4528) /\
+         byte_list_at (gcm_dec_pt_bytes (16 * nblk) ibytes ctr0 rk) out_p
+         (word (16 * nblk)) s /\
+         read (memory :> bytes128 xi_p) s =
+         word_reversefields 8
+         (nist_ghash H tag0 (list_of_seq (nist_input_block ibytes) nblk))` THEN
+  CONJ_TAC THENL
+   [X_GEN_TAC `s:armstate` THEN BETA_TAC THEN STRIP_TAC THEN
+    ASM_REWRITE_TAC[] THEN
+    MATCH_MP_TAC WBN_OUTPUT_POINTWISE THEN ASM_REWRITE_TAC[];
+    MATCH_MP_TAC AESV8_GCM_8X_DEC_256_WB_CORRECT THEN ASM_REWRITE_TAC[]]);;
 
 (* ------------------------------------------------------------------------- *)
 (* THE WHOLE-FUNCTION CONTRACT (headline result).                              *)
