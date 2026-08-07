@@ -12904,36 +12904,22 @@ let WBN_END_OUTPUT_BYTE_LIST = prove
     MATCH_MP_TAC WBN_ENDBLOCK_IS_AES_CTR THEN ASM_REWRITE_TAC[]]);;
 
 (* ------------------------------------------------------------------------- *)
-(* TASK 3 (session-078, EXPLORATORY): counter-model bridge to the NIST         *)
-(* SP 800-38D nonce||counter form used by the sibling AES-GCM proofs.          *)
+(* Counter-model bridge to the NIST SP 800-38D nonce||counter form used by the *)
+(* sibling AES-GCM proofs (session-078 exploratory; session-080 wires it into   *)
+(* the exported theorems' nonce-named keystream).                              *)
 (*                                                                             *)
-(* Our postcondition names counters via gcm_ctr_inc_iter j ctr0 (successor-    *)
-(* iterated over an OPAQUE initial block ctr0), so the SP 800-38D nonce is      *)
-(* never named.  Mila's/John's proofs instead use                             *)
+(* Our chain names counters via gcm_ctr_inc_iter j ctr0 (successor-iterated     *)
+(* over an OPAQUE initial block ctr0).  Mila's/John's proofs instead use        *)
 (*   ctr_block nonce ctr = word_join (nonce:96 word) (word ctr:int32)          *)
-(* (NIST big-endian: fixed 96-bit nonce, 32-bit big-endian counter), with      *)
-(* block i's input = ctr_block nonce (i + 2).  This block proves that the two   *)
-(* models COINCIDE: our gcm_ctr_inc_iter is exactly NIST inc32 iterated on the  *)
-(* nonce||counter block (conjugated by the load-time byteswap), UNCONDITIONALLY *)
-(* (the 32-bit counter wrap is absorbed by word arithmetic -- no no-wrap side   *)
-(* condition is needed).  ctr_block is defined here matching Mila's def         *)
-(* verbatim (it is not in this load chain); when the AES-GCM proofs merge        *)
-(* upstream this local copy folds into the shared one.                          *)
-(*                                                                             *)
-(* SCOPE NOTE (why no pointwise-block DATA corollary is added here): turning    *)
-(* the exported byte_list_at(gcm_dec_pt_bytes ...) whole-buffer postcondition    *)
-(* into Mila's pointwise                                                        *)
-(*   !j. j<nblk ==> read(memory:>bytes128(out_p+16j)) s =                       *)
-(*                  word_xor (aes_ctr_block nonce rk j) (inblock j)             *)
-(* would additionally require (a) the REVERSE of WBN_END_OUTPUT_BYTE_LIST -- a   *)
-(* byte_list_at -> per-16-byte-block bytes128 regrouping at SYMBOLIC nblk, which *)
-(* is genuinely new machinery (only the forward BYTE_LIST_AT_*_CTR direction     *)
-(* exists), and (b) the aes256_encrypt = aes256_cipher FIPS-197 bridge to match  *)
-(* their aes_ctr_block spelling (an explicitly-upstream deliverable, PR #389 --  *)
-(* see the Task-1 TODO).  Both are out of scope for this presentation pass, so   *)
-(* per the brief we STOP at the counter-model bridge and report.  The bridge     *)
-(* lemmas below are the reusable core a future pointwise corollary would build   *)
-(* on once (a) and (b) land.                                                    *)
+(* (NIST big-endian: fixed 96-bit nonce, 32-bit big-endian counter).  These     *)
+(* lemmas prove the two models COINCIDE: gcm_ctr_inc_iter is exactly NIST inc32 *)
+(* iterated on the nonce||counter block (conjugated by the load-time byteswap), *)
+(* UNCONDITIONALLY (the 32-bit wrap is the intended mod-2^32 rollover).          *)
+(* GCM_CTR_INC_ITER_CTR_BLOCK + CTR0_AS_CTR_BLOCK are what let the exported      *)
+(* _CORRECT/_SUBROUTINE_CORRECT NAME the nonce (via WBN_OUTPUT_POINTWISE_NONCE   *)
+(* below).  ctr_block is defined here matching Mila's def verbatim (not in this  *)
+(* load chain); it folds into the shared one when the AES-GCM proofs merge       *)
+(* upstream.                                                                    *)
 (* ------------------------------------------------------------------------- *)
 
 let ctr_block = new_definition
@@ -13558,24 +13544,15 @@ let () =
                   AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT;
                   AESV8_GCM_8X_DEC_256_WB_GUARD;
                   WBN_DEC_CORE_BYTELIST; WBN_DEC_SUBROUTINE_BYTELIST] in
-  (* Drift gate.  The exported theorems are proved directly; here we re-derive
-     what we EXPECT them to say and assert alpha-equivalence, catching any future
-     edit that silently drifts a literal.
-
-     TWO layers:
-     (1) the internal byte-list SPINES (WBN_DEC_CORE_BYTELIST /
-         WBN_DEC_SUBROUTINE_BYTELIST) are anchored to the FROZEN _DISPATCH by
-         term surgery (core_bytelist_anchor / subr_bytelist_anchor), exactly as
-         before the session-080 consolidation;
-     (2) the two EXPORTED theorems are anchored to the spines by the presentation
-         transform `to_exported`: pin H := aes256_encrypt (word 0) rk, add the
-         nonce hypothesis (word_bytereverse ctr0 = ctr_block nonce c) after the
-         `aligned` conjunct, add nonce/c forall vars, and replace the byte-list
-         data conjunct with the pointwise keystream conjunct.  Both anchor terms
-         are built from proved theorems (the spine + WBN_OUTPUT_POINTWISE_NONCE),
-         so no hand-typed literal can drift undetected. *)
-  (* (1a) core_bytelist_anchor: the DISPATCH ensures-body verbatim, `nblk<=8`
-     replaced by `1<=nblk` + the two size bounds. *)
+  (* Drift gate, two layers: (1) the byte-list SPINES are aconv-anchored to the
+     FROZEN _DISPATCH by term surgery (as before session-080); (2) the two
+     EXPORTED theorems are aconv-anchored to the spines via `to_exported` (pin
+     H := aes256_encrypt (word 0) rk, add the nonce hyp after `aligned`, add the
+     nonce/c vars, swap the byte-list data conjunct for the pointwise one).  Both
+     anchors are built from proved theorems (spine + WBN_OUTPUT_POINTWISE_NONCE),
+     so no hand-typed literal can drift undetected. *)
+  (* (1a) core spine anchor: the DISPATCH ensures-body, `nblk<=8` -> `1<=nblk` +
+     the two size bounds. *)
   let core_bytelist_anchor =
     let dvars, dbody = strip_forall (concl AESV8_GCM_8X_DEC_256_WB_DISPATCH) in
     let dhyps, dens = dest_imp dbody in
@@ -13584,12 +13561,10 @@ let () =
                 `val (in_p:int64) + 16 * nblk < 2 EXP 63` ::
                 (filter (fun c -> c <> `1 <= nblk`) hyps0) in
     list_mk_forall(dvars, mk_imp(list_mk_conj hyps', dens)) in
-  (* (1b) subr_bytelist_anchor: the ABI wrapper spine, term-derived from
-     core_bytelist_anchor -- SP shifted to word_sub stackpointer (word 80)
-     throughout, entry PC pc+32 -> pc, exit PC pc+4528 -> returnaddress, read X30
-     s = returnaddress added, an extra returnaddress forall var, `1<=nblk` dropped
-     (nblk=0 folded in), and the core-scratch `,, MAYCHANGE [Q0..Q31]` frame
-     dropped (subsumed by the ABI frame). *)
+  (* (1b) subroutine spine anchor, from the core anchor: SP shifted to word_sub
+     stackpointer (word 80), entry PC pc+32 -> pc, exit pc+4528 -> returnaddress,
+     +read X30 s = returnaddress, +returnaddress var, `1<=nblk` dropped (nblk=0
+     folded in), `,, MAYCHANGE [Q0..Q31]` dropped (subsumed by the ABI frame). *)
   let subr_bytelist_anchor =
     let cvars, cbody = strip_forall core_bytelist_anchor in
     let base = subst
