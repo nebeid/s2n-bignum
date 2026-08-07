@@ -5254,6 +5254,1149 @@ let WBN_FRONT_FULL_TAC =
   WBN_RESOLVE_49C_TAC THEN
   ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (288--288);;
 
+(* ------------------------------------------------------------------------- *)
+(* SESSION-073 SPEED REFACTOR -- the SHARED FRONT PREFIX, simulated ONCE.      *)
+(*                                                                            *)
+(* WBN_FRONT_BUF (band 17<=nblk, -> loop head 0x4a0) and WBN_FRONT_TO_PREP_916 *)
+(* (band 9<=nblk<=16, -> prepretail 0x9f0) previously ran the IDENTICAL 287-  *)
+(* step front sim (entry 0x20 -> the 0x49c b.ge), diverging ONLY at step 288  *)
+(* (the 0x49c branch: >=17 falls through to 0x4a0; 9..16 is taken to 0x9f0).  *)
+(* The 0x42c b.ge (step 260) falls through in BOTH bands, so steps 1..287 are *)
+(* byte-identical work (~265s of duplicated ARM_STEPS per cold load).          *)
+(*                                                                            *)
+(* Factor: prove the prefix (0x20 -> 0x49c) ONCE on the union band 9<=nblk    *)
+(* (WBN_FRONT_PREFIX), harvesting the raw s287 state (incl. the NF/VF/ZF/CF   *)
+(* facts the 0x49c b.ge reads).  Each consumer then chains a single step-288  *)
+(* leg via ENSURES_TRANS_SIMPLE: init from the prefix postcond, resolve the   *)
+(* branch IN ITS BAND, step to its exit, close.  Both consumer STATEMENTS stay *)
+(* bit-identical (still prove(<original goal builder>, ...)), so downstream    *)
+(* (WBN_FRONT_BUF_EXT @ concl-extraction, the 916 MATCH_MP_TAC) is untouched.  *)
+(* ------------------------------------------------------------------------- *)
+
+(* union band: wbn_front_hyps_tm with 17<=nblk relaxed to 9<=nblk *)
+let wbn_front_hyps_ge9_tm =
+  let rec repl t = match t with
+    | Comb(Comb(Const("/\\",_),a),b) -> mk_conj(repl a, repl b)
+    | _ -> if t = `17 <= nblk` then `9 <= nblk` else t in
+  repl wbn_front_hyps_tm;;
+
+(* 0x42c b.ge falls through whenever d=128*((nblk-1)DIV8) >= 1, i.e. nblk>=9.
+   (union of WB_LOOPENTER_FLAGS's 17<= and WB_LOOPENTER_FLAGS_916's 9..16). *)
+let WB_LOOPENTER_FLAGS_GE9 = prove
+ (`!(in_p:int64) nblk. 9 <= nblk /\ 128 * nblk < 2 EXP 62 /\
+        val in_p + 16 * nblk < 2 EXP 63
+    ==> (ival (word_sub in_p (word_add (word (128 * (nblk - 1) DIV 8)) in_p)) < &0 <=> T) /\
+        (ival in_p - ival (word_add (word (128 * (nblk - 1) DIV 8)) in_p) =
+         ival (word_sub in_p (word_add (word (128 * (nblk - 1) DIV 8)) in_p)) <=> T)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  ABBREV_TAC `d = 128 * (nblk - 1) DIV 8` THEN
+  SUBGOAL_THEN `1 <= d /\ d <= 16 * nblk /\ d <= 2 EXP 63` STRIP_ASSUME_TAC THENL
+   [EXPAND_TAC "d" THEN
+    MP_TAC(SPECL [`nblk - 1`; `8`] DIVISION) THEN
+    MP_TAC(ASSUME `9 <= nblk`) THEN MP_TAC(ASSUME `128 * nblk < 2 EXP 62`) THEN
+    POP_ASSUM_LIST(K ALL_TAC) THEN REPEAT STRIP_TAC THEN ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  REWRITE_TAC[WORD_RULE `word_sub p (word_add (word d) p):int64 = word_neg (word d)`] THEN
+  ASM_SIMP_TAC[IVAL_NEG_SMALL] THEN
+  SUBGOAL_THEN `word_add (word d) in_p:int64 = word_add in_p (word d)` SUBST1_TAC THENL
+   [CONV_TAC WORD_RULE; ALL_TAC] THEN
+  SUBGOAL_THEN `ival (word_add in_p (word d):int64) = &(val in_p + d)` SUBST1_TAC THENL
+   [MATCH_MP_TAC IVAL_PTR_ADD THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `ival (in_p:int64) = &(val in_p)` SUBST1_TAC THENL
+   [MATCH_MP_TAC IVAL_SMALL_PTR THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[INT_ARITH `--(&d):int < &0 <=> &0:int < &d`; INT_OF_NUM_LT] THEN
+    ASM_ARITH_TAC;
+    REWRITE_TAC[GSYM INT_OF_NUM_ADD] THEN INT_ARITH_TAC]);;
+
+(* pure-arith closer for the union-band side conditions *)
+let NBLK_ARITH_GE9_TAC =
+  MP_TAC(ASSUME `9 <= nblk`) THEN
+  MP_TAC(ASSUME `128 * nblk < 2 EXP 62`) THEN
+  POP_ASSUM_LIST(K ALL_TAC) THEN ARITH_TAC;;
+
+(* union-band variants of the front prefix/lane/init tactics (mirror the 17<=
+   WBN_FRONT_PREP_BUF_TAC/WBN_LANES_TAC/wbn_init_tac with the 9<= arith). *)
+let WBN_FRONT_PREP_BUF_GE9_TAC =
+  SUBGOAL_THEN `SUB_LIST (0, 16 * nblk) (ibytes:byte list) = ibytes` ASSUME_TAC THENL
+   [MATCH_MP_TAC SUB_LIST_LENGTH_IMPLIES THEN ASM_REWRITE_TAC[LE_REFL]; ALL_TAC] THEN
+  SUBGOAL_THEN `read (memory :> bytes128 in_p) s0 = bytes_to_int128 (SUB_LIST (0,16) ibytes)` ASSUME_TAC THENL
+   [MP_TAC(SPECL [`nblk:num`; `in_p:int64`; `ibytes:byte list`; `s0:armstate`] INPUT_BYTES_TO_BYTE128_LANES) THEN
+    ASM_REWRITE_TAC[LE_REFL] THEN DISCH_THEN(MP_TAC o SPEC `0`) THEN
+    ANTS_TAC THENL [NBLK_ARITH_GE9_TAC; ALL_TAC] THEN
+    REWRITE_TAC[MULT_CLAUSES; WORD_ADD_0] THEN DISCH_THEN(fun th -> REWRITE_TAC[th]); ALL_TAC] THEN
+  SUBGOAL_THEN `word_ushr (word (128 * nblk):int64) 3 = word (16 * nblk)` ASSUME_TAC THENL
+   [MATCH_MP_TAC USHR_128NBLK_ANY THEN NBLK_ARITH_GE9_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `word_and (word_sub (word (16 * nblk)) (word 1)) (word 18446744073709551488):int64 = word (128 * ((nblk - 1) DIV 8))` ASSUME_TAC THENL
+   [MATCH_MP_TAC AND_MASK_16NBLK_ANY THEN NBLK_ARITH_GE9_TAC; ALL_TAC];;
+
+let WBN_LANES_GE9_TAC =
+  SUBGOAL_THEN
+   `!k. k < 8 ==> read (memory :> bytes128 (word_add in_p (word (16 * k)))) s0 =
+                  bytes_to_int128 (SUB_LIST (16 * k, 16) (ibytes:byte list))`
+   MP_TAC THENL
+   [MP_TAC(SPECL [`nblk:num`; `in_p:int64`; `ibytes:byte list`; `s0:armstate`]
+      INPUT_BYTES_TO_BYTE128_LANES) THEN
+    ASM_REWRITE_TAC[LE_REFL] THEN
+    DISCH_THEN(fun lth -> X_GEN_TAC `k:num` THEN DISCH_TAC THEN
+      MP_TAC(SPEC `k:num` lth) THEN ANTS_TAC THENL
+       [MP_TAC(ASSUME `k < 8`) THEN NBLK_ARITH_GE9_TAC; REWRITE_TAC[]]);
+    DISCH_THEN(fun lth ->
+      EVERY(map (fun i ->
+        ASSUME_TAC(CONV_RULE(DEPTH_CONV NUM_RED_CONV)
+          (MP (SPEC (mk_small_numeral i) lth)
+              (ARITH_RULE(mk_binop `(<):num->num->bool` (mk_small_numeral i) `8`)))))
+        (0--7)))];;
+
+let wbn_init_ge9_tac =
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  REWRITE_TAC[C_ARGUMENTS; SOME_FLAGS] THEN ENSURES_INIT_TAC "s0" THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[C_ARGUMENTS]) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_dec]) THEN
+  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV let_CONV)) THEN
+  FIRST_X_ASSUM(STRIP_ASSUME_TAC o check(is_conj o concl)) THEN
+  WBN_FRONT_PREP_BUF_GE9_TAC;;
+
+(* 0x42c resolve (fall-through) via WB_LOOPENTER_FLAGS_GE9. *)
+let WBN_RESOLVE_42C_GE9_TAC : tactic =
+  MP_TAC(SPECL [`in_p:int64`; `nblk:num`] WB_LOOPENTER_FLAGS_GE9) THEN
+  ANTS_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th]));;
+
+(* the shared prefix sim: entry 0x20 -> 0x49c (steps 1..287), NO step 288.
+   Identical to WBN_FRONT_FULL_TAC's prefix (share WBN_FRONT_STEP_TAC verbatim),
+   but on the union band and stopping BEFORE the band-dependent 0x49c branch. *)
+let WBN_FRONT_PREFIX_TAC =
+  wbn_init_ge9_tac THEN WBN_LANES_GE9_TAC THEN WBN_FRONT_STEP_TAC THEN
+  WBN_RESOLVE_42C_GE9_TAC THEN
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (260--260) THEN
+  EVERY(map (fun i -> ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (i--i) THEN
+             GCM_SIMD_SIMPLIFY_TAC THEN DISCARD_STALE_Q30_TAC) (261--287));;
+
+(* prefix goal builder (union band, postcond at PC 0x49c) *)
+let mk_wbn_prefix_goal postcond =
+  let ens = subst [wb_front_pre_tm,`PPP:armstate->bool`; postcond,`QQQ:armstate->bool`;
+                   wb_front_frame_tm,`CCC:armstate->armstate->bool`]
+              `ensures arm PPP QQQ CCC` in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_ge9_tm, ens));;
+
+(* The s287 prefix postcondition (state at the 0x49c b.ge, pre-branch), embedded
+   as a fully type-annotated literal so the shared front simulates ONCE.  Keeps
+   ALL raw `read _ s287 = _` facts INCLUDING the NF/VF/ZF/CF flag facts the 0x49c
+   b.ge reads (so each consumer's step-288 leg can resolve the branch in its band).
+   REGENERATION (if the front or its keep-profile changes): re-run
+     let wbn_front_prefix_postcond_harv =
+       let mg = mk_wbn_prefix_goal `\s:armstate. read PC s = word (pc + 0x49c)` in
+       let _ = g mg in let _ = e (WBN_FRONT_PREFIX_TAC THEN wb_front_fold_tac) in
+       let (asl287,_) = top_goal() in let _ = b() in
+       build_state_postcond_tms2 "s287" asl287;;
+   then print with print_types_of_subterms := 2 and replace "(&:num->int)" with
+   "(int_of_num:num->int)" (bare & does not reparse); verify aconv to the harvest. *)
+let wbn_front_prefix_postcond = parse_term {|\(s:armstate).
+    (aligned_bytes_loaded:armstate->(64)word->((8)word)list->bool)
+    (s:armstate)
+    ((word:num->(64)word) (pc:num))
+    (aesv8_gcm_8x_dec_256_wb_mc:((8)word)list) /\
+    (read:(armstate,(64)word)component->armstate->(64)word)
+    (PC:(armstate,(64)word)component)
+    (s:armstate) =
+    (word:num->(64)word) ((pc:num) + 1180) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    (Q30:(armstate,(128)word)component)
+    (s:armstate) =
+    (word_join:(64)word->(64)word->(128)word)
+    ((word_join:(32)word->(32)word->(64)word)
+     ((word_add:(32)word->(32)word->(32)word)
+      ((word_add:(32)word->(32)word->(32)word)
+       ((word_join:(16)word->(16)word->(32)word)
+        ((word_join:(8)word->(8)word->(16)word)
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (96,8))
+        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (104,8)))
+       ((word_join:(8)word->(8)word->(16)word)
+        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (112,8))
+       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
+      ((word:num->(32)word) 12))
+     ((word:num->(32)word) 1))
+    ((word_add:(32)word->(32)word->(32)word)
+     ((word_join:(16)word->(16)word->(32)word)
+      ((word_join:(8)word->(8)word->(16)word)
+       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (64,8))
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (72,8)))
+     ((word_join:(8)word->(8)word->(16)word)
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (80,8))
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (88,8))))
+    ((word:num->(32)word) 0)))
+    ((word_join:(32)word->(32)word->(64)word)
+     ((word_add:(32)word->(32)word->(32)word)
+      ((word_join:(16)word->(16)word->(32)word)
+       ((word_join:(8)word->(8)word->(16)word)
+        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (32,8))
+       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (40,8)))
+      ((word_join:(8)word->(8)word->(16)word)
+       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (48,8))
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (56,8))))
+     ((word:num->(32)word) 0))
+    ((word_add:(32)word->(32)word->(32)word)
+     ((word_join:(16)word->(16)word->(32)word)
+      ((word_join:(8)word->(8)word->(16)word)
+       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (0,8))
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (8,8)))
+     ((word_join:(8)word->(8)word->(16)word)
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (16,8))
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (24,8))))
+    ((word:num->(32)word) 0))) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    ((memory:(armstate,(64)word->(8)word)component) :>
+     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
+     ((word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
+     ((word:num->(64)word) 96)))
+    (s:armstate) =
+    (word_xor:(128)word->(128)word->(128)word)
+    ((word_xor:(128)word->(128)word->(128)word)
+     ((bytes_to_int128:((8)word)list->(128)word)
+     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (96,16)
+     (ibytes:((8)word)list)))
+    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word)))))))
+     (k0:(128)word)
+     (k1:(128)word)
+     (k2:(128)word)
+     (k3:(128)word)
+     (k4:(128)word)
+     (k5:(128)word)
+     (k6:(128)word)
+     (k7:(128)word)
+     (k8:(128)word)
+     (k9:(128)word)
+     (k10:(128)word)
+     (k11:(128)word)
+     (k12:(128)word)
+    (k13:(128)word)))
+    (k14:(128)word) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    ((memory:(armstate,(64)word->(8)word)component) :>
+     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
+     ((word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
+     ((word:num->(64)word) 112)))
+    (s:armstate) =
+    (word_xor:(128)word->(128)word->(128)word)
+    ((word_xor:(128)word->(128)word->(128)word)
+     ((bytes_to_int128:((8)word)list->(128)word)
+     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (112,16)
+     (ibytes:((8)word)list)))
+    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))))))))
+     (k0:(128)word)
+     (k1:(128)word)
+     (k2:(128)word)
+     (k3:(128)word)
+     (k4:(128)word)
+     (k5:(128)word)
+     (k6:(128)word)
+     (k7:(128)word)
+     (k8:(128)word)
+     (k9:(128)word)
+     (k10:(128)word)
+     (k11:(128)word)
+     (k12:(128)word)
+    (k13:(128)word)))
+    (k14:(128)word) /\
+    (read:(armstate,(64)word)component->armstate->(64)word)
+    (X2:(armstate,(64)word)component)
+    (s:armstate) =
+    (word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
+    ((word:num->(64)word) 128) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    ((memory:(armstate,(64)word->(8)word)component) :>
+     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
+     ((word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
+     ((word:num->(64)word) 64)))
+    (s:armstate) =
+    (word_xor:(128)word->(128)word->(128)word)
+    ((word_xor:(128)word->(128)word->(128)word)
+     ((bytes_to_int128:((8)word)list->(128)word)
+     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (64,16)
+     (ibytes:((8)word)list)))
+    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word)))))
+     (k0:(128)word)
+     (k1:(128)word)
+     (k2:(128)word)
+     (k3:(128)word)
+     (k4:(128)word)
+     (k5:(128)word)
+     (k6:(128)word)
+     (k7:(128)word)
+     (k8:(128)word)
+     (k9:(128)word)
+     (k10:(128)word)
+     (k11:(128)word)
+     (k12:(128)word)
+    (k13:(128)word)))
+    (k14:(128)word) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    ((memory:(armstate,(64)word->(8)word)component) :>
+     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
+     ((word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
+     ((word:num->(64)word) 80)))
+    (s:armstate) =
+    (word_xor:(128)word->(128)word->(128)word)
+    ((word_xor:(128)word->(128)word->(128)word)
+     ((bytes_to_int128:((8)word)list->(128)word)
+     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (80,16)
+     (ibytes:((8)word)list)))
+    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))))))
+     (k0:(128)word)
+     (k1:(128)word)
+     (k2:(128)word)
+     (k3:(128)word)
+     (k4:(128)word)
+     (k5:(128)word)
+     (k6:(128)word)
+     (k7:(128)word)
+     (k8:(128)word)
+     (k9:(128)word)
+     (k10:(128)word)
+     (k11:(128)word)
+     (k12:(128)word)
+    (k13:(128)word)))
+    (k14:(128)word) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    (Q3:(armstate,(128)word)component)
+    (s:armstate) =
+    (word_join:(64)word->(64)word->(128)word)
+    ((word_join:(32)word->(32)word->(64)word)
+     ((word_join:(16)word->(16)word->(32)word)
+      ((word_join:(8)word->(8)word->(16)word)
+       ((word_subword:(32)word->num#num->(8)word)
+        ((word_add:(32)word->(32)word->(32)word)
+         ((word_join:(16)word->(16)word->(32)word)
+          ((word_join:(8)word->(8)word->(16)word)
+           ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+           (96,8))
+          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+          (104,8)))
+         ((word_join:(8)word->(8)word->(16)word)
+          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+          (112,8))
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (120,8))))
+        ((word:num->(32)word) 11))
+       (0,8))
+      ((word_subword:(32)word->num#num->(8)word)
+       ((word_add:(32)word->(32)word->(32)word)
+        ((word_join:(16)word->(16)word->(32)word)
+         ((word_join:(8)word->(8)word->(16)word)
+          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+          (96,8))
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (104,8)))
+        ((word_join:(8)word->(8)word->(16)word)
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (112,8))
+        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
+       ((word:num->(32)word) 11))
+      (8,8)))
+     ((word_join:(8)word->(8)word->(16)word)
+      ((word_subword:(32)word->num#num->(8)word)
+       ((word_add:(32)word->(32)word->(32)word)
+        ((word_join:(16)word->(16)word->(32)word)
+         ((word_join:(8)word->(8)word->(16)word)
+          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+          (96,8))
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (104,8)))
+        ((word_join:(8)word->(8)word->(16)word)
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (112,8))
+        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
+       ((word:num->(32)word) 11))
+      (16,8))
+     ((word_subword:(32)word->num#num->(8)word)
+      ((word_add:(32)word->(32)word->(32)word)
+       ((word_join:(16)word->(16)word->(32)word)
+        ((word_join:(8)word->(8)word->(16)word)
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (96,8))
+        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (104,8)))
+       ((word_join:(8)word->(8)word->(16)word)
+        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (112,8))
+       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
+      ((word:num->(32)word) 11))
+     (24,8))))
+    ((word_join:(16)word->(16)word->(32)word)
+     ((word_join:(8)word->(8)word->(16)word)
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (88,8))
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (80,8)))
+    ((word_join:(8)word->(8)word->(16)word)
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (72,8))
+    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (64,8)))))
+    ((word_join:(32)word->(32)word->(64)word)
+     ((word_join:(16)word->(16)word->(32)word)
+      ((word_join:(8)word->(8)word->(16)word)
+       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (56,8))
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (48,8)))
+     ((word_join:(8)word->(8)word->(16)word)
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (40,8))
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (32,8))))
+    ((word_join:(16)word->(16)word->(32)word)
+     ((word_join:(8)word->(8)word->(16)word)
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (24,8))
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (16,8)))
+    ((word_join:(8)word->(8)word->(16)word)
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (8,8))
+    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (0,8))))) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    ((memory:(armstate,(64)word->(8)word)component) :>
+     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
+     ((word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
+     ((word:num->(64)word) 32)))
+    (s:armstate) =
+    (word_xor:(128)word->(128)word->(128)word)
+    ((word_xor:(128)word->(128)word->(128)word)
+     ((bytes_to_int128:((8)word)list->(128)word)
+     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (32,16)
+     (ibytes:((8)word)list)))
+    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word)))
+     (k0:(128)word)
+     (k1:(128)word)
+     (k2:(128)word)
+     (k3:(128)word)
+     (k4:(128)word)
+     (k5:(128)word)
+     (k6:(128)word)
+     (k7:(128)word)
+     (k8:(128)word)
+     (k9:(128)word)
+     (k10:(128)word)
+     (k11:(128)word)
+     (k12:(128)word)
+    (k13:(128)word)))
+    (k14:(128)word) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    ((memory:(armstate,(64)word->(8)word)component) :>
+     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
+     ((word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
+     ((word:num->(64)word) 48)))
+    (s:armstate) =
+    (word_xor:(128)word->(128)word->(128)word)
+    ((word_xor:(128)word->(128)word->(128)word)
+     ((bytes_to_int128:((8)word)list->(128)word)
+     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (48,16)
+     (ibytes:((8)word)list)))
+    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))))
+     (k0:(128)word)
+     (k1:(128)word)
+     (k2:(128)word)
+     (k3:(128)word)
+     (k4:(128)word)
+     (k5:(128)word)
+     (k6:(128)word)
+     (k7:(128)word)
+     (k8:(128)word)
+     (k9:(128)word)
+     (k10:(128)word)
+     (k11:(128)word)
+     (k12:(128)word)
+    (k13:(128)word)))
+    (k14:(128)word) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    (Q0:(armstate,(128)word)component)
+    (s:armstate) =
+    (word_join:(64)word->(64)word->(128)word)
+    ((word_join:(32)word->(32)word->(64)word)
+     ((word_join:(16)word->(16)word->(32)word)
+      ((word_join:(8)word->(8)word->(16)word)
+       ((word_subword:(32)word->num#num->(8)word)
+        ((word_add:(32)word->(32)word->(32)word)
+         ((word_join:(16)word->(16)word->(32)word)
+          ((word_join:(8)word->(8)word->(16)word)
+           ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+           (96,8))
+          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+          (104,8)))
+         ((word_join:(8)word->(8)word->(16)word)
+          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+          (112,8))
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (120,8))))
+        ((word:num->(32)word) 8))
+       (0,8))
+      ((word_subword:(32)word->num#num->(8)word)
+       ((word_add:(32)word->(32)word->(32)word)
+        ((word_join:(16)word->(16)word->(32)word)
+         ((word_join:(8)word->(8)word->(16)word)
+          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+          (96,8))
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (104,8)))
+        ((word_join:(8)word->(8)word->(16)word)
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (112,8))
+        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
+       ((word:num->(32)word) 8))
+      (8,8)))
+     ((word_join:(8)word->(8)word->(16)word)
+      ((word_subword:(32)word->num#num->(8)word)
+       ((word_add:(32)word->(32)word->(32)word)
+        ((word_join:(16)word->(16)word->(32)word)
+         ((word_join:(8)word->(8)word->(16)word)
+          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+          (96,8))
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (104,8)))
+        ((word_join:(8)word->(8)word->(16)word)
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (112,8))
+        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
+       ((word:num->(32)word) 8))
+      (16,8))
+     ((word_subword:(32)word->num#num->(8)word)
+      ((word_add:(32)word->(32)word->(32)word)
+       ((word_join:(16)word->(16)word->(32)word)
+        ((word_join:(8)word->(8)word->(16)word)
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (96,8))
+        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (104,8)))
+       ((word_join:(8)word->(8)word->(16)word)
+        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (112,8))
+       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
+      ((word:num->(32)word) 8))
+     (24,8))))
+    ((word_join:(16)word->(16)word->(32)word)
+     ((word_join:(8)word->(8)word->(16)word)
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (88,8))
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (80,8)))
+    ((word_join:(8)word->(8)word->(16)word)
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (72,8))
+    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (64,8)))))
+    ((word_join:(32)word->(32)word->(64)word)
+     ((word_join:(16)word->(16)word->(32)word)
+      ((word_join:(8)word->(8)word->(16)word)
+       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (56,8))
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (48,8)))
+     ((word_join:(8)word->(8)word->(16)word)
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (40,8))
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (32,8))))
+    ((word_join:(16)word->(16)word->(32)word)
+     ((word_join:(8)word->(8)word->(16)word)
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (24,8))
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (16,8)))
+    ((word_join:(8)word->(8)word->(16)word)
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (8,8))
+    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (0,8))))) /\
+    ((read:(armstate,bool)component->armstate->bool)
+     (NF:(armstate,bool)component)
+     (s:armstate) <=>
+     (ival:(64)word->int)
+     ((word_sub:(64)word->(64)word->(64)word)
+      ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
+      ((word:num->(64)word) 128))
+     ((word_add:(64)word->(64)word->(64)word)
+      ((word:num->(64)word) (128 * ((nblk:num) - 1) DIV 8))
+     (in_p:(64)word))) <
+     (int_of_num:num->int)0) /\
+    ((read:(armstate,bool)component->armstate->bool)
+     (ZF:(armstate,bool)component)
+     (s:armstate) <=>
+     (val:(64)word->num)
+     ((word_sub:(64)word->(64)word->(64)word)
+      ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
+      ((word:num->(64)word) 128))
+     ((word_add:(64)word->(64)word->(64)word)
+      ((word:num->(64)word) (128 * ((nblk:num) - 1) DIV 8))
+     (in_p:(64)word))) =
+     0) /\
+    ((read:(armstate,bool)component->armstate->bool)
+     (CF:(armstate,bool)component)
+     (s:armstate) <=>
+     (val:(64)word->num)
+     ((word_add:(64)word->(64)word->(64)word)
+      ((word:num->(64)word) (128 * ((nblk:num) - 1) DIV 8))
+     (in_p:(64)word)) <=
+     (val:(64)word->num)
+     ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
+     ((word:num->(64)word) 128))) /\
+    ((read:(armstate,bool)component->armstate->bool)
+     (VF:(armstate,bool)component)
+     (s:armstate) <=>
+     ~((ival:(64)word->int)
+       ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
+       ((word:num->(64)word) 128)) -
+       (ival:(64)word->int)
+       ((word_add:(64)word->(64)word->(64)word)
+        ((word:num->(64)word) (128 * ((nblk:num) - 1) DIV 8))
+       (in_p:(64)word)) =
+       (ival:(64)word->int)
+       ((word_sub:(64)word->(64)word->(64)word)
+        ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
+        ((word:num->(64)word) 128))
+       ((word_add:(64)word->(64)word->(64)word)
+        ((word:num->(64)word) (128 * ((nblk:num) - 1) DIV 8))
+       (in_p:(64)word))))) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    (Q12:(armstate,(128)word)component)
+    (s:armstate) =
+    (bytes_to_int128:((8)word)list->(128)word)
+    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (64,16)
+    (ibytes:((8)word)list)) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    (Q13:(armstate,(128)word)component)
+    (s:armstate) =
+    (bytes_to_int128:((8)word)list->(128)word)
+    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (80,16)
+    (ibytes:((8)word)list)) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    (Q8:(armstate,(128)word)component)
+    (s:armstate) =
+    (bytes_to_int128:((8)word)list->(128)word)
+    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (0,16)
+    (ibytes:((8)word)list)) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    (Q9:(armstate,(128)word)component)
+    (s:armstate) =
+    (bytes_to_int128:((8)word)list->(128)word)
+    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (16,16)
+    (ibytes:((8)word)list)) /\
+    (read:(armstate,(64)word)component->armstate->(64)word)
+    (X5:(armstate,(64)word)component)
+    (s:armstate) =
+    (word_add:(64)word->(64)word->(64)word)
+    ((word:num->(64)word) (128 * ((nblk:num) - 1) DIV 8))
+    (in_p:(64)word) /\
+    (read:(armstate,(64)word)component->armstate->(64)word)
+    ((memory:(armstate,(64)word->(8)word)component) :>
+     (bytes64:(64)word->((64)word->(8)word,(64)word)component)
+     ((word_add:(64)word->(64)word->(64)word) (stackpointer:(64)word)
+     ((word:num->(64)word) 64)))
+    (s:armstate) =
+    (word:num->(64)word) 13979173243358019584 /\
+    (read:(armstate,(64)word)component->armstate->(64)word)
+    ((memory:(armstate,(64)word->(8)word)component) :>
+     (bytes64:(64)word->((64)word->(8)word,(64)word)component)
+     ((word_add:(64)word->(64)word->(64)word) (stackpointer:(64)word)
+     ((word:num->(64)word) 72)))
+    (s:armstate) =
+    (word:num->(64)word) 0 /\
+    (read:(armstate,(64)word)component->armstate->(64)word)
+    (X11:(armstate,(64)word)component)
+    (s:armstate) =
+    (key_p:(64)word) /\
+    (read:(armstate,(64)word)component->armstate->(64)word)
+    (X9:(armstate,(64)word)component)
+    (s:armstate) =
+    (word:num->(64)word) (16 * (nblk:num)) /\
+    (read:(armstate,(64)word)component->armstate->(64)word)
+    (SP:(armstate,(64)word)component)
+    (s:armstate) =
+    (stackpointer:(64)word) /\
+    (read:(armstate,(64)word)component->armstate->(64)word)
+    (X1:(armstate,(64)word)component)
+    (s:armstate) =
+    (word:num->(64)word) (128 * (nblk:num)) /\
+    (read:(armstate,(64)word)component->armstate->(64)word)
+    (X3:(armstate,(64)word)component)
+    (s:armstate) =
+    (xi_p:(64)word) /\
+    (read:(armstate,(64)word)component->armstate->(64)word)
+    (X6:(armstate,(64)word)component)
+    (s:armstate) =
+    (htbl_p:(64)word) /\
+    (read:(armstate,(64)word)component->armstate->(64)word)
+    (X16:(armstate,(64)word)component)
+    (s:armstate) =
+    (ivec_p:(64)word) /\
+    (read:(armstate,(64)word)component->armstate->(64)word)
+    (X10:(armstate,(64)word)component)
+    (s:armstate) =
+    (word_add:(64)word->(64)word->(64)word) (stackpointer:(64)word)
+    ((word:num->(64)word) 64) /\
+    (read:(armstate,(64)word)component->armstate->(64)word)
+    (X15:(armstate,(64)word)component)
+    (s:armstate) =
+    (word:num->(64)word) 4294967296 /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    (Q31:(armstate,(128)word)component)
+    (s:armstate) =
+    (word:num->(128)word) 79228162514264337593543950336 /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    (Q19:(armstate,(128)word)component)
+    (s:armstate) =
+    (word_bytereverse:(128)word->(128)word) (xi:(128)word) /\
+    (read:(armstate,(64)word)component->armstate->(64)word)
+    (X4:(armstate,(64)word)component)
+    (s:armstate) =
+    (word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
+    ((word:num->(64)word) (16 * (nblk:num))) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    (Q27:(armstate,(128)word)component)
+    (s:armstate) =
+    (k13:(128)word) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    (Q26:(armstate,(128)word)component)
+    (s:armstate) =
+    (k12:(128)word) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    (Q28:(armstate,(128)word)component)
+    (s:armstate) =
+    (k14:(128)word) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    (Q11:(armstate,(128)word)component)
+    (s:armstate) =
+    (bytes_to_int128:((8)word)list->(128)word)
+    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (48,16)
+    (ibytes:((8)word)list)) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    (Q10:(armstate,(128)word)component)
+    (s:armstate) =
+    (bytes_to_int128:((8)word)list->(128)word)
+    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (32,16)
+    (ibytes:((8)word)list)) /\
+    (read:(armstate,(64)word)component->armstate->(64)word)
+    (X0:(armstate,(64)word)component)
+    (s:armstate) =
+    (word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
+    ((word:num->(64)word) 128) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    (Q15:(armstate,(128)word)component)
+    (s:armstate) =
+    (bytes_to_int128:((8)word)list->(128)word)
+    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (112,16)
+    (ibytes:((8)word)list)) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    (Q14:(armstate,(128)word)component)
+    (s:armstate) =
+    (bytes_to_int128:((8)word)list->(128)word)
+    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (96,16)
+    (ibytes:((8)word)list)) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    ((memory:(armstate,(64)word->(8)word)component) :>
+     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
+     ((word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
+     ((word:num->(64)word) 16)))
+    (s:armstate) =
+    (word_xor:(128)word->(128)word->(128)word)
+    ((word_xor:(128)word->(128)word->(128)word)
+     ((bytes_to_int128:((8)word)list->(128)word)
+     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (16,16)
+     (ibytes:((8)word)list)))
+    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))
+     (k0:(128)word)
+     (k1:(128)word)
+     (k2:(128)word)
+     (k3:(128)word)
+     (k4:(128)word)
+     (k5:(128)word)
+     (k6:(128)word)
+     (k7:(128)word)
+     (k8:(128)word)
+     (k9:(128)word)
+     (k10:(128)word)
+     (k11:(128)word)
+     (k12:(128)word)
+    (k13:(128)word)))
+    (k14:(128)word) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    ((memory:(armstate,(64)word->(8)word)component) :>
+     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
+     (out_p:(64)word))
+    (s:armstate) =
+    (word_xor:(128)word->(128)word->(128)word)
+    ((word_xor:(128)word->(128)word->(128)word)
+     ((bytes_to_int128:((8)word)list->(128)word)
+     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (0,16)
+     (ibytes:((8)word)list)))
+    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
+     (ctr0:(128)word)
+     (k0:(128)word)
+     (k1:(128)word)
+     (k2:(128)word)
+     (k3:(128)word)
+     (k4:(128)word)
+     (k5:(128)word)
+     (k6:(128)word)
+     (k7:(128)word)
+     (k8:(128)word)
+     (k9:(128)word)
+     (k10:(128)word)
+     (k11:(128)word)
+     (k12:(128)word)
+    (k13:(128)word)))
+    (k14:(128)word) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    (Q5:(armstate,(128)word)component)
+    (s:armstate) =
+    (word_xor:(128)word->(128)word->(128)word)
+    ((word_xor:(128)word->(128)word->(128)word)
+     ((bytes_to_int128:((8)word)list->(128)word)
+     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (80,16)
+     (ibytes:((8)word)list)))
+    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))))))
+     (k0:(128)word)
+     (k1:(128)word)
+     (k2:(128)word)
+     (k3:(128)word)
+     (k4:(128)word)
+     (k5:(128)word)
+     (k6:(128)word)
+     (k7:(128)word)
+     (k8:(128)word)
+     (k9:(128)word)
+     (k10:(128)word)
+     (k11:(128)word)
+     (k12:(128)word)
+    (k13:(128)word)))
+    (k14:(128)word) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    (Q1:(armstate,(128)word)component)
+    (s:armstate) =
+    (word_join:(64)word->(64)word->(128)word)
+    ((word_join:(32)word->(32)word->(64)word)
+     ((word_join:(16)word->(16)word->(32)word)
+      ((word_join:(8)word->(8)word->(16)word)
+       ((word_subword:(32)word->num#num->(8)word)
+        ((word_add:(32)word->(32)word->(32)word)
+         ((word_join:(16)word->(16)word->(32)word)
+          ((word_join:(8)word->(8)word->(16)word)
+           ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+           (96,8))
+          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+          (104,8)))
+         ((word_join:(8)word->(8)word->(16)word)
+          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+          (112,8))
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (120,8))))
+        ((word:num->(32)word) 9))
+       (0,8))
+      ((word_subword:(32)word->num#num->(8)word)
+       ((word_add:(32)word->(32)word->(32)word)
+        ((word_join:(16)word->(16)word->(32)word)
+         ((word_join:(8)word->(8)word->(16)word)
+          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+          (96,8))
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (104,8)))
+        ((word_join:(8)word->(8)word->(16)word)
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (112,8))
+        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
+       ((word:num->(32)word) 9))
+      (8,8)))
+     ((word_join:(8)word->(8)word->(16)word)
+      ((word_subword:(32)word->num#num->(8)word)
+       ((word_add:(32)word->(32)word->(32)word)
+        ((word_join:(16)word->(16)word->(32)word)
+         ((word_join:(8)word->(8)word->(16)word)
+          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+          (96,8))
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (104,8)))
+        ((word_join:(8)word->(8)word->(16)word)
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (112,8))
+        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
+       ((word:num->(32)word) 9))
+      (16,8))
+     ((word_subword:(32)word->num#num->(8)word)
+      ((word_add:(32)word->(32)word->(32)word)
+       ((word_join:(16)word->(16)word->(32)word)
+        ((word_join:(8)word->(8)word->(16)word)
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (96,8))
+        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (104,8)))
+       ((word_join:(8)word->(8)word->(16)word)
+        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (112,8))
+       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
+      ((word:num->(32)word) 9))
+     (24,8))))
+    ((word_join:(16)word->(16)word->(32)word)
+     ((word_join:(8)word->(8)word->(16)word)
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (88,8))
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (80,8)))
+    ((word_join:(8)word->(8)word->(16)word)
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (72,8))
+    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (64,8)))))
+    ((word_join:(32)word->(32)word->(64)word)
+     ((word_join:(16)word->(16)word->(32)word)
+      ((word_join:(8)word->(8)word->(16)word)
+       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (56,8))
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (48,8)))
+     ((word_join:(8)word->(8)word->(16)word)
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (40,8))
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (32,8))))
+    ((word_join:(16)word->(16)word->(32)word)
+     ((word_join:(8)word->(8)word->(16)word)
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (24,8))
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (16,8)))
+    ((word_join:(8)word->(8)word->(16)word)
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (8,8))
+    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (0,8))))) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    (Q2:(armstate,(128)word)component)
+    (s:armstate) =
+    (word_join:(64)word->(64)word->(128)word)
+    ((word_join:(32)word->(32)word->(64)word)
+     ((word_join:(16)word->(16)word->(32)word)
+      ((word_join:(8)word->(8)word->(16)word)
+       ((word_subword:(32)word->num#num->(8)word)
+        ((word_add:(32)word->(32)word->(32)word)
+         ((word_join:(16)word->(16)word->(32)word)
+          ((word_join:(8)word->(8)word->(16)word)
+           ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+           (96,8))
+          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+          (104,8)))
+         ((word_join:(8)word->(8)word->(16)word)
+          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+          (112,8))
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (120,8))))
+        ((word:num->(32)word) 10))
+       (0,8))
+      ((word_subword:(32)word->num#num->(8)word)
+       ((word_add:(32)word->(32)word->(32)word)
+        ((word_join:(16)word->(16)word->(32)word)
+         ((word_join:(8)word->(8)word->(16)word)
+          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+          (96,8))
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (104,8)))
+        ((word_join:(8)word->(8)word->(16)word)
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (112,8))
+        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
+       ((word:num->(32)word) 10))
+      (8,8)))
+     ((word_join:(8)word->(8)word->(16)word)
+      ((word_subword:(32)word->num#num->(8)word)
+       ((word_add:(32)word->(32)word->(32)word)
+        ((word_join:(16)word->(16)word->(32)word)
+         ((word_join:(8)word->(8)word->(16)word)
+          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+          (96,8))
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (104,8)))
+        ((word_join:(8)word->(8)word->(16)word)
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (112,8))
+        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
+       ((word:num->(32)word) 10))
+      (16,8))
+     ((word_subword:(32)word->num#num->(8)word)
+      ((word_add:(32)word->(32)word->(32)word)
+       ((word_join:(16)word->(16)word->(32)word)
+        ((word_join:(8)word->(8)word->(16)word)
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (96,8))
+        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (104,8)))
+       ((word_join:(8)word->(8)word->(16)word)
+        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (112,8))
+       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
+      ((word:num->(32)word) 10))
+     (24,8))))
+    ((word_join:(16)word->(16)word->(32)word)
+     ((word_join:(8)word->(8)word->(16)word)
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (88,8))
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (80,8)))
+    ((word_join:(8)word->(8)word->(16)word)
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (72,8))
+    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (64,8)))))
+    ((word_join:(32)word->(32)word->(64)word)
+     ((word_join:(16)word->(16)word->(32)word)
+      ((word_join:(8)word->(8)word->(16)word)
+       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (56,8))
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (48,8)))
+     ((word_join:(8)word->(8)word->(16)word)
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (40,8))
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (32,8))))
+    ((word_join:(16)word->(16)word->(32)word)
+     ((word_join:(8)word->(8)word->(16)word)
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (24,8))
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (16,8)))
+    ((word_join:(8)word->(8)word->(16)word)
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (8,8))
+    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (0,8))))) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    (Q6:(armstate,(128)word)component)
+    (s:armstate) =
+    (word_xor:(128)word->(128)word->(128)word)
+    ((word_xor:(128)word->(128)word->(128)word)
+     ((bytes_to_int128:((8)word)list->(128)word)
+     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (96,16)
+     (ibytes:((8)word)list)))
+    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word)))))))
+     (k0:(128)word)
+     (k1:(128)word)
+     (k2:(128)word)
+     (k3:(128)word)
+     (k4:(128)word)
+     (k5:(128)word)
+     (k6:(128)word)
+     (k7:(128)word)
+     (k8:(128)word)
+     (k9:(128)word)
+     (k10:(128)word)
+     (k11:(128)word)
+     (k12:(128)word)
+    (k13:(128)word)))
+    (k14:(128)word) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    (Q7:(armstate,(128)word)component)
+    (s:armstate) =
+    (word_xor:(128)word->(128)word->(128)word)
+    ((word_xor:(128)word->(128)word->(128)word)
+     ((bytes_to_int128:((8)word)list->(128)word)
+     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (112,16)
+     (ibytes:((8)word)list)))
+    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word)
+     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))))))))
+     (k0:(128)word)
+     (k1:(128)word)
+     (k2:(128)word)
+     (k3:(128)word)
+     (k4:(128)word)
+     (k5:(128)word)
+     (k6:(128)word)
+     (k7:(128)word)
+     (k8:(128)word)
+     (k9:(128)word)
+     (k10:(128)word)
+     (k11:(128)word)
+     (k12:(128)word)
+    (k13:(128)word)))
+    (k14:(128)word) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    (Q4:(armstate,(128)word)component)
+    (s:armstate) =
+    (word_join:(64)word->(64)word->(128)word)
+    ((word_join:(32)word->(32)word->(64)word)
+     ((word_join:(16)word->(16)word->(32)word)
+      ((word_join:(8)word->(8)word->(16)word)
+       ((word_subword:(32)word->num#num->(8)word)
+        ((word_add:(32)word->(32)word->(32)word)
+         ((word_join:(16)word->(16)word->(32)word)
+          ((word_join:(8)word->(8)word->(16)word)
+           ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+           (96,8))
+          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+          (104,8)))
+         ((word_join:(8)word->(8)word->(16)word)
+          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+          (112,8))
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (120,8))))
+        ((word:num->(32)word) 12))
+       (0,8))
+      ((word_subword:(32)word->num#num->(8)word)
+       ((word_add:(32)word->(32)word->(32)word)
+        ((word_join:(16)word->(16)word->(32)word)
+         ((word_join:(8)word->(8)word->(16)word)
+          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+          (96,8))
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (104,8)))
+        ((word_join:(8)word->(8)word->(16)word)
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (112,8))
+        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
+       ((word:num->(32)word) 12))
+      (8,8)))
+     ((word_join:(8)word->(8)word->(16)word)
+      ((word_subword:(32)word->num#num->(8)word)
+       ((word_add:(32)word->(32)word->(32)word)
+        ((word_join:(16)word->(16)word->(32)word)
+         ((word_join:(8)word->(8)word->(16)word)
+          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+          (96,8))
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (104,8)))
+        ((word_join:(8)word->(8)word->(16)word)
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
+         (112,8))
+        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
+       ((word:num->(32)word) 12))
+      (16,8))
+     ((word_subword:(32)word->num#num->(8)word)
+      ((word_add:(32)word->(32)word->(32)word)
+       ((word_join:(16)word->(16)word->(32)word)
+        ((word_join:(8)word->(8)word->(16)word)
+         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (96,8))
+        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (104,8)))
+       ((word_join:(8)word->(8)word->(16)word)
+        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (112,8))
+       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
+      ((word:num->(32)word) 12))
+     (24,8))))
+    ((word_join:(16)word->(16)word->(32)word)
+     ((word_join:(8)word->(8)word->(16)word)
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (88,8))
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (80,8)))
+    ((word_join:(8)word->(8)word->(16)word)
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (72,8))
+    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (64,8)))))
+    ((word_join:(32)word->(32)word->(64)word)
+     ((word_join:(16)word->(16)word->(32)word)
+      ((word_join:(8)word->(8)word->(16)word)
+       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (56,8))
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (48,8)))
+     ((word_join:(8)word->(8)word->(16)word)
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (40,8))
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (32,8))))
+    ((word_join:(16)word->(16)word->(32)word)
+     ((word_join:(8)word->(8)word->(16)word)
+      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (24,8))
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (16,8)))
+    ((word_join:(8)word->(8)word->(16)word)
+     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (8,8))
+    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (0,8)))))|};;
+
+(* FRONT-PREFIX: the one kept front sim (0x20 -> 0x49c, band 9<=nblk). *)
+let WBN_FRONT_PREFIX = prove(mk_wbn_prefix_goal wbn_front_prefix_postcond,
+  WBN_FRONT_PREFIX_TAC THEN wb_front_fold_tac THEN
+  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[WORD_ADD_0] THEN
+  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+  REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC);;
+
 (* The s288 postcondition (the i=0 loop invariant), embedded as a fully
    type-annotated literal so the front simulates ONCE (in the WBN_FRONT_BUF
    proof below) instead of TWICE.  The old harvest pass (kept in git history)
@@ -6246,14 +7389,26 @@ let wbn_front_postcond_i0 = parse_term {|\(s:armstate).
    (two-stream pipelined form): q8..q15 = RAW ct blocks 0..7 pending fold,
    Q19 = word_bytereverse xi (GHASH acc over blocks 0..-1 = tag only), stores
    done for blocks 0..7, counters at 8..12, X0=in_p+128, X2=out_p+128.
-   Close = WB_FRONT_BUF's, plus one REWRITE_TAC[WORD_ADD_0] (the harvested Q30
-   lower lanes carry a spurious word_add _ (word 0) vs the sim's assumption). *)
+   SESSION-073: no longer runs the 287-step front sim -- reuses the shared
+   WBN_FRONT_PREFIX (0x20->0x49c) via ENSURES_TRANS_SIMPLE, then a single step 288
+   (0x49c b.ge FALLS THROUGH for 17<=nblk, via WBN_RESOLVE_49C_TAC) lands at 0x4a0.
+   Close = the old WBN_FRONT_BUF final-state close (ASM_REWRITE + WORD_ADD_0). *)
 let WBN_FRONT_BUF = prove(mk_wbn_front_goal wbn_front_postcond_i0,
-  WBN_FRONT_FULL_TAC THEN wb_front_fold_tac THEN
-  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-  REWRITE_TAC[WORD_ADD_0] THEN
-  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
-  REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC);;
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
+  EXISTS_TAC wbn_front_prefix_postcond THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_IDEMPOT_TAC;
+    ALL_TAC] THEN
+  CONJ_TAC THENL
+   [MATCH_MP_TAC WBN_FRONT_PREFIX THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
+    ENSURES_INIT_TAC "s287" THEN
+    WBN_RESOLVE_49C_TAC THEN
+    ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (288--288) THEN
+    ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+    REWRITE_TAC[WORD_ADD_0] THEN
+    REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+    REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC]);;
 (* --- mid-load heap compaction: bound GC cost across this large single-file *)
 (*     load (after a front-BUF sim); mirrors the needs-boundary/ckpt Gc.compact). --- *)
 Gc.compact();;
@@ -7146,6 +8301,54 @@ let WBN_FRONT_BUF_EXT = prove(wbn_front_ext_goal,
       check (fun th -> is_eq(concl th) &&
         (match rhs(concl th) with Var("s'",_) -> true | _ -> false))) THEN
     WBN_PUSH_LHS_READ_TAC]);;
+
+(* ------------------------------------------------------------------------- *)
+(* SESSION-073: WBN_FRONT_PREFIX_EXT -- the shared prefix strengthened with the *)
+(* R loop-constants (key schedule + input bytes + htable), so the 9..16 front  *)
+(* leg (WBN_FRONT_TO_PREP_916, whose exit post wbn_core_applied 0 references    *)
+(* the htable + key reads) can reuse the ONE prefix sim.  Mirror of             *)
+(* WBN_FRONT_BUF_EXT: R is preserved through the front MAYCHANGE frame          *)
+(* (ENSURES_ADD_PRESERVED).  Band = wbn_front_hyps_ge9_wide_tm (the WIDE hyps   *)
+(* WBN_PUSH_LHS_READ_TAC needs to push R reads past the out_p stores); the 916  *)
+(* band 9..16-WIDE discharges it by hyp-strengthening.  (WBN_FRONT_BUF's own    *)
+(* i=0 post needs no R, so it reuses the plain WBN_FRONT_PREFIX directly.)      *)
+(* ------------------------------------------------------------------------- *)
+let wbn_front_hyps_ge9_wide_tm =
+  let rec repl t = match t with
+    | Comb(Comb(Const("/\\",_),a),b) -> mk_conj(repl a, repl b)
+    | _ -> if t = `17 <= nblk` then `9 <= nblk` else t in
+  repl wbn_front_hyps_wide_tm;;
+
+let wbn_front_prefix_ext_goal =
+  let sv = fst(dest_abs wbn_front_prefix_postcond) in
+  let newQ = mk_abs(sv,
+    mk_conj(rhs(concl(BETA_CONV(mk_comb(wbn_front_prefix_postcond,sv)))),
+            rhs(concl(BETA_CONV(mk_comb(wbn_front_R_tm,sv)))))) in
+  let ens = list_mk_comb(`ensures arm`,[wbn_front_P_tm; newQ; wbn_front_C_tm]) in
+  list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_ge9_wide_tm, ens));;
+
+let WBN_FRONT_PREFIX_EXT = prove(wbn_front_prefix_ext_goal,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC ENSURES_ADD_PRESERVED THEN CONJ_TAC THENL
+   [MATCH_MP_TAC WBN_FRONT_PREFIX THEN ASM_REWRITE_TAC[];
+    REWRITE_TAC[htable_mem_dec] THEN
+    CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
+    REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; MAYCHANGE; SEQ_ID] THEN
+    REWRITE_TAC[GSYM SEQ_ASSOC] THEN
+    PURE_REWRITE_TAC[ASSIGNS_SEQ] THEN
+    CONV_TAC(REDEPTH_CONV BETA_CONV) THEN
+    REWRITE_TAC[ASSIGNS_THM] THEN
+    CONV_TAC(REDEPTH_CONV BETA_CONV) THEN
+    REWRITE_TAC[LEFT_IMP_EXISTS_THM] THEN
+    REPEAT STRIP_TAC THEN
+    FIRST_X_ASSUM(SUBST_ALL_TAC o SYM o
+      check (fun th -> is_eq(concl th) &&
+        (match rhs(concl th) with Var("s'",_) -> true | _ -> false))) THEN
+    WBN_PUSH_LHS_READ_TAC]);;
+
+(* the strengthened prefix postcond term (prefix_post /\ R), for the 916 TRANS. *)
+let wbn_front_prefix_ext_post =
+  rand(rator(snd(dest_imp(snd(strip_forall(concl WBN_FRONT_PREFIX_EXT))))));;
 
 (* ------------------------------------------------------------------------- *)
 (* 8. Phase 2 CLOSE: WBN_LOOP_INVARIANT_ENTRY (session-005).                  *)
@@ -10304,24 +11507,41 @@ let wbn_front_to_prep_916_goal =
   let ens = list_mk_comb(`ensures arm`,[wbn_front_P_tm; wbn_entry_post_916; wbn_front_C_tm]) in
   list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_916_tm, ens));;
 
-(* FRONT-916: front sim 0x20 -> 0x9f0, b.ge@0x49c TAKEN, lands at wbn_core_applied 0. *)
+(* FRONT-916: SESSION-073 reuses the shared WBN_FRONT_PREFIX_EXT (0x20->0x49c, with
+   the R loop-constants preserved) via ENSURES_TRANS_SIMPLE, then a single step 288
+   (0x49c b.ge TAKEN for 9..16, via WBN_RESOLVE_49C_916_TAC) lands at 0x9f0 =
+   wbn_core_applied 0.  Close = the old ENTRY_CLOSER_916 + WB_PTRCMP tail.  htable is
+   UNFOLDED into its reads right after init so they propagate through step 288 (the
+   folded htable_mem_dec predicate is not tracked across steps by the stepper). *)
 let WBN_FRONT_TO_PREP_916 = prove(wbn_front_to_prep_916_goal,
-  WBN_FRONT_916_FULL_TAC THEN
-  wb_front_fold_tac THEN
-  ENTRY_CLOSER_916 THEN
-  MP_TAC(SPECL [`in_p:int64`; `128`; `128`] WB_PTRCMP_FLAGS) THEN
-  ANTS_TAC THENL
-   [CONJ_TAC THEN MP_TAC(ASSUME `val (in_p:int64) + 16 * nblk < 2 EXP 63`) THEN
-    MP_TAC(ASSUME `9 <= nblk`) THEN ARITH_TAC;
-    ALL_TAC] THEN
-  DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN
-  REWRITE_TAC[ARITH_RULE `(128 < 128) <=> F`] THEN
-  ASM_REWRITE_TAC[] THEN
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
+  EXISTS_TAC wbn_front_prefix_ext_post THEN
   CONJ_TAC THENL
-   [REWRITE_TAC[htable_mem_dec] THEN ASM_REWRITE_TAC[] THEN
-    CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN REWRITE_TAC[];
-    REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
-    REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC]);;
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_IDEMPOT_TAC;
+    ALL_TAC] THEN
+  CONJ_TAC THENL
+   [MATCH_MP_TAC WBN_FRONT_PREFIX_EXT THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
+    ENSURES_INIT_TAC "s287" THEN
+    RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_dec]) THEN
+    RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV let_CONV)) THEN
+    WBN_RESOLVE_49C_916_TAC THEN
+    ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (288--288) THEN
+    wb_front_fold_tac THEN
+    ENTRY_CLOSER_916 THEN
+    MP_TAC(SPECL [`in_p:int64`; `128`; `128`] WB_PTRCMP_FLAGS) THEN
+    ANTS_TAC THENL
+     [CONJ_TAC THEN MP_TAC(ASSUME `val (in_p:int64) + 16 * nblk < 2 EXP 63`) THEN
+      MP_TAC(ASSUME `9 <= nblk`) THEN ARITH_TAC;
+      ALL_TAC] THEN
+    DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN
+    REWRITE_TAC[ARITH_RULE `(128 < 128) <=> F`] THEN
+    ASM_REWRITE_TAC[] THEN
+    CONJ_TAC THENL
+     [REWRITE_TAC[htable_mem_dec] THEN ASM_REWRITE_TAC[] THEN
+      CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN REWRITE_TAC[];
+      REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+      REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC]]);;
 
 (* PREPRETAIL-916: same statement as before (9..16 band), now derived (no sim)
    from WBN_PREPRETAIL_EXT2_UNIFIED by hyp-strengthening -- see the session-069
@@ -11030,3 +12250,4 @@ let () =
     failwith "WB dec whole-function: unexpected axiom count (new_axiom introduced?)"
   else Format.print_string
     "WB dec whole-function: CORRECT (aconv DISPATCH) + SUBROUTINE_CORRECT (aconv CORRECT) + GUARD hyps=0, axioms=3\n";;
+
