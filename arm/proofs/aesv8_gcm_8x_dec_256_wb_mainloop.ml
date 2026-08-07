@@ -12962,7 +12962,13 @@ let AESV8_GCM_8X_DEC_256_WB_CORRECT = prove
 
 (* ------------------------------------------------------------------------- *)
 (* PHASE 8 (session-067): AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT.          *)
-(* The ABI subroutine wrapper for the valid path (bit_len = 128*nblk).  Binary *)
+(* The ABI subroutine wrapper for the whole-blocks path (bit_len = 128*nblk,   *)
+(* any nblk >= 0).  session-078 folded the nblk = 0 leg in (the entry cbz x1   *)
+(* is TAKEN, returns 0, empty output, tag unchanged) so this single theorem is  *)
+(* the external whole-blocks contract, matching Mila's encrypt _GEN shape.  The *)
+(* nblk >= 1 leg is unchanged from s067 (below); the guard fall-through and     *)
+(* core-crossing machinery are exactly as before.                              *)
+(* Binary                                                                       *)
 (* layout (objdump): the entry GUARD (nop;cbz x1;ands zr,x1,#0x7f;b.ne, offs   *)
 (* 0x0..0xc) precedes the d8-d15 callee-save spills (stp d8,d9,[sp,#-80]!;      *)
 (* stp d10,d11;d12,d13;d14,d15, offs 0x10..0x1c); the core runs pc+0x20..pc+   *)
@@ -12991,7 +12997,6 @@ let AESV8_GCM_8X_DEC_256_WB_CORRECT = prove
 let AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT = prove
    (`!pc stackpointer in_p out_p xi_p ivec_p key_p htbl_p nblk ibytes rk H
       tag0 ctr0 returnaddress.
-      1 <= nblk /\
       128 * nblk < 2 EXP 62 /\
       val in_p + 16 * nblk < 2 EXP 63 /\
       LENGTH ibytes = 16 * nblk /\
@@ -13068,6 +13073,23 @@ let AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT = prove
     REWRITE_TAC[C_ARGUMENTS; C_RETURN; SOME_FLAGS] THEN
     REPEAT GEN_TAC THEN
     DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC) THEN
+    (* nblk = 0: the entry cbz x1 (0x4) is TAKEN before the prologue, so the
+       function returns 0 in X0 touching no memory (mov w0,#0; ret @0x11c8);
+       d8-d15/SP are untouched (never spilled).  The output byte list is empty
+       (byte_list_at over word 0 is vacuous) and the tag is unchanged
+       (nist_ghash H tag0 [] = tag0).  Mirrors Mila's nb=0 leg. *)
+    ASM_CASES_TAC `nblk = 0` THENL
+     [FIRST_X_ASSUM SUBST_ALL_TAC THEN
+      REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES; ARITH_RULE `128 * 0 = 0`;
+                  ARITH_RULE `16 * 0 = 0`] THEN
+      REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; MODIFIABLE_SIMD_REGS;
+        MODIFIABLE_GPRS; MODIFIABLE_UPPER_SIMD_REGS; fst EXEC] THEN
+      ENSURES_INIT_TAC "s0" THEN ARM_STEPS_TAC EXEC (1--4) THEN
+      ENSURES_FINAL_STATE_TAC THEN
+      ASM_REWRITE_TAC[byte_list_at; list_of_seq; nist_ghash; VAL_WORD_0;
+                      ARITH_RULE `i < 0 <=> F`];
+      ALL_TAC] THEN
+    SUBGOAL_THEN `1 <= nblk` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
     SUBGOAL_THEN `val (word (16 * nblk):int64) = 16 * nblk` ASSUME_TAC THENL
      [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC;
       ALL_TAC] THEN
@@ -13178,7 +13200,6 @@ let AESV8_GCM_8X_DEC_256_WB_CORRECT_GCMKEY = prove
 let AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT_GCMKEY = prove
  (`!pc stackpointer in_p out_p xi_p ivec_p key_p htbl_p nblk ibytes rk
     tag0 ctr0 returnaddress.
-    1 <= nblk /\
     128 * nblk < 2 EXP 62 /\
     val in_p + 16 * nblk < 2 EXP 63 /\
     LENGTH ibytes = 16 * nblk /\
@@ -13220,27 +13241,39 @@ let AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT_GCMKEY = prove
                         (SPEC_ALL AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT)));;
 
 (* ------------------------------------------------------------------------- *)
-(* THE COMPLETE WHOLE-FUNCTION CONTRACT.                                       *)
+(* THE WHOLE-FUNCTION CONTRACT (headline result).                              *)
 (*                                                                             *)
-(* AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT (above, this file) together with  *)
-(* AESV8_GCM_8X_DEC_256_WB_GUARD (arm/proofs/aesv8_gcm_8x_dec_256_wb.ml) form   *)
-(* the complete AAPCS64 subroutine contract of the whole-blocks binary, for     *)
-(* EVERY C-argument bit_len:                                                    *)
-(*   - valid   bit_len = word (128*nblk), 1 <= nblk (a positive multiple of 128 *)
-(*             bits): SUBROUTINE_CORRECT -- decrypts the 16*nblk-byte buffer to  *)
-(*             gcm_dec_pt_bytes and updates the running GHASH tag to nist_ghash, *)
-(*             preserving d8-d15/SP and restoring PC to the return address.      *)
-(*   - invalid ~(val bit_len = 0) /\ ~(val bit_len MOD 128 = 0) (bit_len set but *)
-(*             not a whole number of 128-bit blocks): GUARD -- the guard branch  *)
-(*             (tst x1,#0x7f; b.ne) rejects, returns 0 in X0, touches no memory. *)
-(* (The remaining bit_len = 0 case exits at the entry cbz x1 with the same       *)
-(*  ret-0 behaviour; it is not separately stated as it carries no cryptographic  *)
-(*  postcondition.)  This mirrors the nblk<=8 pairing DISPATCH + GUARD in        *)
-(*  wb.ml:4643-4708.                                                             *)
+(* AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT (above, this file) IS the whole-  *)
+(* function AAPCS64 subroutine contract of the whole-blocks binary.  Its        *)
+(* C-argument bit_len = word (128*nblk) makes any invalid (non-128-multiple)     *)
+(* bit_len UNREPRESENTABLE in the precondition, exactly as Mila's encrypt _GEN;  *)
+(* and session-078 folded nblk = 0 in, so it holds for EVERY representable        *)
+(* length nblk >= 0:                                                            *)
+(*   - nblk >= 1 (bit_len a positive multiple of 128 bits): decrypts the         *)
+(*     16*nblk-byte buffer to gcm_dec_pt_bytes and updates the running GHASH tag  *)
+(*     to nist_ghash, preserving d8-d15/SP and restoring PC to the return         *)
+(*     address.                                                                  *)
+(*   - nblk = 0 (bit_len = 0): the entry cbz x1 is taken, returns 0 in X0,        *)
+(*     empty output byte list, tag unchanged (nist_ghash H tag0 [] = tag0).       *)
+(* GCM-key-tied instances (H = aes256_encrypt (word 0) rk) are exported as        *)
+(* _CORRECT_GCMKEY / _SUBROUTINE_CORRECT_GCMKEY (Task 1 above).                  *)
 (*                                                                             *)
-(* Soundness gate: both whole-function theorems (and the underlying CORRECT      *)
-(* for all nblk>=1) are hyps=0, and the file introduces NO new axiom -- the      *)
-(* Q19/GHASH identity that was scoped behind a CHEAT for ~15 sessions is closed  *)
+(* SECONDARY (entry-guard safety): AESV8_GCM_8X_DEC_256_WB_GUARD                 *)
+(* (arm/proofs/aesv8_gcm_8x_dec_256_wb.ml) is NOT part of the headline contract   *)
+(* -- it states something the CORRECT theorems cannot, over an ARBITRARY C        *)
+(* bit_len (not the well-typed word (128*nblk)): for a bit_len that is set but    *)
+(* not a whole number of 128-bit blocks (~(val bit_len = 0) /\                    *)
+(* ~(val bit_len MOD 128 = 0)), the guard branch (tst x1,#0x7f; b.ne) rejects,    *)
+(* returns 0 in X0, and touches no memory.  This is the safety argument that      *)
+(* licensed deleting the partial-block masking (which had a 16-byte output        *)
+(* over-read); it is retained for that provenance but is a secondary property,    *)
+(* not the cryptographic spec.  (It mirrors the nblk<=8 DISPATCH+GUARD pairing    *)
+(* in wb.ml:4643-4708, where GUARD played the same secondary role.)              *)
+(*                                                                             *)
+(* Soundness gate: all exported theorems (SUBROUTINE_CORRECT for all nblk>=0,     *)
+(* the underlying CORRECT for all nblk>=1, GUARD, and the Task-1 GCMKEY           *)
+(* corollaries) are hyps=0, and the file introduces NO new axiom -- the          *)
+(* Q19/GHASH identity that was scoped behind a CHEAT for ~15 sessions is closed   *)
 (* (sessions 061-065, R1' route).                                               *)
 (* ------------------------------------------------------------------------- *)
 
@@ -13293,7 +13326,12 @@ let () =
     let frame' = mk_comb(mk_comb(rator(rator frame), rand(rator frame)),
                          rand(rator(rand frame))) in
     let cens' = list_mk_comb(eop, [el 0 eargs; pre'; el 2 eargs; frame']) in
-    list_mk_forall(cvars @ [`returnaddress:int64`], mk_imp(chyps, cens')) in
+    (* session-078: the wrapper is generalized to nblk >= 0 (the nblk = 0 leg is
+       folded in via ASM_CASES), so the `1 <= nblk` hyp is dropped from the
+       wrapper contract (it is not needed: nblk = 0 exits at the entry cbz). *)
+    let chyps' = list_mk_conj (filter (fun c -> c <> `1 <= nblk`)
+                                      (conjuncts chyps)) in
+    list_mk_forall(cvars @ [`returnaddress:int64`], mk_imp(chyps', cens')) in
   if not (aconv (concl AESV8_GCM_8X_DEC_256_WB_CORRECT) correct_anchor) then
     failwith "WB dec _CORRECT: literal drifted from the DISPATCH contract (aconv)"
   else if not (aconv (concl AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT)
