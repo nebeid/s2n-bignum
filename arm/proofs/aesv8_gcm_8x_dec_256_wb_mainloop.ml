@@ -13096,6 +13096,130 @@ let AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT = prove
       CONV_TAC WORD_RULE]);;
 
 (* ------------------------------------------------------------------------- *)
+(* TASK 1 (session-078): GHASH-key-tied corollaries.                          *)
+(*                                                                             *)
+(* The general _CORRECT / _SUBROUTINE_CORRECT above keep H a FREE variable --  *)
+(* strictly more general, but as a spec they never say H is the GCM hash key,  *)
+(* so a reviewer cannot confirm from the statement that this computes GCM's     *)
+(* tag at all.  The corollaries below pin H = aes256_encrypt (word 0) rk, the   *)
+(* GCM hash key (E_K(0^128)), matching the sibling AES-GCM proofs (Mila's       *)
+(* AESV8_GCM_8X_ENC_256_WB_SUBROUTINE_CORRECT_GEN, John's                       *)
+(* AES_GCM_ENC_KERNEL_X4_BASIC_CORRECT, which likewise pin the GHASH key to the *)
+(* cipher).  The general theorems remain the primary results; these are their   *)
+(* GCM-key instances (H occurs in exactly two places -- the htable precondition *)
+(* and the nist_ghash postcondition -- and the proof interior is abstract in H, *)
+(* so the instantiation is a pure MATCH_ACCEPT with nothing large propagated).  *)
+(*                                                                             *)
+(* aes256_encrypt (word 0) rk (NOT aes256_cipher) is used deliberately: it is   *)
+(* the house convention for shipped Arm proofs (AES-XTS's exported             *)
+(* AES_XTS_ENCRYPT_*_CORRECT bottom out in it via aes256_xts_encrypt), so this  *)
+(* unifies decrypt with XTS; and aes256_cipher lives in common/fips197.ml,      *)
+(* which this chain does not load and which is a DIFFERENT (though equal)        *)
+(* definition (fips197_round orders SubBytes->ShiftRows, ours ShiftRows->       *)
+(* SubBytes; the two commute).                                                  *)
+(*                                                                             *)
+(* TODO(H-table provenance): the H-power table is an INPUT here -- htable_mem_8 *)
+(*   states the layout the kernel requires, instantiated below at the GCM hash  *)
+(*   key H = aes256_encrypt (word 0) rk.  Proving that gcm_init_v8 actually      *)
+(*   WRITES this table is separate, still-to-do work, tracked upstream          *)
+(*   alongside the FIPS-197 bridges (PR #389 / #370).  The same TODO applies to  *)
+(*   the sibling AES-GCM proofs (Mila's encrypt, John's x4 kernels), which take  *)
+(*   the identical table as a precondition.  When the fips197 bridges land,      *)
+(*   these corollaries can be restated over aes256_cipher by rewriting with the  *)
+(*   aes256_encrypt = aes256_cipher equivalence.                                 *)
+(* ------------------------------------------------------------------------- *)
+
+let AESV8_GCM_8X_DEC_256_WB_CORRECT_GCMKEY = prove
+ (`!pc stackpointer in_p out_p xi_p ivec_p key_p htbl_p nblk ibytes rk
+    tag0 ctr0.
+    1 <= nblk /\
+    128 * nblk < 2 EXP 62 /\
+    val in_p + 16 * nblk < 2 EXP 63 /\
+    LENGTH ibytes = 16 * nblk /\
+    LENGTH rk = 15 /\
+    aligned 16 stackpointer /\
+    ALLPAIRS nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16]
+    [word pc,4560; in_p,16 * nblk; key_p,240; htbl_p,192; stackpointer,80] /\
+    PAIRWISE nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16] /\
+    ALL (nonoverlapping (stackpointer,80))
+    [word pc,4560; in_p,16 * nblk; key_p,240; htbl_p,192]
+    ==> ensures arm
+         (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
+              read PC s = word (pc + 32) /\
+              read SP s = stackpointer /\
+              C_ARGUMENTS
+              [in_p; word (128 * nblk); out_p; xi_p; ivec_p; key_p; htbl_p]
+              s /\
+              byte_list_at ibytes in_p (word (16 * nblk)) s /\
+              read (memory :> bytes128 xi_p) s = word_reversefields 8 tag0 /\
+              read (memory :> bytes128 ivec_p) s = ctr0 /\
+              wordlist_from_memory (key_p,15) s = rk /\
+              htable_mem_8 (ghash_twist (aes256_encrypt (word 0) rk)) htbl_p s)
+         (\s. read PC s = word (pc + 4528) /\
+              byte_list_at (gcm_dec_pt_bytes (16 * nblk) ibytes ctr0 rk) out_p
+              (word (16 * nblk)) s /\
+              read (memory :> bytes128 xi_p) s =
+              word_reversefields 8
+              (nist_ghash (aes256_encrypt (word 0) rk) tag0
+              (list_of_seq (nist_input_block ibytes) nblk)))
+         (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+          MAYCHANGE
+          [memory :> bytes (out_p,16 * nblk); memory :> bytes (xi_p,16);
+           memory :> bytes (ivec_p,16);
+           memory :> bytes (word_add stackpointer (word 64),16)] ,,
+          MAYCHANGE
+          [Q0; Q1; Q2; Q3; Q4; Q5; Q6; Q7; Q8; Q9; Q10; Q11; Q12; Q13; Q14;
+           Q15; Q16; Q17; Q18; Q19; Q20; Q21; Q22; Q23; Q24; Q25; Q26; Q27;
+           Q28; Q29; Q30; Q31])`,
+  REPEAT GEN_TAC THEN
+  MATCH_ACCEPT_TAC(INST [`aes256_encrypt (word 0) rk`,`H:int128`]
+                        (SPEC_ALL AESV8_GCM_8X_DEC_256_WB_CORRECT)));;
+
+let AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT_GCMKEY = prove
+ (`!pc stackpointer in_p out_p xi_p ivec_p key_p htbl_p nblk ibytes rk
+    tag0 ctr0 returnaddress.
+    1 <= nblk /\
+    128 * nblk < 2 EXP 62 /\
+    val in_p + 16 * nblk < 2 EXP 63 /\
+    LENGTH ibytes = 16 * nblk /\
+    LENGTH rk = 15 /\
+    aligned 16 stackpointer /\
+    ALLPAIRS nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16]
+    [word pc,4560; in_p,16 * nblk; key_p,240; htbl_p,192;
+     word_sub stackpointer (word 80),80] /\
+    PAIRWISE nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16] /\
+    ALL (nonoverlapping (word_sub stackpointer (word 80),80))
+    [word pc,4560; in_p,16 * nblk; key_p,240; htbl_p,192]
+    ==> ensures arm
+         (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
+              read PC s = word pc /\
+              read SP s = stackpointer /\
+              read X30 s = returnaddress /\
+              C_ARGUMENTS
+              [in_p; word (128 * nblk); out_p; xi_p; ivec_p; key_p; htbl_p]
+              s /\
+              byte_list_at ibytes in_p (word (16 * nblk)) s /\
+              read (memory :> bytes128 xi_p) s = word_reversefields 8 tag0 /\
+              read (memory :> bytes128 ivec_p) s = ctr0 /\
+              wordlist_from_memory (key_p,15) s = rk /\
+              htable_mem_8 (ghash_twist (aes256_encrypt (word 0) rk)) htbl_p s)
+         (\s. read PC s = returnaddress /\
+              byte_list_at (gcm_dec_pt_bytes (16 * nblk) ibytes ctr0 rk) out_p
+              (word (16 * nblk)) s /\
+              read (memory :> bytes128 xi_p) s =
+              word_reversefields 8
+              (nist_ghash (aes256_encrypt (word 0) rk) tag0
+              (list_of_seq (nist_input_block ibytes) nblk)))
+         (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+          MAYCHANGE
+          [memory :> bytes (out_p,16 * nblk); memory :> bytes (xi_p,16);
+           memory :> bytes (ivec_p,16);
+           memory :> bytes (word_sub stackpointer (word 80),80)])`,
+  REPEAT GEN_TAC THEN
+  MATCH_ACCEPT_TAC(INST [`aes256_encrypt (word 0) rk`,`H:int128`]
+                        (SPEC_ALL AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT)));;
+
+(* ------------------------------------------------------------------------- *)
 (* THE COMPLETE WHOLE-FUNCTION CONTRACT.                                       *)
 (*                                                                             *)
 (* AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT (above, this file) together with  *)
