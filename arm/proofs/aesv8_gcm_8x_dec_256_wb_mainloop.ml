@@ -12984,20 +12984,31 @@ let CTR0_AS_CTR_BLOCK = prove
     REWRITE_TAC[ctr_block; WORD_VAL] THEN CONV_TAC WORD_BLAST]);;
 
 (* ========================================================================= *)
-(* ROADMAP -- how to read the two exported theorems below top-down.            *)
+(* ROADMAP -- how to read the exported theorems below top-down.                *)
 (*                                                                             *)
-(* The whole-function contract is the pair                                     *)
+(* The whole-function contract is the PAIR                                     *)
 (*   AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT  (ABI wrapper, this file)       *)
 (*   AESV8_GCM_8X_DEC_256_WB_GUARD               (reject path, wb.ml)           *)
-(* Both statements are spelled out literally at their `prove` sites.            *)
+(* with AESV8_GCM_8X_DEC_256_WB_CORRECT the after-prologue core the wrapper     *)
+(* wraps.  The two exported CORRECT theorems name the GCM hash key             *)
+(* (H = aes256_encrypt (word 0) rk), name the NIST nonce||counter block by      *)
+(* hypothesis (word_bytereverse ctr0 = ctr_block nonce c), and present the      *)
+(* plaintext output POINTWISE over 16-byte blocks -- the reviewer-facing form   *)
+(* matching the sibling AES-GCM proofs.  They are DERIVED (session-080) from     *)
+(* two internal byte-list spines by pinning H and weakening the postcondition:  *)
+(*   WBN_DEC_CORE_BYTELIST        (H free, byte_list output, pc+0x20..pc+4528)  *)
+(*   WBN_DEC_SUBROUTINE_BYTELIST  (H free, byte_list output, ABI wrapper)       *)
+(* The spines carry the full sim/chain proof; the exported statements are pure  *)
+(* vocabulary lifts on top (INST H + POSTCONDITION_THM + WBN_OUTPUT_POINTWISE_  *)
+(* NONCE), so nothing large propagates and the sims are never re-run.           *)
 (*                                                                             *)
-(*   _SUBROUTINE_CORRECT   (Phase 8, below)                                     *)
+(*   _SUBROUTINE_CORRECT / WBN_DEC_SUBROUTINE_BYTELIST  (Phase 8, below)        *)
 (*     = prologue (guard fall-through + d8-d15 spills)                          *)
-(*       ; AESV8_GCM_8X_DEC_256_WB_CORRECT        <- the core, pc+0x20..pc+4528 *)
+(*       ; WBN_DEC_CORE_BYTELIST                 <- the core, pc+0x20..pc+4528  *)
 (*       ; epilogue (restore d8-d15 + ret)                                      *)
 (*                                                                             *)
-(*   _CORRECT   (Phase 7, below)  -- one core contract for ALL nblk>=1, by a    *)
-(*   3-way split on the block count (the binary takes 3 control-flow paths):    *)
+(*   WBN_DEC_CORE_BYTELIST   (Phase 7, below)  -- one core contract for ALL     *)
+(*   nblk>=1, by a 3-way split on the block count (3 control-flow paths):       *)
 (*     nblk <= 8   : AESV8_GCM_8X_DEC_256_WB_DISPATCH   (wb.ml; loop skipped)    *)
 (*     9 <= nblk<=16: WBN_FRONT_TO_END_916             (loop entered 0 times)   *)
 (*     nblk >= 17  : WBN_FRONT_TO_END                  (loop entered >=1 time)  *)
@@ -13017,7 +13028,8 @@ let CTR0_AS_CTR_BLOCK = prove
 (* ========================================================================= *)
 
 (* ------------------------------------------------------------------------- *)
-(* PHASE 7 (session-052): AESV8_GCM_8X_DEC_256_WB_CORRECT -- all nblk >= 1.     *)
+(* PHASE 7 (session-052): WBN_DEC_CORE_BYTELIST -- all nblk >= 1 (H free,      *)
+(* byte-list output; the internal spine the exported _CORRECT is lifted from). *)
 (* 3-way ASM_CASES: nblk<=8 -> existing DISPATCH (NIST vocab already); 9..16 -> *)
 (* WBN_FRONT_TO_END_916; >=17 -> WBN_FRONT_TO_END.  Each >8 chain ends in       *)
 (* wbn_end_post (RAW per-block ext2 vocab) and begins at wbn_front_P_tm (raw xi, *)
@@ -13044,12 +13056,14 @@ let CTR0_AS_CTR_BLOCK = prove
    ensures-body verbatim, with the `nblk<=8` bound replaced by `1<=nblk` plus the
    two size bounds the Phase-8 wrapper/guard supplies (128*nblk<2 EXP 62 and
    val in_p+16*nblk<2 EXP 63 -- for nblk<=8 they follow from small nblk; for
-   symbolic large nblk they rule out pointer/length overflow).  The load-time
-   soundness gate re-derives this statement from the frozen _DISPATCH by term
-   surgery and asserts aconv-equality, so any drift of this literal fails the
-   load (see the `let () = ...` gate at end of file). *)
+   symbolic large nblk they rule out pointer/length overflow).  This spine keeps
+   H free and the output as the whole-buffer byte list; the exported _CORRECT
+   below pins H and restates the output pointwise.  The load-time soundness gate
+   re-derives this spine statement from the frozen _DISPATCH by term surgery and
+   asserts aconv-equality, so any drift of this literal fails the load (see the
+   `let () = ...` gate at end of file). *)
 
-let AESV8_GCM_8X_DEC_256_WB_CORRECT = prove
+let WBN_DEC_CORE_BYTELIST = prove
  (`!pc stackpointer in_p out_p xi_p ivec_p key_p htbl_p nblk ibytes rk H
     tag0 ctr0.
     1 <= nblk /\
@@ -13146,7 +13160,9 @@ let AESV8_GCM_8X_DEC_256_WB_CORRECT = prove
     WBN_CHAIN_TO_NIST_TAC WBN_FRONT_TO_END]);;
 
 (* ------------------------------------------------------------------------- *)
-(* PHASE 8 (session-067): AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT.          *)
+(* PHASE 8 (session-067): WBN_DEC_SUBROUTINE_BYTELIST -- the ABI subroutine    *)
+(* wrapper spine (H free, byte_list output; the exported _SUBROUTINE_CORRECT   *)
+(* is lifted from it below).                                                   *)
 (* The ABI subroutine wrapper for the whole-blocks path (bit_len = 128*nblk,   *)
 (* any nblk >= 0).  session-078 folded the nblk = 0 leg in (the entry cbz x1   *)
 (* is TAKEN, returns 0, empty output, tag unchanged) so this single theorem is  *)
@@ -13157,13 +13173,14 @@ let AESV8_GCM_8X_DEC_256_WB_CORRECT = prove
 (* layout (objdump): the entry GUARD (nop;cbz x1;ands zr,x1,#0x7f;b.ne, offs   *)
 (* 0x0..0xc) precedes the d8-d15 callee-save spills (stp d8,d9,[sp,#-80]!;      *)
 (* stp d10,d11;d12,d13;d14,d15, offs 0x10..0x1c); the core runs pc+0x20..pc+   *)
-(* 0x11ac (= _CORRECT); the epilogue (mov x0,x9; ldp d10..d15; ldp d8,d9,[sp], *)
+(* 0x11ac (= the core); the epilogue (mov x0,x9; ldp d10..d15; ldp d8,d9,[sp], *)
 (* #80; ret, offs 0x11b0..0x11c4) restores.  X30 is NOT saved (returns via LR).*)
 (*                                                                             *)
 (* Stock ARM_ADD_RETURN_STACK_TAC does not apply: the guard's b.ne sits in the *)
 (* prologue (its ARM_STEPS stalls on the symbolic conditional-PC) and the SP   *)
 (* offset needs the core instantiated by hand.  So the wrapper is hand-rolled: *)
-(*  - WB_CORE_INST = _CORRECT SPECL'd stackpointer := word_sub stackpointer     *)
+(*  - WB_CORE_INST = WBN_DEC_CORE_BYTELIST SPECL'd stackpointer := word_sub     *)
+(*    stackpointer                                                              *)
 (*    (word 80) (so the in-frame SP = the caller SP after the prologue's        *)
 (*    stp ...,[sp,#-80]!);                                                      *)
 (*  - WB_CORE_INST_UF2 unfolds the folded input mem predicates (byte_list_at /  *)
@@ -13179,7 +13196,7 @@ let AESV8_GCM_8X_DEC_256_WB_CORRECT = prove
 (* Inherits _CORRECT's soundness: CHEAT-free, no new_axiom.                     *)
 (* ------------------------------------------------------------------------- *)
 
-let AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT = prove
+let WBN_DEC_SUBROUTINE_BYTELIST = prove
    (`!pc stackpointer in_p out_p xi_p ivec_p key_p htbl_p nblk ibytes rk H
       tag0 ctr0 returnaddress.
       128 * nblk < 2 EXP 62 /\
@@ -13226,7 +13243,7 @@ let AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT = prove
            `in_p:int64`; `out_p:int64`; `xi_p:int64`; `ivec_p:int64`;
            `key_p:int64`; `htbl_p:int64`; `nblk:num`; `ibytes:byte list`;
            `rk:int128 list`; `H:int128`; `tag0:int128`; `ctr0:int128`]
-          AESV8_GCM_8X_DEC_256_WB_CORRECT in
+          WBN_DEC_CORE_BYTELIST in
   (* val(word(16*nblk))=16*nblk from 128*nblk<2 EXP 62 (so 16*nblk<2 EXP 64) *)
   let VAL16EQ = prove
    (`128 * nblk < 2 EXP 62 ==> val (word (16 * nblk):int64) = 16 * nblk`,
@@ -13303,48 +13320,80 @@ let AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT = prove
       CONV_TAC WORD_RULE]);;
 
 (* ------------------------------------------------------------------------- *)
-(* TASK 1 (session-078): GHASH-key-tied corollaries.                          *)
+(* Bridge (session-080): the whole-buffer byte-list output collapses to the     *)
+(* per-block, NIST-nonce-named keystream form the two exported theorems below   *)
+(* ship.  byte_list_at(gcm_dec_pt_bytes ..) -> !j<nblk. read bytes128(out+16j)  *)
+(* = pt_j XOR E_K(nonce||(c+j)), given word_bytereverse ctr0 = ctr_block nonce  *)
+(* c.  Combines WBN_OUTPUT_POINTWISE (byte_list -> EL j of aes_ctr, s079),       *)
+(* EL_AES_CTR (element = pt XOR E_K(counter)) and GCM_CTR_INC_ITER_CTR_BLOCK    *)
+(* (our gcm_ctr_inc_iter counter = the byte-reversed NIST nonce||(c+j) block).  *)
+(* ------------------------------------------------------------------------- *)
+let WBN_OUTPUT_POINTWISE_NONCE = prove
+ (`!nblk ibytes ctr0 rk out_p s nonce c.
+     1 <= nblk /\ 128 * nblk < 2 EXP 62 /\
+     word_bytereverse ctr0 = ctr_block nonce c /\
+     byte_list_at (gcm_dec_pt_bytes (16 * nblk) ibytes ctr0 rk)
+                  out_p (word (16 * nblk)) s
+     ==> !j. j < nblk
+             ==> read (memory :> bytes128 (word_add out_p (word (16 * j)))) s =
+                 word_xor (EL j (gcm_dec_blocks_from 0 nblk ibytes))
+                          (aes256_encrypt
+                             (word_bytereverse (ctr_block nonce (c + j))) rk)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN X_GEN_TAC `j:num` THEN DISCH_TAC THEN
+  MP_TAC(SPECL [`nblk:num`; `ibytes:byte list`; `ctr0:int128`; `rk:int128 list`;
+               `out_p:int64`; `s:armstate`] WBN_OUTPUT_POINTWISE) THEN
+  ASM_REWRITE_TAC[] THEN DISCH_THEN(MP_TAC o SPEC `j:num`) THEN
+  ASM_REWRITE_TAC[] THEN DISCH_THEN SUBST1_TAC THEN
+  MP_TAC(SPECL [`gcm_dec_blocks_from 0 nblk ibytes`; `ctr0:int128`;
+               `rk:int128 list`; `j:num`] EL_AES_CTR) THEN
+  REWRITE_TAC[LENGTH_GCM_DEC_BLOCKS_FROM] THEN
+  ANTS_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN DISCH_THEN SUBST1_TAC THEN
+  MP_TAC(SPECL [`j:num`; `nonce:96 word`; `c:num`; `ctr0:int128`]
+    GCM_CTR_INC_ITER_CTR_BLOCK) THEN
+  ASM_REWRITE_TAC[] THEN DISCH_THEN SUBST1_TAC THEN REFL_TAC);;
+
+(* ========================================================================= *)
+(* THE EXPORTED CORE CONTRACT (session-080 consolidation).                     *)
 (*                                                                             *)
-(* The general _CORRECT / _SUBROUTINE_CORRECT above keep H a FREE variable --  *)
-(* strictly more general, but as a spec they never say H is the GCM hash key,  *)
-(* so a reviewer cannot confirm from the statement that this computes GCM's     *)
-(* tag at all.  The corollaries below pin H = aes256_encrypt (word 0) rk, the   *)
-(* GCM hash key (E_K(0^128)), matching the sibling AES-GCM proofs (Mila's       *)
-(* AESV8_GCM_8X_ENC_256_WB_SUBROUTINE_CORRECT_GEN, John's                       *)
-(* AES_GCM_ENC_KERNEL_X4_BASIC_CORRECT, which likewise pin the GHASH key to the *)
-(* cipher).  The general theorems remain the primary results; these are their   *)
-(* GCM-key instances (H occurs in exactly two places -- the htable precondition *)
-(* and the nist_ghash postcondition -- and the proof interior is abstract in H, *)
-(* so the instantiation is a pure MATCH_ACCEPT with nothing large propagated).  *)
+(* The after-prologue core correctness for the whole-blocks decrypt, stated in *)
+(* the reviewer-facing NIST SP 800-38D vocabulary that matches the sibling      *)
+(* AES-GCM proofs (Mila's encrypt AESV8_GCM_8X_ENC_256_WB_SUBROUTINE_CORRECT_   *)
+(* GEN, John's AES_GCM_ENC_KERNEL_X4_BASIC_CORRECT):                           *)
+(*   - the GHASH key is NAMED as the GCM hash key H = aes256_encrypt (word 0)   *)
+(*     rk (= E_K(0^128)); the interior of the proof is abstract in H, so this   *)
+(*     is a pure INST of the H-free spine WBN_DEC_CORE_BYTELIST -- nothing       *)
+(*     large propagates.  aes256_encrypt (NOT aes256_cipher) is the house        *)
+(*     convention for shipped Arm proofs (AES-XTS bottoms out in it); the        *)
+(*     aes256_encrypt = aes256_cipher FIPS-197 bridge is a separate upstream     *)
+(*     deliverable (PR #389 / #370).                                            *)
+(*   - the NIST nonce is NAMED by the hypothesis word_bytereverse ctr0 =         *)
+(*     ctr_block nonce c (every ctr0 admits this, CTR0_AS_CTR_BLOCK), so block   *)
+(*     j's keystream reads E_K(nonce || (c + j)) -- the big-endian counter form. *)
+(*   - the plaintext output is POINTWISE over 16-byte blocks (block j =          *)
+(*     pt_j XOR keystream_j), making it manifest that the routine handles ONLY   *)
+(*     whole 16-byte blocks (the partial-block nfull/tail machinery inside       *)
+(*     gcm_dec_pt_bytes is dead at whole-block lengths).                        *)
 (*                                                                             *)
-(* aes256_encrypt (word 0) rk (NOT aes256_cipher) is used deliberately: it is   *)
-(* the house convention for shipped Arm proofs (AES-XTS's exported             *)
-(* AES_XTS_ENCRYPT_*_CORRECT bottom out in it via aes256_xts_encrypt), so this  *)
-(* unifies decrypt with XTS; and aes256_cipher lives in common/fips197.ml,      *)
-(* which this chain does not load and which is a DIFFERENT (though equal)        *)
-(* definition (fips197_round orders SubBytes->ShiftRows, ours ShiftRows->       *)
-(* SubBytes; the two commute).                                                  *)
+(* Derived from WBN_DEC_CORE_BYTELIST by pinning H (INST) and weakening the      *)
+(* postcondition (ENSURES_POSTCONDITION_THM + WBN_OUTPUT_POINTWISE_NONCE).  The  *)
+(* GHASH tag conjunct is byte-identical to the spine.                          *)
 (*                                                                             *)
 (* TODO(H-table provenance): the H-power table is an INPUT here -- htable_mem_8 *)
-(*   states the layout the kernel requires, instantiated below at the GCM hash  *)
-(*   key H = aes256_encrypt (word 0) rk.  Proving that gcm_init_v8 actually      *)
-(*   WRITES this table is separate, still-to-do work, tracked upstream          *)
-(*   alongside the FIPS-197 bridges (PR #389 / #370).  The same TODO applies to  *)
-(*   the sibling AES-GCM proofs (Mila's encrypt, John's x4 kernels), which take  *)
-(*   the identical table as a precondition.  When the fips197 bridges land,      *)
-(*   these corollaries can be restated over aes256_cipher by rewriting with the  *)
-(*   aes256_encrypt = aes256_cipher equivalence.                                 *)
-(* ------------------------------------------------------------------------- *)
+(*   states the layout the kernel requires at H = aes256_encrypt (word 0) rk.   *)
+(*   Proving gcm_init_v8 WRITES this table is separate upstream work (PR #389 /  *)
+(*   #370); the sibling AES-GCM proofs take the identical table as a precond.    *)
+(* ========================================================================= *)
 
-let AESV8_GCM_8X_DEC_256_WB_CORRECT_GCMKEY = prove
+let AESV8_GCM_8X_DEC_256_WB_CORRECT = prove
  (`!pc stackpointer in_p out_p xi_p ivec_p key_p htbl_p nblk ibytes rk
-    tag0 ctr0.
+    tag0 ctr0 nonce c.
     1 <= nblk /\
     128 * nblk < 2 EXP 62 /\
     val in_p + 16 * nblk < 2 EXP 63 /\
     LENGTH ibytes = 16 * nblk /\
     LENGTH rk = 15 /\
     aligned 16 stackpointer /\
+    word_bytereverse ctr0 = ctr_block nonce c /\
     ALLPAIRS nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16]
     [word pc,4560; in_p,16 * nblk; key_p,240; htbl_p,192; stackpointer,80] /\
     PAIRWISE nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16] /\
@@ -13363,8 +13412,13 @@ let AESV8_GCM_8X_DEC_256_WB_CORRECT_GCMKEY = prove
               wordlist_from_memory (key_p,15) s = rk /\
               htable_mem_8 (ghash_twist (aes256_encrypt (word 0) rk)) htbl_p s)
          (\s. read PC s = word (pc + 4528) /\
-              byte_list_at (gcm_dec_pt_bytes (16 * nblk) ibytes ctr0 rk) out_p
-              (word (16 * nblk)) s /\
+              (!j. j < nblk
+                   ==> read (memory :> bytes128
+                              (word_add out_p (word (16 * j)))) s =
+                       word_xor (EL j (gcm_dec_blocks_from 0 nblk ibytes))
+                                (aes256_encrypt
+                                   (word_bytereverse (ctr_block nonce (c + j)))
+                                   rk)) /\
               read (memory :> bytes128 xi_p) s =
               word_reversefields 8
               (nist_ghash (aes256_encrypt (word 0) rk) tag0
@@ -13378,18 +13432,51 @@ let AESV8_GCM_8X_DEC_256_WB_CORRECT_GCMKEY = prove
           [Q0; Q1; Q2; Q3; Q4; Q5; Q6; Q7; Q8; Q9; Q10; Q11; Q12; Q13; Q14;
            Q15; Q16; Q17; Q18; Q19; Q20; Q21; Q22; Q23; Q24; Q25; Q26; Q27;
            Q28; Q29; Q30; Q31])`,
-  REPEAT GEN_TAC THEN
-  MATCH_ACCEPT_TAC(INST [`aes256_encrypt (word 0) rk`,`H:int128`]
-                        (SPEC_ALL AESV8_GCM_8X_DEC_256_WB_CORRECT)));;
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC ENSURES_POSTCONDITION_THM THEN
+  EXISTS_TAC
+    `\s. read PC s = word (pc + 4528) /\
+         byte_list_at
+           (gcm_dec_pt_bytes (16 * nblk) ibytes ctr0 rk) out_p
+           (word (16 * nblk)) s /\
+         read (memory :> bytes128 xi_p) s =
+         word_reversefields 8
+         (nist_ghash (aes256_encrypt (word 0) rk) tag0
+           (list_of_seq (nist_input_block ibytes) nblk))` THEN
+  CONJ_TAC THENL
+   [X_GEN_TAC `s:armstate` THEN BETA_TAC THEN STRIP_TAC THEN
+    ASM_REWRITE_TAC[] THEN
+    MATCH_MP_TAC WBN_OUTPUT_POINTWISE_NONCE THEN
+    EXISTS_TAC `ctr0:int128` THEN ASM_REWRITE_TAC[];
+    MP_TAC(INST [`aes256_encrypt (word 0) rk`,`H:int128`]
+                (SPEC_ALL WBN_DEC_CORE_BYTELIST)) THEN
+    ANTS_TAC THENL [ASM_REWRITE_TAC[]; DISCH_THEN MATCH_ACCEPT_TAC]]);;
 
-let AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT_GCMKEY = prove
+(* ========================================================================= *)
+(* THE EXPORTED SUBROUTINE CONTRACT (session-080 consolidation) -- headline.    *)
+(*                                                                             *)
+(* The full AAPCS64 subroutine wrapper, in the same reviewer-facing vocabulary  *)
+(* as the exported _CORRECT above (H = aes256_encrypt (word 0) rk named; NIST    *)
+(* nonce named by word_bytereverse ctr0 = ctr_block nonce c; pointwise 16-byte  *)
+(* block output).  Holds for EVERY representable length nblk >= 0 (session-078   *)
+(* folded the nblk = 0 leg into the spine: the entry cbz x1 is taken, returns 0, *)
+(* empty output, tag unchanged); at nblk = 0 the pointwise data conjunct is      *)
+(* vacuous (no j < 0).  Its C-argument bit_len = word (128*nblk) makes any        *)
+(* invalid (non-128-multiple) bit_len UNREPRESENTABLE, exactly as Mila's encrypt *)
+(* _GEN.  Derived from the wrapper spine WBN_DEC_SUBROUTINE_BYTELIST by pinning   *)
+(* H (INST) and weakening the postcondition (WBN_OUTPUT_POINTWISE_NONCE), just   *)
+(* like the core export.                                                        *)
+(* ========================================================================= *)
+
+let AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT = prove
  (`!pc stackpointer in_p out_p xi_p ivec_p key_p htbl_p nblk ibytes rk
-    tag0 ctr0 returnaddress.
+    tag0 ctr0 nonce c returnaddress.
     128 * nblk < 2 EXP 62 /\
     val in_p + 16 * nblk < 2 EXP 63 /\
     LENGTH ibytes = 16 * nblk /\
     LENGTH rk = 15 /\
     aligned 16 stackpointer /\
+    word_bytereverse ctr0 = ctr_block nonce c /\
     ALLPAIRS nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16]
     [word pc,4560; in_p,16 * nblk; key_p,240; htbl_p,192;
      word_sub stackpointer (word 80),80] /\
@@ -13410,8 +13497,13 @@ let AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT_GCMKEY = prove
               wordlist_from_memory (key_p,15) s = rk /\
               htable_mem_8 (ghash_twist (aes256_encrypt (word 0) rk)) htbl_p s)
          (\s. read PC s = returnaddress /\
-              byte_list_at (gcm_dec_pt_bytes (16 * nblk) ibytes ctr0 rk) out_p
-              (word (16 * nblk)) s /\
+              (!j. j < nblk
+                   ==> read (memory :> bytes128
+                              (word_add out_p (word (16 * j)))) s =
+                       word_xor (EL j (gcm_dec_blocks_from 0 nblk ibytes))
+                                (aes256_encrypt
+                                   (word_bytereverse (ctr_block nonce (c + j)))
+                                   rk)) /\
               read (memory :> bytes128 xi_p) s =
               word_reversefields 8
               (nist_ghash (aes256_encrypt (word 0) rk) tag0
@@ -13421,100 +13513,51 @@ let AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT_GCMKEY = prove
           [memory :> bytes (out_p,16 * nblk); memory :> bytes (xi_p,16);
            memory :> bytes (ivec_p,16);
            memory :> bytes (word_sub stackpointer (word 80),80)])`,
-  REPEAT GEN_TAC THEN
-  MATCH_ACCEPT_TAC(INST [`aes256_encrypt (word 0) rk`,`H:int128`]
-                        (SPEC_ALL AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT)));;
-
-(* ------------------------------------------------------------------------- *)
-(* POINTWISE data corollary (session-079), reviewer-facing.  Same pre/frame as *)
-(* _CORRECT, but the data postcondition is the per-block form                  *)
-(*   !j. j<nblk ==> read(memory:>bytes128(out_p+16j)) s =                       *)
-(*                  EL j (aes_ctr ctr0 (gcm_dec_blocks_from 0 nblk ibytes) rk)   *)
-(* instead of the whole-buffer byte_list_at(gcm_dec_pt_bytes ...).  This makes   *)
-(* it manifest that the routine handles ONLY whole 16-byte blocks (the          *)
-(* partial-block nfull/tail machinery inside gcm_dec_pt_bytes is dead at        *)
-(* whole-block lengths -- see the WHY note at SUB_LIST_INT128_LIST_TO_BYTES_EL)  *)
-(* and matches the sibling AES-GCM proofs' shape.  Derived from _CORRECT by      *)
-(* postcondition weakening (the pointwise form is a CONSEQUENCE of the byte-list *)
-(* form via WBN_OUTPUT_POINTWISE): _CORRECT is NOT touched.  DO NOT fold this    *)
-(* back into the byte-list form.                                                *)
-let AESV8_GCM_8X_DEC_256_WB_CORRECT_POINTWISE = prove
- (`!pc stackpointer in_p out_p xi_p ivec_p key_p htbl_p nblk ibytes rk H
-    tag0 ctr0.
-    1 <= nblk /\
-    128 * nblk < 2 EXP 62 /\
-    val in_p + 16 * nblk < 2 EXP 63 /\
-    LENGTH ibytes = 16 * nblk /\
-    LENGTH rk = 15 /\
-    aligned 16 stackpointer /\
-    ALLPAIRS nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16]
-    [word pc,4560; in_p,16 * nblk; key_p,240; htbl_p,192; stackpointer,80] /\
-    PAIRWISE nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16] /\
-    ALL (nonoverlapping (stackpointer,80))
-    [word pc,4560; in_p,16 * nblk; key_p,240; htbl_p,192]
-    ==> ensures arm
-         (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
-              read PC s = word (pc + 32) /\
-              read SP s = stackpointer /\
-              C_ARGUMENTS
-              [in_p; word (128 * nblk); out_p; xi_p; ivec_p; key_p; htbl_p]
-              s /\
-              byte_list_at ibytes in_p (word (16 * nblk)) s /\
-              read (memory :> bytes128 xi_p) s = word_reversefields 8 tag0 /\
-              read (memory :> bytes128 ivec_p) s = ctr0 /\
-              wordlist_from_memory (key_p,15) s = rk /\
-              htable_mem_8 (ghash_twist H) htbl_p s)
-         (\s. read PC s = word (pc + 4528) /\
-              (!j. j < nblk
-                   ==> read (memory :> bytes128
-                              (word_add out_p (word (16 * j)))) s =
-                       EL j (aes_ctr ctr0 (gcm_dec_blocks_from 0 nblk ibytes)
-                               rk)) /\
-              read (memory :> bytes128 xi_p) s =
-              word_reversefields 8
-              (nist_ghash H tag0
-              (list_of_seq (nist_input_block ibytes) nblk)))
-         (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-          MAYCHANGE
-          [memory :> bytes (out_p,16 * nblk); memory :> bytes (xi_p,16);
-           memory :> bytes (ivec_p,16);
-           memory :> bytes (word_add stackpointer (word 64),16)] ,,
-          MAYCHANGE
-          [Q0; Q1; Q2; Q3; Q4; Q5; Q6; Q7; Q8; Q9; Q10; Q11; Q12; Q13; Q14;
-           Q15; Q16; Q17; Q18; Q19; Q20; Q21; Q22; Q23; Q24; Q25; Q26; Q27;
-           Q28; Q29; Q30; Q31])`,
   REPEAT GEN_TAC THEN STRIP_TAC THEN
   MATCH_MP_TAC ENSURES_POSTCONDITION_THM THEN
   EXISTS_TAC
-    `\s. read PC s = word (pc + 4528) /\
-         byte_list_at (gcm_dec_pt_bytes (16 * nblk) ibytes ctr0 rk) out_p
-         (word (16 * nblk)) s /\
+    `\s. read PC s = returnaddress /\
+         byte_list_at
+           (gcm_dec_pt_bytes (16 * nblk) ibytes ctr0 rk) out_p
+           (word (16 * nblk)) s /\
          read (memory :> bytes128 xi_p) s =
          word_reversefields 8
-         (nist_ghash H tag0 (list_of_seq (nist_input_block ibytes) nblk))` THEN
+         (nist_ghash (aes256_encrypt (word 0) rk) tag0
+           (list_of_seq (nist_input_block ibytes) nblk))` THEN
   CONJ_TAC THENL
    [X_GEN_TAC `s:armstate` THEN BETA_TAC THEN STRIP_TAC THEN
-    ASM_REWRITE_TAC[] THEN
-    MATCH_MP_TAC WBN_OUTPUT_POINTWISE THEN ASM_REWRITE_TAC[];
-    MATCH_MP_TAC AESV8_GCM_8X_DEC_256_WB_CORRECT THEN ASM_REWRITE_TAC[]]);;
+    CONJ_TAC THENL [FIRST_ASSUM ACCEPT_TAC; ALL_TAC] THEN
+    CONJ_TAC THENL
+     [X_GEN_TAC `j:num` THEN DISCH_TAC THEN
+      MP_TAC(SPECL [`nblk:num`; `ibytes:byte list`; `ctr0:int128`;
+                    `rk:int128 list`; `out_p:int64`; `s:armstate`;
+                    `nonce:96 word`; `c:num`] WBN_OUTPUT_POINTWISE_NONCE) THEN
+      ANTS_TAC THENL [ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC; ALL_TAC] THEN
+      DISCH_THEN(MP_TAC o SPEC `j:num`) THEN ASM_REWRITE_TAC[];
+      FIRST_ASSUM ACCEPT_TAC];
+    MP_TAC(INST [`aes256_encrypt (word 0) rk`,`H:int128`]
+                (SPEC_ALL WBN_DEC_SUBROUTINE_BYTELIST)) THEN
+    ANTS_TAC THENL [ASM_REWRITE_TAC[]; DISCH_THEN MATCH_ACCEPT_TAC]]);;
 
 (* ------------------------------------------------------------------------- *)
 (* THE WHOLE-FUNCTION CONTRACT (headline result).                              *)
 (*                                                                             *)
-(* AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT (above, this file) IS the whole-  *)
-(* function AAPCS64 subroutine contract of the whole-blocks binary.  Its        *)
-(* C-argument bit_len = word (128*nblk) makes any invalid (non-128-multiple)     *)
-(* bit_len UNREPRESENTABLE in the precondition, exactly as Mila's encrypt _GEN;  *)
-(* and session-078 folded nblk = 0 in, so it holds for EVERY representable        *)
-(* length nblk >= 0:                                                            *)
+(* AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT (above) IS the whole-function     *)
+(* AAPCS64 subroutine contract of the whole-blocks binary, and                  *)
+(* AESV8_GCM_8X_DEC_256_WB_CORRECT is the after-prologue core it wraps.  These   *)
+(* are the TWO exported CORRECT theorems (session-080 consolidated the earlier   *)
+(* five near-identical variants into these two: H is pinned in the statement,    *)
+(* the nonce is named, the output is pointwise -- so a reviewer sees ONE obvious *)
+(* contract for the core and ONE for the subroutine).  Their C-argument bit_len  *)
+(* = word (128*nblk) makes any invalid (non-128-multiple) bit_len                *)
+(* UNREPRESENTABLE, and the wrapper holds for EVERY representable length          *)
+(* nblk >= 0:                                                                   *)
 (*   - nblk >= 1 (bit_len a positive multiple of 128 bits): decrypts the         *)
-(*     16*nblk-byte buffer to gcm_dec_pt_bytes and updates the running GHASH tag  *)
-(*     to nist_ghash, preserving d8-d15/SP and restoring PC to the return         *)
-(*     address.                                                                  *)
+(*     16*nblk-byte buffer block-by-block (block j = pt_j XOR E_K(nonce||(c+j))) *)
+(*     and updates the running GHASH tag to nist_ghash, preserving d8-d15/SP and *)
+(*     restoring PC to the return address.                                       *)
 (*   - nblk = 0 (bit_len = 0): the entry cbz x1 is taken, returns 0 in X0,        *)
-(*     empty output byte list, tag unchanged (nist_ghash H tag0 [] = tag0).       *)
-(* GCM-key-tied instances (H = aes256_encrypt (word 0) rk) are exported as        *)
-(* _CORRECT_GCMKEY / _SUBROUTINE_CORRECT_GCMKEY (Task 1 above).                  *)
+(*     empty output (the pointwise conjunct is vacuous), tag unchanged.          *)
 (*                                                                             *)
 (* SECONDARY (entry-guard safety): AESV8_GCM_8X_DEC_256_WB_GUARD                 *)
 (* (arm/proofs/aesv8_gcm_8x_dec_256_wb.ml) is NOT part of the headline contract   *)
@@ -13528,26 +13571,37 @@ let AESV8_GCM_8X_DEC_256_WB_CORRECT_POINTWISE = prove
 (* not the cryptographic spec.  (It mirrors the nblk<=8 DISPATCH+GUARD pairing    *)
 (* in wb.ml:4643-4708, where GUARD played the same secondary role.)              *)
 (*                                                                             *)
-(* Soundness gate: all exported theorems (SUBROUTINE_CORRECT for all nblk>=0,     *)
-(* the underlying CORRECT for all nblk>=1, GUARD, and the Task-1 GCMKEY           *)
-(* corollaries) are hyps=0, and the file introduces NO new axiom -- the          *)
-(* Q19/GHASH identity that was scoped behind a CHEAT for ~15 sessions is closed   *)
-(* (sessions 061-065, R1' route).                                               *)
+(* Soundness gate: the exported theorems (SUBROUTINE_CORRECT for all nblk>=0,     *)
+(* CORRECT for all nblk>=1, GUARD) plus the internal byte-list spines are         *)
+(* hyps=0, and the file introduces NO new axiom -- the Q19/GHASH identity that    *)
+(* was scoped behind a CHEAT for ~15 sessions is closed (sessions 061-065, R1'    *)
+(* route).                                                                       *)
 (* ------------------------------------------------------------------------- *)
 
 let () =
   let whole_fn = [AESV8_GCM_8X_DEC_256_WB_CORRECT;
                   AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT;
-                  AESV8_GCM_8X_DEC_256_WB_GUARD] in
-  (* Drift gate for the readable literals.  Both exported statements above are
-     proved directly; here we re-derive what we EXPECT them to say from the
-     FROZEN _DISPATCH by term surgery and assert alpha-equivalence, catching any
-     future edit that silently drifts a literal from the DISPATCH contract.
+                  AESV8_GCM_8X_DEC_256_WB_GUARD;
+                  WBN_DEC_CORE_BYTELIST; WBN_DEC_SUBROUTINE_BYTELIST] in
+  (* Drift gate.  The exported theorems are proved directly; here we re-derive
+     what we EXPECT them to say and assert alpha-equivalence, catching any future
+     edit that silently drifts a literal.
 
-     correct_anchor: the DISPATCH ensures-body verbatim, with the `nblk<=8` bound
-     replaced by `1<=nblk` plus the two size bounds (128*nblk<2 EXP 62 and
-     val in_p+16*nblk<2 EXP 63). *)
-  let correct_anchor =
+     TWO layers:
+     (1) the internal byte-list SPINES (WBN_DEC_CORE_BYTELIST /
+         WBN_DEC_SUBROUTINE_BYTELIST) are anchored to the FROZEN _DISPATCH by
+         term surgery (core_bytelist_anchor / subr_bytelist_anchor), exactly as
+         before the session-080 consolidation;
+     (2) the two EXPORTED theorems are anchored to the spines by the presentation
+         transform `to_exported`: pin H := aes256_encrypt (word 0) rk, add the
+         nonce hypothesis (word_bytereverse ctr0 = ctr_block nonce c) after the
+         `aligned` conjunct, add nonce/c forall vars, and replace the byte-list
+         data conjunct with the pointwise keystream conjunct.  Both anchor terms
+         are built from proved theorems (the spine + WBN_OUTPUT_POINTWISE_NONCE),
+         so no hand-typed literal can drift undetected. *)
+  (* (1a) core_bytelist_anchor: the DISPATCH ensures-body verbatim, `nblk<=8`
+     replaced by `1<=nblk` + the two size bounds. *)
+  let core_bytelist_anchor =
     let dvars, dbody = strip_forall (concl AESV8_GCM_8X_DEC_256_WB_DISPATCH) in
     let dhyps, dens = dest_imp dbody in
     let hyps0 = filter (fun c -> c <> `nblk <= 8`) (conjuncts dhyps) in
@@ -13555,16 +13609,14 @@ let () =
                 `val (in_p:int64) + 16 * nblk < 2 EXP 63` ::
                 (filter (fun c -> c <> `1 <= nblk`) hyps0) in
     list_mk_forall(dvars, mk_imp(list_mk_conj hyps', dens)) in
-  (* subroutine_anchor: the ABI wrapper, term-derived from correct_anchor (hence
-     also from the frozen _DISPATCH) -- SP shifted to the post-prologue in-frame
-     value word_sub stackpointer (word 80) throughout (the two stack nonoverlap
-     pairs and the frame's stack mem cell), entry PC pc+32 -> pc (function entry),
-     exit PC pc+4528 -> returnaddress, read X30 s = returnaddress added to the
-     pre after the SP conjunct, an extra `returnaddress` forall var, and the
-     `,, MAYCHANGE [Q0..Q31]` core-scratch frame dropped (subsumed by the ABI
-     frame in the wrapper). *)
-  let subroutine_anchor =
-    let cvars, cbody = strip_forall correct_anchor in
+  (* (1b) subr_bytelist_anchor: the ABI wrapper spine, term-derived from
+     core_bytelist_anchor -- SP shifted to word_sub stackpointer (word 80)
+     throughout, entry PC pc+32 -> pc, exit PC pc+4528 -> returnaddress, read X30
+     s = returnaddress added, an extra returnaddress forall var, `1<=nblk` dropped
+     (nblk=0 folded in), and the core-scratch `,, MAYCHANGE [Q0..Q31]` frame
+     dropped (subsumed by the ABI frame). *)
+  let subr_bytelist_anchor =
+    let cvars, cbody = strip_forall core_bytelist_anchor in
     let base = subst
       [`word pc:int64`,`word (pc + 32):int64`;
        `returnaddress:int64`,`word (pc + 4528):int64`;
@@ -13584,21 +13636,56 @@ let () =
     let frame' = mk_comb(mk_comb(rator(rator frame), rand(rator frame)),
                          rand(rator(rand frame))) in
     let cens' = list_mk_comb(eop, [el 0 eargs; pre'; el 2 eargs; frame']) in
-    (* session-078: the wrapper is generalized to nblk >= 0 (the nblk = 0 leg is
-       folded in via ASM_CASES), so the `1 <= nblk` hyp is dropped from the
-       wrapper contract (it is not needed: nblk = 0 exits at the entry cbz). *)
     let chyps' = list_mk_conj (filter (fun c -> c <> `1 <= nblk`)
                                       (conjuncts chyps)) in
     list_mk_forall(cvars @ [`returnaddress:int64`], mk_imp(chyps', cens')) in
-  if not (aconv (concl AESV8_GCM_8X_DEC_256_WB_CORRECT) correct_anchor) then
-    failwith "WB dec _CORRECT: literal drifted from the DISPATCH contract (aconv)"
+  (* (2) the presentation transform to the exported statement.  nonce hyp +
+     pointwise data conjunct are lifted from WBN_OUTPUT_POINTWISE_NONCE so their
+     typing is guaranteed to match the exported theorems' by construction. *)
+  let nonce_hyp_tm =
+    el 2 (conjuncts (lhand (snd (strip_forall
+             (concl WBN_OUTPUT_POINTWISE_NONCE))))) in
+  let pointwise_data_tm =
+    snd (dest_imp (snd (strip_forall (concl WBN_OUTPUT_POINTWISE_NONCE)))) in
+  let to_exported anchor =
+    let vars, body = strip_forall anchor in
+    let body = subst [`aes256_encrypt (word 0) rk`,`H:int128`] body in
+    let hyps, ens = dest_imp body in
+    let hcs = conjuncts hyps in
+    let aligned_tm =
+      find (fun c -> try fst(dest_const(fst(strip_comb c))) = "aligned"
+                     with Failure _ -> false) hcs in
+    let hyps' = itlist (fun cj acc -> if cj = aligned_tm
+                                      then cj :: nonce_hyp_tm :: acc
+                                      else cj :: acc) hcs [] in
+    let eop, eargs = strip_comb ens in
+    let sv, qbody = dest_abs (el 2 eargs) in
+    let qcs' = mapi (fun i cj -> if i = 1 then pointwise_data_tm else cj)
+                    (conjuncts qbody) in
+    let post' = mk_abs(sv, list_mk_conj qcs') in
+    let ens' = list_mk_comb(eop, [el 0 eargs; el 1 eargs; post'; el 3 eargs]) in
+    let vars0 = filter (fun v -> v <> `H:int128`) vars in
+    let vars' =
+      if mem `returnaddress:int64` vars0
+      then filter (fun v -> v <> `returnaddress:int64`) vars0 @
+           [`nonce:96 word`; `c:num`; `returnaddress:int64`]
+      else vars0 @ [`nonce:96 word`; `c:num`] in
+    list_mk_forall(vars', mk_imp(list_mk_conj hyps', ens')) in
+  if not (aconv (concl WBN_DEC_CORE_BYTELIST) core_bytelist_anchor) then
+    failwith "WB dec core spine: literal drifted from the DISPATCH contract (aconv)"
+  else if not (aconv (concl WBN_DEC_SUBROUTINE_BYTELIST) subr_bytelist_anchor) then
+    failwith "WB dec subroutine spine: literal drifted from the core spine (aconv)"
+  else if not (aconv (concl AESV8_GCM_8X_DEC_256_WB_CORRECT)
+                     (to_exported core_bytelist_anchor)) then
+    failwith "WB dec _CORRECT: literal drifted from the core spine (aconv)"
   else if not (aconv (concl AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT)
-                     subroutine_anchor) then
-    failwith "WB dec _SUBROUTINE_CORRECT: literal drifted from the CORRECT contract (aconv)"
+                     (to_exported subr_bytelist_anchor)) then
+    failwith "WB dec _SUBROUTINE_CORRECT: literal drifted from the subroutine spine (aconv)"
   else if exists (fun th -> hyp th <> []) whole_fn then
     failwith "WB dec whole-function theorems: unexpected hypotheses"
   else if List.length (axioms()) <> 3 then
     failwith "WB dec whole-function: unexpected axiom count (new_axiom introduced?)"
   else Format.print_string
-    "WB dec whole-function: CORRECT (aconv DISPATCH) + SUBROUTINE_CORRECT (aconv CORRECT) + GUARD hyps=0, axioms=3\n";;
+    ("WB dec whole-function: CORRECT + SUBROUTINE_CORRECT (H pinned, nonce named, "^
+     "pointwise; aconv spines) + spines (aconv DISPATCH) + GUARD hyps=0, axioms=3\n");;
 
