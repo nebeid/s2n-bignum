@@ -12798,6 +12798,86 @@ let WBN_END_OUTPUT_BYTE_LIST = prove
     X_GEN_TAC `j:num` THEN DISCH_TAC THEN ASM_SIMP_TAC[] THEN
     MATCH_MP_TAC WBN_ENDBLOCK_IS_AES_CTR THEN ASM_REWRITE_TAC[]]);;
 
+(* ------------------------------------------------------------------------- *)
+(* TASK 3 (session-078, EXPLORATORY): counter-model bridge to the NIST         *)
+(* SP 800-38D nonce||counter form used by the sibling AES-GCM proofs.          *)
+(*                                                                             *)
+(* Our postcondition names counters via gcm_ctr_inc_iter j ctr0 (successor-    *)
+(* iterated over an OPAQUE initial block ctr0), so the SP 800-38D nonce is      *)
+(* never named.  Mila's/John's proofs instead use                             *)
+(*   ctr_block nonce ctr = word_join (nonce:96 word) (word ctr:int32)          *)
+(* (NIST big-endian: fixed 96-bit nonce, 32-bit big-endian counter), with      *)
+(* block i's input = ctr_block nonce (i + 2).  This block proves that the two   *)
+(* models COINCIDE: our gcm_ctr_inc_iter is exactly NIST inc32 iterated on the  *)
+(* nonce||counter block (conjugated by the load-time byteswap), UNCONDITIONALLY *)
+(* (the 32-bit counter wrap is absorbed by word arithmetic -- no no-wrap side   *)
+(* condition is needed).  ctr_block is defined here matching Mila's def         *)
+(* verbatim (it is not in this load chain); when the AES-GCM proofs merge        *)
+(* upstream this local copy folds into the shared one.                          *)
+(*                                                                             *)
+(* SCOPE NOTE (why no pointwise-block DATA corollary is added here): turning    *)
+(* the exported byte_list_at(gcm_dec_pt_bytes ...) whole-buffer postcondition    *)
+(* into Mila's pointwise                                                        *)
+(*   !j. j<nblk ==> read(memory:>bytes128(out_p+16j)) s =                       *)
+(*                  word_xor (aes_ctr_block nonce rk j) (inblock j)             *)
+(* would additionally require (a) the REVERSE of WBN_END_OUTPUT_BYTE_LIST -- a   *)
+(* byte_list_at -> per-16-byte-block bytes128 regrouping at SYMBOLIC nblk, which *)
+(* is genuinely new machinery (only the forward BYTE_LIST_AT_*_CTR direction     *)
+(* exists), and (b) the aes256_encrypt = aes256_cipher FIPS-197 bridge to match  *)
+(* their aes_ctr_block spelling (an explicitly-upstream deliverable, PR #389 --  *)
+(* see the Task-1 TODO).  Both are out of scope for this presentation pass, so   *)
+(* per the brief we STOP at the counter-model bridge and report.  The bridge     *)
+(* lemmas below are the reusable core a future pointwise corollary would build   *)
+(* on once (a) and (b) land.                                                    *)
+(* ------------------------------------------------------------------------- *)
+
+let ctr_block = new_definition
+ `ctr_block (nonce:96 word) ctr :int128 = word_join (nonce:96 word) (word ctr:int32)`;;
+
+(* NIST inc32 on a nonce||counter block just increments the 32-bit counter --    *)
+(* UNCONDITIONALLY (word (c+1):int32 = word_add (word c) (word 1), the wrap is    *)
+(* the intended mod-2^32 counter rollover).                                      *)
+let INC32_CTR_BLOCK = prove
+ (`!(nonce:96 word) c. inc32 (ctr_block nonce c) = ctr_block nonce (c + 1)`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[inc32; ctr_block] THEN
+  CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
+  REWRITE_TAC[WORD_BLAST
+    `word_subword (word_join (nonce:96 word) (wc:int32):int128) (0,32):32 word = wc`;
+              WORD_BLAST
+    `word_subword (word_join (nonce:96 word) (wc:int32):int128) (32,96):96 word = nonce`] THEN
+  REWRITE_TAC[WORD_ADD] THEN AP_TERM_TAC THEN AP_TERM_TAC THEN ARITH_TAC);;
+
+(* ... iterated: j applications of inc32 advance the counter by j.               *)
+let ITER_INC32_CTR_BLOCK = prove
+ (`!j (nonce:96 word) c. ITER j inc32 (ctr_block nonce c) = ctr_block nonce (c + j)`,
+  INDUCT_TAC THEN REPEAT GEN_TAC THEN REWRITE_TAC[ITER; ADD_CLAUSES] THEN
+  ASM_REWRITE_TAC[INC32_CTR_BLOCK] THEN REWRITE_TAC[INC32_CTR_BLOCK] THEN
+  AP_TERM_TAC THEN ARITH_TAC);;
+
+(* THE BRIDGE: our gcm_ctr_inc_iter j ctr0 equals the NIST nonce||counter block  *)
+(* advanced by j, provided the byteswapped ctr0 decomposes as nonce||c.  Via     *)
+(* GCM_CTR_INC_ITER_INC32 (gcm_ctr_inc_iter = bytereverse . ITER inc32 .          *)
+(* bytereverse, gcm_ctr_helpers.ml).                                             *)
+let GCM_CTR_INC_ITER_CTR_BLOCK = prove
+ (`!j (nonce:96 word) c ctr0.
+     word_bytereverse ctr0 = ctr_block nonce c
+     ==> gcm_ctr_inc_iter j ctr0 = word_bytereverse (ctr_block nonce (c + j))`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[GCM_CTR_INC_ITER_INC32] THEN
+  ASM_REWRITE_TAC[] THEN REWRITE_TAC[ITER_INC32_CTR_BLOCK]);;
+
+(* Any opaque ctr0 admits such a decomposition (nonce = top 96 bits of the        *)
+(* byteswapped block, c = its low 32-bit counter), so the bridge always applies:  *)
+(* the nonce IS extractable, it is simply not NAMED in the current postcondition.  *)
+let CTR0_AS_CTR_BLOCK = prove
+ (`!ctr0:int128. ?nonce c. c < 2 EXP 32 /\ word_bytereverse ctr0 = ctr_block nonce c`,
+  GEN_TAC THEN
+  EXISTS_TAC `word_subword (word_bytereverse ctr0:int128) (32,96):96 word` THEN
+  EXISTS_TAC `val(word_subword (word_bytereverse ctr0:int128) (0,32):32 word)` THEN
+  CONJ_TAC THENL
+   [MP_TAC(ISPEC `word_subword (word_bytereverse ctr0:int128) (0,32):32 word` VAL_BOUND) THEN
+    REWRITE_TAC[DIMINDEX_32];
+    REWRITE_TAC[ctr_block; WORD_VAL] THEN CONV_TAC WORD_BLAST]);;
+
 (* ========================================================================= *)
 (* ROADMAP -- how to read the two exported theorems below top-down.            *)
 (*                                                                             *)
