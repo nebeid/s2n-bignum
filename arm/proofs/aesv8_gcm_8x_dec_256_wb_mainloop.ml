@@ -9930,8 +9930,18 @@ let DISCARD_OLDSTATE_KEEPDATA_TAC s =
     let us = unbound_statevars_of_read [] (concl thm) in
     if us = [] || us = [v] then false else true);;
 let DISCARD_STALE_DATA_TAC = MAP_EVERY DISCARD_STALE_QREG_TAC wbn_datawords_0_19;;
+(* SPEED (session-082, tactic-axis profile): the per-step fold here uses ONE pass of
+   GCM_SIMD_SIMPLIFY_CORE_TAC, not the shared double-pass GCM_SIMD_SIMPLIFY_TAC.  The
+   2nd pass exists (in the lemmas file) to reach a REV64 fixpoint that a single pass
+   can miss on ~6/278 steps -- but under KEEPDATA (which discards stale old-state reads
+   after every step) the body sim reaches its self-contained cut-points WITHOUT that
+   extra fold: WBN_MAIN_LOOP and WBN_PREPRETAIL_EXT2 (the ONLY two KEEPDATA-SIMP users)
+   both re-prove hyps=0 with a single core pass.  Measured on a warm dev-load:
+   WBN_MAIN_LOOP 188.2s->147.0s, WBN_PREPRETAIL 136.9s->103.5s (the 2nd pass was a
+   full pile-traversal no-op on 272/278 steps).  KEEPGH (tails/fronts) and every other
+   consumer keep the unchanged double-pass GCM_SIMD_SIMPLIFY_TAC. *)
 let ARM_STEPS_FOLD_KEEPDATA_TAC exec snums =
-  MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN GCM_SIMD_SIMPLIFY_CORE_TAC THEN
               DISCARD_STALE_DATA_TAC THEN DISCARD_OLDSTATE_KEEPDATA_TAC s THEN CLARIFY_TAC)
     (statenames "s" snums);;
 (* NO-SIMPLIFY variant for the reduce + store windows: GCM_SIMD_SIMPLIFY on the
