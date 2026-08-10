@@ -2171,7 +2171,7 @@ let WB_TAIL_1_TAC =
   SUBGOAL_THEN `read Q12 (s333:armstate) = word_xor cph (aes256_encrypt (ctr0:int128)
       [k0:int128;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14])`
     (fun th -> RULE_ASSUM_TAC(fun asm ->
-       if can (find_term (fun t -> t = `read Q12 s333`)) (concl asm)
+       if (try lhs(concl asm) = `read Q12 s333` with _ -> false)
        then th else asm) THEN ASSUME_TAC th) THENL
   [FIRST_ASSUM(fun th ->
      if is_eq(concl th) && (try lhs(concl th) = `read Q12 s333` with _ -> false)
@@ -2193,7 +2193,7 @@ let WB_TAIL_1_TAC =
      polyval_dot (word_xor (word_bytereverse xi) (word_bytereverse cph))
        (byteswap128 h)`
     (fun th -> RULE_ASSUM_TAC(fun asm ->
-       if can (find_term (fun t -> t = `read Q19 s341`)) (concl asm)
+       if (try lhs(concl asm) = `read Q19 s341` with _ -> false)
        then th else asm) THEN ASSUME_TAC th) THENL
   [FIRST_ASSUM(fun th ->
      if is_eq(concl th) && (try lhs(concl th) = `read Q19 s341` with _ -> false)
@@ -2270,7 +2270,7 @@ let WB_TAIL_1_TAC =
   ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (342--343) THEN
   SUBGOAL_THEN `read Q19 (s343:armstate) = word_bytereverse (gval:int128)`
     (fun th -> RULE_ASSUM_TAC(fun asm ->
-       if can (find_term (fun t -> t = `read Q19 s343`)) (concl asm)
+       if (try lhs(concl asm) = `read Q19 s343` with _ -> false)
        then th else asm) THEN ASSUME_TAC th) THENL
   [FIRST_ASSUM(fun th ->
      if is_eq(concl th) && (try lhs(concl th) = `read Q19 s343` with _ -> false)
@@ -2294,7 +2294,7 @@ let WB_TAIL_2_TAC =
   SUBGOAL_THEN `read Q12 (s319:armstate) = word_xor cph0 (aes256_encrypt (ctr0:int128)
       [k0:int128;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14])`
     (fun th -> RULE_ASSUM_TAC(fun asm ->
-       if can (find_term (fun t -> t = `read Q12 s319`)) (concl asm)
+       if (try lhs(concl asm) = `read Q12 s319` with _ -> false)
        then th else asm) THEN ASSUME_TAC th) THENL
   [FIRST_ASSUM(fun th ->
      if is_eq(concl th) && (try lhs(concl th) = `read Q12 s319` with _ -> false)
@@ -2314,7 +2314,7 @@ let WB_TAIL_2_TAC =
       (gcm_ctr_inc ctr0:int128)
       [k0:int128;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14])`
     (fun th -> RULE_ASSUM_TAC(fun asm ->
-       if can (find_term (fun t -> t = `read Q12 s325`)) (concl asm)
+       if (try lhs(concl asm) = `read Q12 s325` with _ -> false)
        then th else asm) THEN ASSUME_TAC th) THENL
   [FIRST_ASSUM(fun th ->
      if is_eq(concl th) && (try lhs(concl th) = `read Q12 s325` with _ -> false)
@@ -2341,7 +2341,7 @@ let WB_TAIL_2_TAC =
      ghash_polyval_acc (byteswap128 h) (word_bytereverse xi)
        [word_bytereverse cph0; word_bytereverse cph1]`
     (fun th -> RULE_ASSUM_TAC(fun asm ->
-       if can (find_term (fun t -> t = `read Q19 s355`)) (concl asm)
+       if (try lhs(concl asm) = `read Q19 s355` with _ -> false)
        then th else asm) THEN ASSUME_TAC th) THENL
   [FIRST_ASSUM(fun th ->
      if is_eq(concl th) && (try lhs(concl th) = `read Q19 s355` with _ -> false)
@@ -2354,7 +2354,7 @@ let WB_TAIL_2_TAC =
   ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (356--357) THEN
   SUBGOAL_THEN `read Q19 (s357:armstate) = word_bytereverse (gval:int128)`
     (fun th -> RULE_ASSUM_TAC(fun asm ->
-       if can (find_term (fun t -> t = `read Q19 s357`)) (concl asm)
+       if (try lhs(concl asm) = `read Q19 s357` with _ -> false)
        then th else asm) THEN ASSUME_TAC th) THENL
   [FIRST_ASSUM(fun th ->
      if is_eq(concl th) && (try lhs(concl th) = `read Q19 s357` with _ -> false)
@@ -2382,7 +2382,7 @@ let WB_TAIL_3_TAC =
      ghash_polyval_acc (byteswap128 h) (word_bytereverse xi)
        [word_bytereverse cph0; word_bytereverse cph1; word_bytereverse cph2]`
     (fun th -> RULE_ASSUM_TAC(fun asm ->
-       if can (find_term (fun t -> t = `read Q19 s366`)) (concl asm)
+       if (try lhs(concl asm) = `read Q19 s366` with _ -> false)
        then th else asm) THEN ASSUME_TAC th) THENL
   [FIRST_ASSUM(fun th ->
      if is_eq(concl th) && (try lhs(concl th) = `read Q19 s366` with _ -> false)
@@ -2423,7 +2423,7 @@ let WB_TAIL_3_TAC =
   ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (367--368) THEN
   SUBGOAL_THEN `read Q19 (s368:armstate) = word_bytereverse (gval:int128)`
     (fun th -> RULE_ASSUM_TAC(fun asm ->
-       if can (find_term (fun t -> t = `read Q19 s368`)) (concl asm)
+       if (try lhs(concl asm) = `read Q19 s368` with _ -> false)
        then th else asm) THEN ASSUME_TAC th) THENL
   [FIRST_ASSUM(fun th ->
      if is_eq(concl th) && (try lhs(concl th) = `read Q19 s368` with _ -> false)
@@ -2457,7 +2457,7 @@ let WB_TAIL_4_TAC =
        [word_bytereverse cph0; word_bytereverse cph1;
         word_bytereverse cph2; word_bytereverse cph3]`
     (fun th -> RULE_ASSUM_TAC(fun asm ->
-       if can (find_term (fun t -> t = `read Q19 s377`)) (concl asm)
+       if (try lhs(concl asm) = `read Q19 s377` with _ -> false)
        then th else asm) THEN ASSUME_TAC th) THENL
   [FIRST_ASSUM(fun th ->
      if is_eq(concl th) && (try lhs(concl th) = `read Q19 s377` with _ -> false)
@@ -2501,7 +2501,7 @@ let WB_TAIL_4_TAC =
   ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (378--379) THEN
   SUBGOAL_THEN `read Q19 (s379:armstate) = word_bytereverse (gval:int128)`
     (fun th -> RULE_ASSUM_TAC(fun asm ->
-       if can (find_term (fun t -> t = `read Q19 s379`)) (concl asm)
+       if (try lhs(concl asm) = `read Q19 s379` with _ -> false)
        then th else asm) THEN ASSUME_TAC th) THENL
   [FIRST_ASSUM(fun th ->
      if is_eq(concl th) && (try lhs(concl th) = `read Q19 s379` with _ -> false)
@@ -2535,7 +2535,7 @@ let WB_TAIL_5_TAC =
        [word_bytereverse cph0; word_bytereverse cph1;
         word_bytereverse cph2; word_bytereverse cph3; word_bytereverse cph4]`
     (fun th -> RULE_ASSUM_TAC(fun asm ->
-       if can (find_term (fun t -> t = `read Q19 s385`)) (concl asm)
+       if (try lhs(concl asm) = `read Q19 s385` with _ -> false)
        then th else asm) THEN ASSUME_TAC th) THENL
   [FIRST_ASSUM(fun th ->
      if is_eq(concl th) && (try lhs(concl th) = `read Q19 s385` with _ -> false)
@@ -2581,7 +2581,7 @@ let WB_TAIL_5_TAC =
   ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (386--387) THEN
   SUBGOAL_THEN `read Q19 (s387:armstate) = word_bytereverse (gval:int128)`
     (fun th -> RULE_ASSUM_TAC(fun asm ->
-       if can (find_term (fun t -> t = `read Q19 s387`)) (concl asm)
+       if (try lhs(concl asm) = `read Q19 s387` with _ -> false)
        then th else asm) THEN ASSUME_TAC th) THENL
   [FIRST_ASSUM(fun th ->
      if is_eq(concl th) && (try lhs(concl th) = `read Q19 s387` with _ -> false)
@@ -2615,7 +2615,7 @@ let WB_TAIL_6_TAC =
        [word_bytereverse cph0; word_bytereverse cph1; word_bytereverse cph2;
         word_bytereverse cph3; word_bytereverse cph4; word_bytereverse cph5]`
     (fun th -> RULE_ASSUM_TAC(fun asm ->
-       if can (find_term (fun t -> t = `read Q19 s393`)) (concl asm)
+       if (try lhs(concl asm) = `read Q19 s393` with _ -> false)
        then th else asm) THEN ASSUME_TAC th) THENL
   [FIRST_ASSUM(fun th ->
      if is_eq(concl th) && (try lhs(concl th) = `read Q19 s393` with _ -> false)
@@ -2663,7 +2663,7 @@ let WB_TAIL_6_TAC =
   ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (394--395) THEN
   SUBGOAL_THEN `read Q19 (s395:armstate) = word_bytereverse (gval:int128)`
     (fun th -> RULE_ASSUM_TAC(fun asm ->
-       if can (find_term (fun t -> t = `read Q19 s395`)) (concl asm)
+       if (try lhs(concl asm) = `read Q19 s395` with _ -> false)
        then th else asm) THEN ASSUME_TAC th) THENL
   [FIRST_ASSUM(fun th ->
      if is_eq(concl th) && (try lhs(concl th) = `read Q19 s395` with _ -> false)
@@ -2699,7 +2699,7 @@ let WB_TAIL_7_TAC =
         word_bytereverse cph3; word_bytereverse cph4; word_bytereverse cph5;
         word_bytereverse cph6]`
     (fun th -> RULE_ASSUM_TAC(fun asm ->
-       if can (find_term (fun t -> t = `read Q19 s399`)) (concl asm)
+       if (try lhs(concl asm) = `read Q19 s399` with _ -> false)
        then th else asm) THEN ASSUME_TAC th) THENL
   [FIRST_ASSUM(fun th ->
      if is_eq(concl th) && (try lhs(concl th) = `read Q19 s399` with _ -> false)
@@ -2750,7 +2750,7 @@ let WB_TAIL_7_TAC =
   ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (400--401) THEN
   SUBGOAL_THEN `read Q19 (s401:armstate) = word_bytereverse (gval:int128)`
     (fun th -> RULE_ASSUM_TAC(fun asm ->
-       if can (find_term (fun t -> t = `read Q19 s401`)) (concl asm)
+       if (try lhs(concl asm) = `read Q19 s401` with _ -> false)
        then th else asm) THEN ASSUME_TAC th) THENL
   [FIRST_ASSUM(fun th ->
      if is_eq(concl th) && (try lhs(concl th) = `read Q19 s401` with _ -> false)
@@ -2787,7 +2787,7 @@ let WB_TAIL_8_TAC =
         word_bytereverse cph3; word_bytereverse cph4; word_bytereverse cph5;
         word_bytereverse cph6; word_bytereverse cph7]`
     (fun th -> RULE_ASSUM_TAC(fun asm ->
-       if can (find_term (fun t -> t = `read Q19 s399`)) (concl asm)
+       if (try lhs(concl asm) = `read Q19 s399` with _ -> false)
        then th else asm) THEN ASSUME_TAC th) THENL
   [FIRST_ASSUM(fun th ->
      if is_eq(concl th) && (try lhs(concl th) = `read Q19 s399` with _ -> false)
@@ -2842,7 +2842,7 @@ let WB_TAIL_8_TAC =
   ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (400--401) THEN
   SUBGOAL_THEN `read Q19 (s401:armstate) = word_bytereverse (gval:int128)`
     (fun th -> RULE_ASSUM_TAC(fun asm ->
-       if can (find_term (fun t -> t = `read Q19 s401`)) (concl asm)
+       if (try lhs(concl asm) = `read Q19 s401` with _ -> false)
        then th else asm) THEN ASSUME_TAC th) THENL
   [FIRST_ASSUM(fun th ->
      if is_eq(concl th) && (try lhs(concl th) = `read Q19 s401` with _ -> false)
