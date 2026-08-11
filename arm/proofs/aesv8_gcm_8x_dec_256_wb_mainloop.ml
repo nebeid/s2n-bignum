@@ -1665,8 +1665,20 @@ let DISCARD_STALE_Q18_TAC : tactic = fun (asl,w) ->
            match state_num_of_q18_fact th with
            | Some k -> k < mx
            | None -> false) (asl,w);;
+(* SPEED (refine-084): the per-step normalizer is GCM_SIMD_SIMPLIFY_CORE_TAC, NOT
+   the double-pass GCM_SIMD_SIMPLIFY_TAC (= CORE THEN CORE).  The 2nd CORE pass is a
+   full RULE_ASSUM traversal of the whole carried GHASH pile; on the tail sim it is a
+   MEASURED no-op on 114/122 steps (it only folds the fresh REV64 byte-tree at the ~8
+   block-boundary steps, and THAT fold is re-done downstream by the Q19 bridge's
+   WORD_BYTEREVERSE_REVERSEFIELDS/RF8_SUBWORD rewrites).  Dropping it keeps every tail
+   (WB_TAIL_3..8, the sole consumers) closing hyps=0 while cutting the pile-driven
+   rescan: the per-step cost had GROWN 0.59->0.94s across 271-392 (pile-driven, not the
+   position-invariant ARM_STEPS wall).  WB_TAIL_GEN2_8 179.8s->150.2s (-16.5%), GEN2_3
+   also hyps=0.  Mirrors the s082 KEEPDATA single-pass fix on this file's OTHER stepper;
+   the tails' Q18LATEST stepper had never been converted.  If a future edit needs the
+   fixpoint here, restore GCM_SIMD_SIMPLIFY_TAC. *)
 let ARM_STEPS_FOLD_Q18LATEST_TAC exec snums =
-  MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN GCM_SIMD_SIMPLIFY_CORE_TAC THEN
               DISCARD_STALE_Q18_TAC THEN DISCARD_OLDSTATE_KEEPQ18_TAC s THEN CLARIFY_TAC)
     (statenames "s" snums);;
 (* MERGE_QQPAIR / FOLD_MID_HPOW variants that unfold karatsuba_mid inside the
