@@ -1264,6 +1264,21 @@ let AESV8_GCM_8X_DEC_256_WB_GUARD = prove
 (* Shared band machinery (KEEPGH stepper + the Q19 byte-reversed-xi identity).*)
 (* ------------------------------------------------------------------------- *)
 
+(* ins->ext runtime opt (2026-08-11): the GHASH-tail Karatsuba mids now use
+   `ext vD.16b,vN.16b,vN.16b,#8` in place of `ins vD.d[0],vN.d[1]` (a false-dep
+   break; both consumed lane-0-only, values identical).  The stepper models
+   `ext vD,vN,vN,#8` on a 128-bit register as
+   `word_subword (word_join vN vN:256 word) (64,128):128 word` (a rot-by-64),
+   which WORD_SIMPLE_SUBWORD_CONV does NOT recognize, so it survives the sim
+   intact and perturbs ABBREV_INNER_PMULS's setify qq-numbering.  EXT_JOIN_NORM
+   rewrites that value to the join-of-lanes form, so the pmull lane-0 consumer's
+   `word_subword _ (0,64)` collapses via JOIN_SUBWORD_RULES to exactly the plain
+   `word_subword vN (64,64)` the old `ins` form produced.  Fired per-step inside
+   the two tail steppers below. *)
+let EXT_JOIN_NORM = prove
+ (`!w:128 word. word_subword (word_join w w:256 word) (64,128):128 word =
+                word_join (word_subword w (0,64):64 word) (word_subword w (64,64):64 word)`,
+  GEN_TAC THEN CONV_TAC WORD_BLAST);;
 
 (* KEEPGH stepper (copied from le8block.ml; wb.ml does not load le8block) *)
 let DISCARD_OLDSTATE_KEEPGH_TAC s =
@@ -1282,6 +1297,7 @@ let DISCARD_OLDSTATE_KEEPGH_TAC s =
     if us = [] || us = [v] then false else if not(mem v us) then true else true);;
 let ARM_STEPS_FOLD_KEEPGH_TAC exec snums =
   MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN GCM_SIMD_SIMPLIFY_TAC THEN
+              RULE_ASSUM_TAC(REWRITE_RULE[EXT_JOIN_NORM]) THEN
               DISCARD_OLDSTATE_KEEPGH_TAC s THEN CLARIFY_TAC) (statenames "s" snums);;
 
 (* The byte-reversed-xi identity: the machine's ldr/ext/rev64 (steps ~180-189)
@@ -1679,6 +1695,7 @@ let DISCARD_STALE_Q18_TAC : tactic = fun (asl,w) ->
    fixpoint here, restore GCM_SIMD_SIMPLIFY_TAC. *)
 let ARM_STEPS_FOLD_Q18LATEST_TAC exec snums =
   MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN GCM_SIMD_SIMPLIFY_CORE_TAC THEN
+              RULE_ASSUM_TAC(REWRITE_RULE[EXT_JOIN_NORM]) THEN
               DISCARD_STALE_Q18_TAC THEN DISCARD_OLDSTATE_KEEPQ18_TAC s THEN CLARIFY_TAC)
     (statenames "s" snums);;
 (* MERGE_QQPAIR / FOLD_MID_HPOW variants that unfold karatsuba_mid inside the
@@ -1721,6 +1738,39 @@ let WA_UNIFY_BB_TAC : tactic = fun (asl,w) ->
   let wa_eq = MATCH_MP (ISPECL [rand(rator rwa); rand rwa; rand(rator lwa); rand lwa] PMUL_CONG_128)
                 (CONJ in_eq mult_eq) in
   GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [wa_eq] (asl,w);;
+
+(* ins->ext runtime opt (2026-08-11): NAME-AGNOSTIC replacement for the per-band
+   hardcoded `MERGE_QQPAIR_KM_TAC "qq4'" "qq9"` + `FOLD_MID_HPOW_KM [...]` lines.
+   After EXT_JOIN_NORM (in the tail steppers) the ext-form Karatsuba mids collapse
+   to the ins-form lanes, but ABBREV_INNER_PMULS assigns DIFFERENT qq numbers than
+   the pre-opt proof, so the hardcoded qq-names no longer exist.  Instead of
+   re-deriving names per band (fragile), this pairs the leftover mid pmuls by
+   H-power: after MERGE_ANY_TAC has merged everything it can, the only residual
+   mismatch is a set of karatsuba-mid qq atoms UNIQUE to the LHS vs UNIQUE to the
+   RHS; each LHS-unique qq merges with the RHS-unique qq of the SAME H-power
+   (MERGE_QQPAIR_KM_TAC, which unfolds karatsuba_mid).  Any bare (un-abbreviated)
+   machine mid left over is folded per H-power (FOLD_MID_HPOW_KM), mirroring the
+   old MAP_EVERY FOLD_MID_HPOW_KM line.  Robust across WB_TAIL_3..8 + prepretail. *)
+let AUTO_MERGE_MIDS_KM_TAC : tactic = fun (asl,w) ->
+  let rec xleaves t = match t with
+    | Comb(Comb(Const("word_xor",_),a),b) -> xleaves a @ xleaves b | _ -> [t] in
+  let qqs_in t = setify(map (fun v->fst(dest_var v))
+     (List.filter (fun v-> let n=fst(dest_var v) in String.length n>=2 && String.sub n 0 2="qq")
+        (frees t))) in
+  let hpow n = try let (_,th)=List.find(fun(_,th)->let c=concl th in
+       is_eq c && is_var(rhs c) && fst(dest_var(rhs c))=n) asl in pmul_mult_hpow(lhs(concl th))
+     with _->"?" in
+  let ll = xleaves(lhs w) and rl = xleaves(rhs w) in
+  let dl = subtract (setify ll) (setify rl) and dr = subtract (setify rl) (setify ll) in
+  let lqq = subtract (setify(List.concat_map qqs_in dl)) (setify(List.concat_map qqs_in dr)) in
+  let rqq = subtract (setify(List.concat_map qqs_in dr)) (setify(List.concat_map qqs_in dl)) in
+  let used = ref [] in
+  let pairs = List.filter_map (fun ln ->
+     let hp = hpow ln in
+     try let rn = List.find (fun rn -> not(mem rn !used) && hpow rn = hp) rqq in
+         used := rn :: !used; Some(ln,rn)
+     with _ -> None) lqq in
+  (EVERY (map (fun (a,b) -> MERGE_QQPAIR_KM_TAC a b) pairs)) (asl,w);;
 
 (* OPTIMIZED STEPPING (2026-07-18): stores window 283-392 uses the Q18-latest
    per-step-discard stepper + midacc atomization instead of all-KEEPGH
@@ -2421,9 +2471,7 @@ let WB_TAIL_3_TAC =
        try rand(concl th) = `midacc:int128` && is_eq(concl th) with _ -> false) asl in
      GEN_REWRITE_TAC (LAND_CONV o ONCE_DEPTH_CONV) [SYM th] (asl,w)) THEN
    ABBREV_INNER_PMULS_TAC THEN MERGE_2BLK_TAC THEN MERGE_ANY_TAC THEN
-   MERGE_QQPAIR_KM_TAC "qq4'" "qq9" THEN
-   MERGE_QQPAIR_KM_TAC "qq5'" "qq14" THEN
-   MAP_EVERY FOLD_MID_HPOW_KM ["H2"] THEN
+   AUTO_MERGE_MIDS_KM_TAC THEN
    WA_UNIFY_BB_TAC THEN ABBREV_WAWV_TAC THEN
    REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
    GEN_REWRITE_TAC ONCE_DEPTH_CONV [QQ0SPLIT] THEN
@@ -2498,9 +2546,7 @@ let WB_TAIL_4_TAC =
        try rand(concl th) = `midacc:int128` && is_eq(concl th) with _ -> false) asl in
      GEN_REWRITE_TAC (LAND_CONV o ONCE_DEPTH_CONV) [SYM th] (asl,w)) THEN
    ABBREV_INNER_PMULS_TAC THEN MERGE_2BLK_TAC THEN MERGE_ANY_TAC THEN
-   MERGE_QQPAIR_KM_TAC "qq6'" "qq14" THEN
-   MERGE_QQPAIR_KM_TAC "qq7'" "qq19" THEN
-   MAP_EVERY FOLD_MID_HPOW_KM ["H3";"H2"] THEN
+   AUTO_MERGE_MIDS_KM_TAC THEN
    WA_UNIFY_BB_TAC THEN ABBREV_WAWV_TAC THEN
    REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
    GEN_REWRITE_TAC ONCE_DEPTH_CONV [QQ0SPLIT] THEN
@@ -2578,9 +2624,7 @@ let WB_TAIL_5_TAC =
        try rand(concl th) = `midacc:int128` && is_eq(concl th) with _ -> false) asl in
      GEN_REWRITE_TAC (LAND_CONV o ONCE_DEPTH_CONV) [SYM th] (asl,w)) THEN
    ABBREV_INNER_PMULS_TAC THEN MERGE_2BLK_TAC THEN MERGE_ANY_TAC THEN
-   MERGE_QQPAIR_KM_TAC "qq8'" "qq19" THEN
-   MERGE_QQPAIR_KM_TAC "qq9'" "qq24" THEN
-   MAP_EVERY FOLD_MID_HPOW_KM ["H4";"H3";"H2"] THEN
+   AUTO_MERGE_MIDS_KM_TAC THEN
    WA_UNIFY_BB_TAC THEN ABBREV_WAWV_TAC THEN
    REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
    GEN_REWRITE_TAC ONCE_DEPTH_CONV [QQ0SPLIT] THEN
@@ -2660,9 +2704,7 @@ let WB_TAIL_6_TAC =
        try rand(concl th) = `midacc:int128` && is_eq(concl th) with _ -> false) asl in
      GEN_REWRITE_TAC (LAND_CONV o ONCE_DEPTH_CONV) [SYM th] (asl,w)) THEN
    ABBREV_INNER_PMULS_TAC THEN MERGE_2BLK_TAC THEN MERGE_ANY_TAC THEN
-   MERGE_QQPAIR_KM_TAC "qq10'" "qq24" THEN
-   MERGE_QQPAIR_KM_TAC "qq11'" "qq29" THEN
-   MAP_EVERY FOLD_MID_HPOW_KM ["H5";"H4";"H3";"H2"] THEN
+   AUTO_MERGE_MIDS_KM_TAC THEN
    WA_UNIFY_BB_TAC THEN ABBREV_WAWV_TAC THEN
    REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
    GEN_REWRITE_TAC ONCE_DEPTH_CONV [QQ0SPLIT] THEN
@@ -2746,9 +2788,7 @@ let WB_TAIL_7_TAC =
        try rand(concl th) = `midacc:int128` && is_eq(concl th) with _ -> false) asl in
      GEN_REWRITE_TAC (LAND_CONV o ONCE_DEPTH_CONV) [SYM th] (asl,w)) THEN
    ABBREV_INNER_PMULS_TAC THEN MERGE_2BLK_TAC THEN MERGE_ANY_TAC THEN
-   MERGE_QQPAIR_KM_TAC "qq12'" "qq29" THEN
-   MERGE_QQPAIR_KM_TAC "qq13'" "qq34" THEN
-   MAP_EVERY FOLD_MID_HPOW_KM ["H6";"H5";"H4";"H3";"H2"] THEN
+   AUTO_MERGE_MIDS_KM_TAC THEN
    WA_UNIFY_BB_TAC THEN ABBREV_WAWV_TAC THEN
    REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
    GEN_REWRITE_TAC ONCE_DEPTH_CONV [QQ0SPLIT] THEN
@@ -2837,10 +2877,7 @@ let WB_TAIL_8_TAC =
        try rand(concl th) = `midacc:int128` && is_eq(concl th) with _ -> false) asl in
      GEN_REWRITE_TAC (LAND_CONV o ONCE_DEPTH_CONV) [SYM th] (asl,w)) THEN
    ABBREV_INNER_PMULS_TAC THEN MERGE_2BLK_TAC THEN MERGE_ANY_TAC THEN
-   MERGE_QQPAIR_KM_TAC "qq14'" "qq28" THEN
-   MERGE_QQPAIR_KM_TAC "qq15'" "qq34" THEN
-   MERGE_QQPAIR_KM_TAC "qq16'" "qq39" THEN
-   MAP_EVERY FOLD_MID_HPOW_KM ["H6";"H5";"H4";"H3";"H2"] THEN
+   AUTO_MERGE_MIDS_KM_TAC THEN
    WA_UNIFY_BB_TAC THEN ABBREV_WAWV_TAC THEN
    REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
    GEN_REWRITE_TAC ONCE_DEPTH_CONV [QQ0SPLIT] THEN
