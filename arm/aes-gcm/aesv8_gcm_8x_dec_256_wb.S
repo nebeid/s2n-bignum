@@ -1297,11 +1297,11 @@ S2N_BN_SYMBOL(aesv8_gcm_8x_dec_256_wb):
 	ldr	q9, [x0], #16				//AES final-6 block - load ciphertext
 	st1	{ v12.16b}, [x2], #16				//AES final-7 block  - store result
 
-	ins	v18.d[0], v24.d[1]					//GHASH final-7 block - mid
+	ext	v18.16b, v24.16b, v24.16b, #8			//GHASH final-7 block - mid
 
 	eor	v8.16b, v8.16b, v16.16b					//feed in partial tag
 
-	ins	v27.d[0], v8.d[1]					//GHASH final-7 block - mid
+	ext	v27.16b, v8.16b, v8.16b, #8					//GHASH final-7 block - mid
 .inst	0xce01752c	//eor3 v12.16b, v9.16b, v1.16b, v29.16b				//AES final-6 block - result
 
 	pmull2	v17.1q, v8.2d, v25.2d				//GHASH final-7 block - high
@@ -1319,7 +1319,7 @@ S2N_BN_SYMBOL(aesv8_gcm_8x_dec_256_wb):
 	ldr	q9, [x0], #16				//AES final-5 block - load ciphertext
 	movi	v16.8b, #0						//supress further partial tag feed in
 
-	ins	v27.d[0], v8.d[1]					//GHASH final-6 block - mid
+	ext	v27.16b, v8.16b, v8.16b, #8					//GHASH final-6 block - mid
 	st1	{ v12.16b}, [x2], #16				//AES final-6 block - store result
 	pmull2	v28.1q, v8.2d, v23.2d				//GHASH final-6 block - high
 
@@ -1340,7 +1340,7 @@ S2N_BN_SYMBOL(aesv8_gcm_8x_dec_256_wb):
 	eor	v8.16b, v8.16b, v16.16b					//feed in partial tag
 
 	pmull2	v28.1q, v8.2d, v22.2d				//GHASH final-5 block - high
-	ins	v27.d[0], v8.d[1]					//GHASH final-5 block - mid
+	ext	v27.16b, v8.16b, v8.16b, #8					//GHASH final-5 block - mid
 
 	ldr	q9, [x0], #16				//AES final-4 block - load ciphertext
 
@@ -1364,7 +1364,7 @@ S2N_BN_SYMBOL(aesv8_gcm_8x_dec_256_wb):
 
 	eor	v8.16b, v8.16b, v16.16b					//feed in partial tag
 
-	ins	v27.d[0], v8.d[1]					//GHASH final-4 block - mid
+	ext	v27.16b, v8.16b, v8.16b, #8					//GHASH final-4 block - mid
 	ldr	q9, [x0], #16				//AES final-3 block - load ciphertext
 
 	movi	v16.8b, #0						//supress further partial tag feed in
@@ -1392,7 +1392,7 @@ S2N_BN_SYMBOL(aesv8_gcm_8x_dec_256_wb):
 	ldr	q9, [x0], #16				//AES final-2 block - load ciphertext
 	ldr	q24, [x6, #64]				//load h4k | h3k
 
-	ins	v27.d[0], v8.d[1]					//GHASH final-3 block - mid
+	ext	v27.16b, v8.16b, v8.16b, #8					//GHASH final-3 block - mid
 	st1	{ v12.16b}, [x2], #16			 	//AES final-3 block - store result
 
 .inst	0xce05752c	//eor3 v12.16b, v9.16b, v5.16b, v29.16b				//AES final-2 block - result
@@ -1419,7 +1419,7 @@ S2N_BN_SYMBOL(aesv8_gcm_8x_dec_256_wb):
 
 	eor	v8.16b, v8.16b, v16.16b					//feed in partial tag
 
-	ins	v27.d[0], v8.d[1]					//GHASH final-2 block - mid
+	ext	v27.16b, v8.16b, v8.16b, #8					//GHASH final-2 block - mid
 
 	pmull	v26.1q, v8.1d, v23.1d				//GHASH final-2 block - low
 	st1	{ v12.16b}, [x2], #16			  	//AES final-2 block - store result
@@ -1440,7 +1440,7 @@ S2N_BN_SYMBOL(aesv8_gcm_8x_dec_256_wb):
 
 	eor	v8.16b, v8.16b, v16.16b					//feed in partial tag
 
-	ins	v27.d[0], v8.d[1]					//GHASH final-1 block - mid
+	ext	v27.16b, v8.16b, v8.16b, #8					//GHASH final-1 block - mid
 	ldr	q22, [x6, #32]				//load h2l | h2h
 
 	eor	v27.8b, v27.8b, v8.8b				//GHASH final-1 block - mid
@@ -1474,7 +1474,7 @@ S2N_BN_SYMBOL(aesv8_gcm_8x_dec_256_wb):
 
 	eor	v8.16b, v8.16b, v16.16b					//feed in partial tag
 
-	ins	v16.d[0], v8.d[1]					//GHASH final block - mid
+	ext	v16.16b, v8.16b, v8.16b, #8					//GHASH final block - mid
 	pmull2	v28.1q, v8.2d, v20.2d				//GHASH final block - high
 
 	eor	v16.8b, v16.8b, v8.8b				//GHASH final block - mid
