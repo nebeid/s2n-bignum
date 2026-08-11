@@ -1268,17 +1268,18 @@ let AESV8_GCM_8X_DEC_256_WB_GUARD = prove
    `ext vD.16b,vN.16b,vN.16b,#8` in place of `ins vD.d[0],vN.d[1]` (a false-dep
    break; both consumed lane-0-only, values identical).  The stepper models
    `ext vD,vN,vN,#8` on a 128-bit register as
-   `word_subword (word_join vN vN:256 word) (64,128):128 word` (a rot-by-64),
-   which WORD_SIMPLE_SUBWORD_CONV does NOT recognize, so it survives the sim
-   intact and perturbs ABBREV_INNER_PMULS's setify qq-numbering.  EXT_JOIN_NORM
-   rewrites that value to the join-of-lanes form, so the pmull lane-0 consumer's
-   `word_subword _ (0,64)` collapses via JOIN_SUBWORD_RULES to exactly the plain
-   `word_subword vN (64,64)` the old `ins` form produced.  Fired per-step inside
-   the two tail steppers below. *)
-let EXT_JOIN_NORM = prove
- (`!w:128 word. word_subword (word_join w w:256 word) (64,128):128 word =
-                word_join (word_subword w (0,64):64 word) (word_subword w (64,64):64 word)`,
-  GEN_TAC THEN CONV_TAC WORD_BLAST);;
+   `word_subword (word_join vN vN:256 word) (64,128):128 word` (a rot-by-64).
+   The syntactic-form fix lives ONCE in the per-step normalizer
+   GCM_SIMD_SIMPLIFY_CORE_TAC (aesv8_gcm_8x_dec_256_lemmas.ml): the lemma
+   EXT8_LANE0_IS_SUBWORD_HI collapses the COMPOSED lane-0 projection
+   `word_subword (<ext form>) (0,64)` (the only way any of the 9 sites consumes
+   the ext register — via eor .8b / pmull .1d) back to `word_subword vN (64,64)`,
+   exactly the plain lane the old `ins` form produced.  So every tail bridge sees
+   pre-opt-identical operand shapes and ABBREV_INNER_PMULS's qq-numbering is
+   preserved.  (This supersedes s087's EXT_JOIN_NORM, which rewrote the whole
+   ext REGISTER to a join-of-lanes form and thereby false-fired on the byteswap/
+   REV64 register shape, regressing the 2-block band.)  AUTO_MERGE_MIDS_KM_TAC
+   below is kept as a numbering-agnostic safety net for the N>=3 mid pairing. *)
 
 (* KEEPGH stepper (copied from le8block.ml; wb.ml does not load le8block) *)
 let DISCARD_OLDSTATE_KEEPGH_TAC s =
@@ -1297,7 +1298,6 @@ let DISCARD_OLDSTATE_KEEPGH_TAC s =
     if us = [] || us = [v] then false else if not(mem v us) then true else true);;
 let ARM_STEPS_FOLD_KEEPGH_TAC exec snums =
   MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN GCM_SIMD_SIMPLIFY_TAC THEN
-              RULE_ASSUM_TAC(REWRITE_RULE[EXT_JOIN_NORM]) THEN
               DISCARD_OLDSTATE_KEEPGH_TAC s THEN CLARIFY_TAC) (statenames "s" snums);;
 
 (* The byte-reversed-xi identity: the machine's ldr/ext/rev64 (steps ~180-189)
@@ -1695,7 +1695,6 @@ let DISCARD_STALE_Q18_TAC : tactic = fun (asl,w) ->
    fixpoint here, restore GCM_SIMD_SIMPLIFY_TAC. *)
 let ARM_STEPS_FOLD_Q18LATEST_TAC exec snums =
   MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN GCM_SIMD_SIMPLIFY_CORE_TAC THEN
-              RULE_ASSUM_TAC(REWRITE_RULE[EXT_JOIN_NORM]) THEN
               DISCARD_STALE_Q18_TAC THEN DISCARD_OLDSTATE_KEEPQ18_TAC s THEN CLARIFY_TAC)
     (statenames "s" snums);;
 (* MERGE_QQPAIR / FOLD_MID_HPOW variants that unfold karatsuba_mid inside the
@@ -1741,16 +1740,17 @@ let WA_UNIFY_BB_TAC : tactic = fun (asl,w) ->
 
 (* ins->ext runtime opt (2026-08-11): NAME-AGNOSTIC replacement for the per-band
    hardcoded `MERGE_QQPAIR_KM_TAC "qq4'" "qq9"` + `FOLD_MID_HPOW_KM [...]` lines.
-   After EXT_JOIN_NORM (in the tail steppers) the ext-form Karatsuba mids collapse
-   to the ins-form lanes, but ABBREV_INNER_PMULS assigns DIFFERENT qq numbers than
-   the pre-opt proof, so the hardcoded qq-names no longer exist.  Instead of
-   re-deriving names per band (fragile), this pairs the leftover mid pmuls by
-   H-power: after MERGE_ANY_TAC has merged everything it can, the only residual
-   mismatch is a set of karatsuba-mid qq atoms UNIQUE to the LHS vs UNIQUE to the
-   RHS; each LHS-unique qq merges with the RHS-unique qq of the SAME H-power
-   (MERGE_QQPAIR_KM_TAC, which unfolds karatsuba_mid).  Any bare (un-abbreviated)
-   machine mid left over is folded per H-power (FOLD_MID_HPOW_KM), mirroring the
-   old MAP_EVERY FOLD_MID_HPOW_KM line.  Robust across WB_TAIL_3..8 + prepretail. *)
+   The per-step normalizer (GCM_SIMD_SIMPLIFY_CORE_TAC + EXT8_LANE0_IS_SUBWORD_HI)
+   collapses the ext-form Karatsuba-mid lanes back to the ins-form lanes, but if
+   ABBREV_INNER_PMULS ever assigns DIFFERENT qq numbers than the pre-opt proof the
+   hardcoded qq-names no longer exist.  Instead of re-deriving names per band
+   (fragile), this pairs the leftover mid pmuls by H-power (which keys off the KEY
+   operand h2/h3/.., unaffected by the data-side ext form): after MERGE_ANY_TAC has
+   merged everything it can, the only residual mismatch is a set of karatsuba-mid
+   qq atoms UNIQUE to the LHS vs UNIQUE to the RHS; each LHS-unique qq merges with
+   the RHS-unique qq of the SAME H-power (MERGE_QQPAIR_KM_TAC, closes by WORD_BLAST
+   so it is form-insensitive).  A numbering-agnostic safety net robust across
+   WB_TAIL_3..8 + prepretail regardless of the exact operand form. *)
 let AUTO_MERGE_MIDS_KM_TAC : tactic = fun (asl,w) ->
   let rec xleaves t = match t with
     | Comb(Comb(Const("word_xor",_),a),b) -> xleaves a @ xleaves b | _ -> [t] in
