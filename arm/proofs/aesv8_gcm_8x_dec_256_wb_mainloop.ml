@@ -3908,7 +3908,14 @@ let WBN_FRONT_STEP259_TAC =
   ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (85--173) THEN DISCARD_STALE_Q30_TAC THEN
   ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (174--177) THEN
   GCM_SIMD_SIMPLIFY_TAC THEN DISCARD_STALE_Q30_TAC THEN
-  ARM_VSTEPS_FOLD_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (178--189) THEN
+  (* s083 speed: 178-189 is the GHASH REV64 window (Q19 byte-tree fold).  The
+     keep-everything ARM_VSTEPS_FOLD_TAC held a ~130k-char pile across all 12
+     steps (~29s); ARM_STEPS_FOLD_DISCARD_TAC folds Q19 BEFORE discarding old
+     states each step (the lemmas.ml "step and simplify as we go" idiom), so the
+     pile stays flat (~6.5s).  No store read-back is needed in this window, so
+     the per-step discard is safe -- proof still closes hyps=0.  Scoped to this
+     _259 stepper only; the dead WBN_FRONT_STEP_TAC below is left unchanged. *)
+  ARM_STEPS_FOLD_DISCARD_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (178--189) THEN
   RULE_ASSUM_TAC(REWRITE_RULE[Q19_BREVXI]) THEN DISCARD_STALE_Q30_TAC THEN
   ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (190--254) THEN
   DISCARD_STALE_Q30_TAC THEN GCM_SIMD_SIMPLIFY_TAC THEN
