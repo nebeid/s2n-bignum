@@ -13752,14 +13752,22 @@ let AESV8_GCM_8X_DEC_256_WB_CORRECT = prove
       ASM_SIMP_TAC[GCM_DEC_BLOCKS_FROM_ASSEMBLED] THEN
       REWRITE_TAC[aes_ctr_block] THEN CONV_TAC WORD_BITWISE_RULE;
       REWRITE_TAC[NIST_INPUT_OF_ASSEMBLED]];
+    (* the ensures leg: instantiate the byte-list spine at the assembled ibytes,
+       discharge its top-level hyps, then bridge its byte_list_at PREcondition to
+       our indexed-input precondition via WBN_INPUT_ASSEMBLE. *)
     MP_TAC(INST [`aes256_encrypt (word 0) rk`,`H:int128`;
                  `int128_list_to_bytes (list_of_seq (inblock:num->int128) nblk)`,
                  `ibytes:byte list`]
                 (SPEC_ALL WBN_DEC_CORE_BYTELIST)) THEN
     ANTS_TAC THENL
-     [ASM_REWRITE_TAC[LENGTH_INT128_LIST_TO_BYTES; LENGTH_LIST_OF_SEQ] THEN
-      MATCH_MP_TAC WBN_INPUT_ASSEMBLE THEN ASM_REWRITE_TAC[];
-      DISCH_THEN MATCH_ACCEPT_TAC]]);;
+     [ASM_REWRITE_TAC[LENGTH_INT128_LIST_TO_BYTES; LENGTH_LIST_OF_SEQ]; ALL_TAC] THEN
+    DISCH_THEN(fun sp ->
+      MATCH_MP_TAC ENSURES_PRECONDITION_THM THEN
+      EXISTS_TAC (rand(rator(rator(concl sp)))) THEN
+      CONJ_TAC THENL [ALL_TAC; ACCEPT_TAC sp]) THEN
+    X_GEN_TAC `s:armstate` THEN BETA_TAC THEN STRIP_TAC THEN
+    ASM_REWRITE_TAC[] THEN MATCH_MP_TAC WBN_INPUT_ASSEMBLE THEN
+    ASM_REWRITE_TAC[]]);;
 
 (* ========================================================================= *)
 (* THE EXPORTED SUBROUTINE CONTRACT (session-080 consolidation; session-092     *)
@@ -13847,14 +13855,22 @@ let AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT = prove
       ASM_SIMP_TAC[GCM_DEC_BLOCKS_FROM_ASSEMBLED] THEN
       REWRITE_TAC[aes_ctr_block] THEN CONV_TAC WORD_BITWISE_RULE;
       REWRITE_TAC[NIST_INPUT_OF_ASSEMBLED]];
+    (* the ensures leg: instantiate the byte-list subroutine spine at the assembled
+       ibytes, discharge its top-level hyps, then bridge its byte_list_at
+       PREcondition to our indexed-input precondition via WBN_INPUT_ASSEMBLE. *)
     MP_TAC(INST [`aes256_encrypt (word 0) rk`,`H:int128`;
                  `int128_list_to_bytes (list_of_seq (inblock:num->int128) nblk)`,
                  `ibytes:byte list`]
                 (SPEC_ALL WBN_DEC_SUBROUTINE_BYTELIST)) THEN
     ANTS_TAC THENL
-     [ASM_REWRITE_TAC[LENGTH_INT128_LIST_TO_BYTES; LENGTH_LIST_OF_SEQ] THEN
-      MATCH_MP_TAC WBN_INPUT_ASSEMBLE THEN ASM_REWRITE_TAC[];
-      DISCH_THEN MATCH_ACCEPT_TAC]]);;
+     [ASM_REWRITE_TAC[LENGTH_INT128_LIST_TO_BYTES; LENGTH_LIST_OF_SEQ]; ALL_TAC] THEN
+    DISCH_THEN(fun sp ->
+      MATCH_MP_TAC ENSURES_PRECONDITION_THM THEN
+      EXISTS_TAC (rand(rator(rator(concl sp)))) THEN
+      CONJ_TAC THENL [ALL_TAC; ACCEPT_TAC sp]) THEN
+    X_GEN_TAC `s:armstate` THEN BETA_TAC THEN STRIP_TAC THEN
+    ASM_REWRITE_TAC[] THEN MATCH_MP_TAC WBN_INPUT_ASSEMBLE THEN
+    ASM_REWRITE_TAC[]]);;
 
 (* ------------------------------------------------------------------------- *)
 (* THE WHOLE-FUNCTION CONTRACT (headline result).                              *)
