@@ -13854,7 +13854,7 @@ let AESV8_GCM_8X_DEC_256_WB_SUBROUTINE_CORRECT = prove
       DISCH_THEN SUBST1_TAC THEN
       ASM_SIMP_TAC[GCM_DEC_BLOCKS_FROM_ASSEMBLED] THEN
       REWRITE_TAC[aes_ctr_block] THEN CONV_TAC WORD_BITWISE_RULE;
-      REWRITE_TAC[NIST_INPUT_OF_ASSEMBLED]];
+      ASM_REWRITE_TAC[NIST_INPUT_OF_ASSEMBLED]];
     (* the ensures leg: instantiate the byte-list subroutine spine at the assembled
        ibytes, discharge its top-level hyps, then bridge its byte_list_at
        PREcondition to our indexed-input precondition via WBN_INPUT_ASSEMBLE. *)
