@@ -5187,7 +5187,7 @@ let build_aes_ctr_el k =
   let goal = list_mk_conj (map conj_of (0--(k-1))) in
   let sucs = map (fun i -> num_CONV (mk_small_numeral i)) (1--(k-1)) in
   prove(goal,
-    REWRITE_TAC[aes_ctr; aes_ctr_rec; aes_ctr_block; gcm_ctr_inc_iter] THEN
+    REWRITE_TAC[aes_ctr; aes_ctr_rec; aes_ctr_output_block; gcm_ctr_inc_iter] THEN
     CONV_TAC NUM_REDUCE_CONV THEN
     REWRITE_TAC(sucs @ [EL; HD; TL]) THEN
     REWRITE_TAC[gcm_ctr_inc_iter] THEN
@@ -13098,13 +13098,10 @@ let WBN_END_OUTPUT_BYTE_LIST = prove
 (* UNCONDITIONALLY (the 32-bit wrap is the intended mod-2^32 rollover).          *)
 (* GCM_CTR_INC_ITER_CTR_BLOCK + CTR0_AS_CTR_BLOCK are what let the exported      *)
 (* _CORRECT/_SUBROUTINE_CORRECT NAME the nonce (via WBN_OUTPUT_POINTWISE_NONCE   *)
-(* below).  ctr_block is defined here matching Mila's def verbatim (not in this  *)
-(* load chain); it folds into the shared one when the AES-GCM proofs merge       *)
-(* upstream.                                                                    *)
+(* below).  ctr_block + aes_ctr_block are the SHARED NIST vocabulary, now        *)
+(* defined in arm/proofs/utils/aes_ctr_spec.ml (session-092) and reached through *)
+(* this file's needs-chain (lemmas.ml -> aes_gcm_dec_spec.ml -> aes_ctr_spec.ml).*)
 (* ------------------------------------------------------------------------- *)
-
-let ctr_block = new_definition
- `ctr_block (nonce:96 word) ctr :int128 = word_join (nonce:96 word) (word ctr:int32)`;;
 
 (* NIST inc32 on a nonce||counter block just increments the 32-bit counter --    *)
 (* UNCONDITIONALLY (word (c+1):int32 = word_add (word c) (word 1), the wrap is    *)

@@ -624,7 +624,7 @@ let AES_CTR_3_EL = prove
      word_xor pt1 (aes256_encrypt (gcm_ctr_inc ctr0) keys) /\
    EL 2 (aes_ctr ctr0 [pt0;pt1;pt2] keys) =
      word_xor pt2 (aes256_encrypt (gcm_ctr_inc (gcm_ctr_inc ctr0)) keys)`,
-  REWRITE_TAC[aes_ctr; aes_ctr_rec; aes_ctr_block; gcm_ctr_inc_iter] THEN
+  REWRITE_TAC[aes_ctr; aes_ctr_rec; aes_ctr_output_block; gcm_ctr_inc_iter] THEN
   CONV_TAC NUM_REDUCE_CONV THEN
   REWRITE_TAC[GCM_CTR_INC_ITER_1; gcm_ctr_inc_iter] THEN
   REWRITE_TAC[ARITH_RULE `1 = SUC 0`; ARITH_RULE `2 = SUC(SUC 0)`; EL; HD; TL] THEN
