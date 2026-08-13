@@ -3948,7 +3948,12 @@ let wb_front_postcond = parse_term {|\(s:armstate).
     (s:armstate) =
     (bytes_to_int128:((8)word)list->(128)word)
     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (0,16)
-    (ibytes:((8)word)list))|};;
+    (ibytes:((8)word)list)) /\
+    (read:(armstate,(128)word)component->armstate->(128)word)
+    (Q30:(armstate,(128)word)component)
+    (s:armstate) =
+    (gcm_ctr_raw:(32)word->(128)word->(128)word)
+    ((word:num->(32)word) 8) (ctr0:(128)word)|};;
 
 (* ========================================================================= *)
 (* SESSION-075 SPEED REFACTOR -- the SHARED FRONT PREFIX (0x20 -> 0x428),      *)
@@ -4826,6 +4831,17 @@ let WBN_FRONT_PREFIX_259 = prove(mk_wbn_prefix259_goal wbn_front_prefix259_postc
 (* THE SHARED FRONT LEMMA (<=8 band): chain WBN_FRONT_PREFIX_259 (0x20->0x42c)
    via ENSURES_TRANS_SIMPLE, then the 0x42c b.ge TAKEN (d=0 for nblk<=8 =>
    X5=in_p => reflexive compare) + 6 steps 260..265 to s265 (pc+3796). *)
+(* SESSION-099 (ivec write-back M2, EDIT 0): the front postcond now also carries
+   the CTR-block counter register Q30 = gcm_ctr_raw (word 8) ctr0 (8 `add v30`
+   before the 0x42c tail branch: the rev32 seed @0x428 + adds at .S lines 69..322).
+   The <=8 DISPATCH bands + the shared WB_TAIL_GEN2_r prove FROM this postcond, so
+   Q30 must be here or the tail sim reads it symbolically and the ivec store can't
+   fold.  The harvested s265 top lane is word_add(word_add <bytes> (word 7))(word 1)
+   (= +8); WB_FRONT_Q30_TOPLANE folds it to word_add <bytes> (word 8), then
+   gcm_ctr_raw_def closes by REFL (O(1) top-lane rewrite; do NOT SUBST1+WORD_BLAST
+   the whole tower -- s098 measured that >15min). *)
+let WB_FRONT_Q30_TOPLANE = WORD_RULE
+  `word_add (word_add (x:32 word) (word 7)) (word 1) = word_add x (word 8)`;;
 let WB_FRONT_BUF = prove(mk_wb_front_goal wb_front_postcond,
   REPEAT GEN_TAC THEN STRIP_TAC THEN
   MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
@@ -4845,6 +4861,7 @@ let WB_FRONT_BUF = prove(mk_wb_front_goal wb_front_postcond,
     RULE_ASSUM_TAC(REWRITE_RULE[WORD_RULE
       `word_sub (word_add in_p (word (16 * nblk))) in_p:int64 = word (16 * nblk)`]) THEN
     ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+    REWRITE_TAC[WB_FRONT_Q30_TOPLANE] THEN REWRITE_TAC[gcm_ctr_raw_def] THEN
     REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
     REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC]);;
 (* --- mid-load heap compaction: bound GC cost across this large single-file *)
