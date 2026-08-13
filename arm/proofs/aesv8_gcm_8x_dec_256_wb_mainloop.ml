@@ -3226,6 +3226,31 @@ let wb_ctr_lanes_thms =
 let wb_front_fold_tac =
   RULE_ASSUM_TAC(REWRITE_RULE[GSYM aes13]) THEN
   RULE_ASSUM_TAC(REWRITE_RULE(map GSYM wb_ctr_lanes_thms));;
+(* the RAW counter accumulator kept in v30 (session-007 finding; HOISTED here
+   session-100 so the ivec M2 EDIT-0 Q30 conjunct in wb_front_postcond below can
+   reference it -- it was formerly in Sec 2).  byte-grouped rep with top 32-bit
+   lane incremented by w.  The body's first instr `rev32 v5,v30` reads it, so the
+   Sec-4 invariant pins Q30 = gcm_ctr_raw (word (8*i+13)) ctr0.  Its algebra
+   lemmas (SUBW_RAW_*, GCM_CTR_RAW_INCR, REV32_FOLD_TAC) are body-only, Sec 9b.
+   rev32(gcm_ctr_raw w ctr0) = gcm_ctr_add w ctr0 (the AES input for block w);
+   word_add (gcm_ctr_raw w ctr0) (word 2^96) = gcm_ctr_raw (word_add w 1) ctr0. *)
+let gcm_ctr_raw_def = new_definition
+ `gcm_ctr_raw (w:32 word) (ctr0:int128) : int128 =
+   word_join
+    (word_join
+      (word_add
+        (word_join
+          (word_join (word_subword ctr0 (96,8):8 word) (word_subword ctr0 (104,8):8 word):16 word)
+          (word_join (word_subword ctr0 (112,8):8 word) (word_subword ctr0 (120,8):8 word):16 word):32 word)
+        w)
+      (word_join (word_join (word_subword ctr0 (64,8):8 word) (word_subword ctr0 (72,8):8 word):16 word)
+        (word_join (word_subword ctr0 (80,8):8 word) (word_subword ctr0 (88,8):8 word):16 word):32 word):64 word)
+    (word_join
+      (word_join (word_join (word_subword ctr0 (32,8):8 word) (word_subword ctr0 (40,8):8 word):16 word)
+        (word_join (word_subword ctr0 (48,8):8 word) (word_subword ctr0 (56,8):8 word):16 word):32 word)
+      (word_join (word_join (word_subword ctr0 (0,8):8 word) (word_subword ctr0 (8,8):8 word):16 word)
+        (word_join (word_subword ctr0 (16,8):8 word) (word_subword ctr0 (24,8):8 word):16 word):32 word):64 word):int128`;;
+
 let wb_front_postcond = parse_term {|\(s:armstate).
     (aligned_bytes_loaded:armstate->(64)word->((8)word)list->bool)
     (s:armstate)
@@ -3949,6 +3974,17 @@ let wb_front_postcond = parse_term {|\(s:armstate).
     (bytes_to_int128:((8)word)list->(128)word)
     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (0,16)
     (ibytes:((8)word)list))|};;
+
+(* ivec M2 (session-100): carry the advanced raw counter Q30 in the front
+   postcond so the <=8 DISPATCH bands + the shared WB_TAIL_GEN2_r (which prove
+   FROM q_at k = this postcond) see Q30 concretely and can fold the ivec store.
+   The front does 8 `add v30` (blocks 0-7) after the rev32 seed, so at the tail
+   seam s265 (0x42c b.ge TAKEN for nblk<=8) Q30 = gcm_ctr_raw (word 8) ctr0.
+   HARVESTED session-098 (top lane = word_add(word_add(ctr0 top bytes)(word 7))
+   (word 1) = +8); the +8 count re-confirmed analytically. *)
+let wb_front_postcond = mk_abs(`s:armstate`,
+    mk_conj(snd(dest_abs wb_front_postcond),
+            `read Q30 (s:armstate) = gcm_ctr_raw (word 8) ctr0`));;
 
 (* ========================================================================= *)
 (* SESSION-075 SPEED REFACTOR -- the SHARED FRONT PREFIX (0x20 -> 0x428),      *)
@@ -4823,6 +4859,14 @@ let WBN_FRONT_PREFIX_259 = prove(mk_wbn_prefix259_goal wbn_front_prefix259_postc
   REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
   REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC);;
 
+(* ivec M2 (session-100): the front's 8 `add v30` land Q30's top lane as
+   word_add(word_add(...)(word 7))(word 1); this folds the +7+1 to +8 so the
+   raw tower matches the gcm_ctr_raw (word 8) ctr0 literal.  Precomputed `let`
+   value -- inlining the WORD_RULE in the tactic throws "RAND_CONV: Not a
+   combination" (session-099). *)
+let WB_FRONT_Q30_TOPLANE = WORD_RULE
+  `word_add (word_add (x:32 word) (word 7)) (word 1) = word_add x (word 8)`;;
+
 (* THE SHARED FRONT LEMMA (<=8 band): chain WBN_FRONT_PREFIX_259 (0x20->0x42c)
    via ENSURES_TRANS_SIMPLE, then the 0x42c b.ge TAKEN (d=0 for nblk<=8 =>
    X5=in_p => reflexive compare) + 6 steps 260..265 to s265 (pc+3796). *)
@@ -4845,6 +4889,7 @@ let WB_FRONT_BUF = prove(mk_wb_front_goal wb_front_postcond,
     RULE_ASSUM_TAC(REWRITE_RULE[WORD_RULE
       `word_sub (word_add in_p (word (16 * nblk))) in_p:int64 = word (16 * nblk)`]) THEN
     ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+    REWRITE_TAC[WB_FRONT_Q30_TOPLANE] THEN REWRITE_TAC[gcm_ctr_raw_def] THEN
     REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
     REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC]);;
 (* --- mid-load heap compaction: bound GC cost across this large single-file *)
@@ -6120,30 +6165,11 @@ let GCM_CTR_INC_ITER_ADD = prove
     AP_THM_TAC THEN AP_TERM_TAC THEN REWRITE_TAC[ADD1; GSYM WORD_ADD] THEN
     CONV_TAC WORD_RULE]);;
 
-(* the RAW counter accumulator kept in v30 (session-007 finding, session-008
-   promoted here): byte-grouped rep with top 32-bit lane incremented by w.
-   The body's first instr `rev32 v5,v30` reads it, so the Sec-4 invariant pins
-   Q30 = gcm_ctr_raw (word (8*i+13)) ctr0 -- hence this definition must precede
-   Sec 4.  Its algebra lemmas (SUBW_RAW_*, GCM_CTR_RAW_INCR, REV32_FOLD_TAC) are
-   body-only and stay in Sec 9b.
-   rev32(gcm_ctr_raw w ctr0) = gcm_ctr_add w ctr0 (the AES input for block w);
-   word_add (gcm_ctr_raw w ctr0) (word 2^96) = gcm_ctr_raw (word_add w 1) ctr0. *)
-let gcm_ctr_raw_def = new_definition
- `gcm_ctr_raw (w:32 word) (ctr0:int128) : int128 =
-   word_join
-    (word_join
-      (word_add
-        (word_join
-          (word_join (word_subword ctr0 (96,8):8 word) (word_subword ctr0 (104,8):8 word):16 word)
-          (word_join (word_subword ctr0 (112,8):8 word) (word_subword ctr0 (120,8):8 word):16 word):32 word)
-        w)
-      (word_join (word_join (word_subword ctr0 (64,8):8 word) (word_subword ctr0 (72,8):8 word):16 word)
-        (word_join (word_subword ctr0 (80,8):8 word) (word_subword ctr0 (88,8):8 word):16 word):32 word):64 word)
-    (word_join
-      (word_join (word_join (word_subword ctr0 (32,8):8 word) (word_subword ctr0 (40,8):8 word):16 word)
-        (word_join (word_subword ctr0 (48,8):8 word) (word_subword ctr0 (56,8):8 word):16 word):32 word)
-      (word_join (word_join (word_subword ctr0 (0,8):8 word) (word_subword ctr0 (8,8):8 word):16 word)
-        (word_join (word_subword ctr0 (16,8):8 word) (word_subword ctr0 (24,8):8 word):16 word):32 word):64 word):int128`;;
+(* gcm_ctr_raw_def was HOISTED above wb_front_postcond (session-100): the ivec
+   M2 EDIT 0 adds a `read Q30 s = gcm_ctr_raw (word 8) ctr0` conjunct to
+   wb_front_postcond (Sec 3, earlier in the file), which forward-references
+   gcm_ctr_raw -- so the definition now lives before that use.  Its body-only
+   algebra lemmas (SUBW_RAW_*, GCM_CTR_RAW_INCR, REV32_FOLD_TAC) stay in Sec 9b. *)
 
 (* ivec M2 (session-100): the raw counter accumulator ABSORBS a prior gcm_ctr_add
    into its own offset.  gcm_ctr_raw v (gcm_ctr_add u x) = gcm_ctr_raw (word_add u v) x.
@@ -12136,6 +12162,14 @@ let INNER_TAIL_FEED_TAC r tail_r =
   let counter_close =
     REPLICATE_TAC 14 AP_THM_TAC THEN AP_TERM_TAC THEN AP_THM_TAC THEN AP_TERM_TAC THEN
     CONV_TAC WORD_RULE in
+  (* ivec M2 (session-100): with the Q30 conjunct now carried in wbn_weak_q_at6 r,
+     the shifted tail precond demands read Q30 = gcm_ctr_raw (word 8)
+     (gcm_ctr_add (word (8*(q+1))) ctr0); the M1 seam (ext2post, ASM_REWRITE'd in
+     above) gives gcm_ctr_raw (word (8*q+16)) ctr0.  Absorb the prior add into the
+     counter offset via GCM_CTR_RAW_ABSORB_NUM (8*(q+1)+8 = 8*q+16). *)
+  let q30_close =
+    GEN_REWRITE_TAC RAND_CONV [GCM_CTR_RAW_ABSORB_NUM] THEN
+    AP_THM_TAC THEN AP_TERM_TAC THEN AP_TERM_TAC THEN ARITH_TAC in
   MATCH_MP_TAC ENSURES_PRECONDITION_THM THEN EXISTS_TAC tail_pre THEN
   CONJ_TAC THENL
    [GEN_TAC THEN REWRITE_TAC[] THEN STRIP_TAC THEN
@@ -12159,7 +12193,7 @@ let INNER_TAIL_FEED_TAC r tail_r =
                 (word_add in_p (word (128 * (q + 1)))):int64 = word (16 * r_)`)
       SUBST_ALL_TAC THENL [CONV_TAC WORD_RULE; ALL_TAC] THEN
     REPEAT CONJ_TAC THEN
-    FIRST [REFL_TAC; CONV_TAC WORD_RULE; counter_close; slice_close];
+    FIRST [REFL_TAC; CONV_TAC WORD_RULE; counter_close; slice_close; q30_close];
     MP_TAC tail THEN ANTS_TAC THENL
      [CONJ_TAC THENL
         [REWRITE_TAC[LENGTH_SUB_LIST] THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
