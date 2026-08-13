@@ -11528,11 +11528,25 @@ let WBN_Q9_SPEC = prove
 (* to WBN_PREPRETAIL_EXT (~131s) otherwise; same scoped Q16/Q19 CHEAT.  hyps=0.  *)
 (* ------------------------------------------------------------------------- *)
 
+(* SESSION-097 (ivec write-back, M1 keystone): the prepretail post now also
+   carries the advanced CTR-block counter register Q30, so the ivec write-back
+   conjunct `read (memory :> bytes128 ivec_p) s = word_bytereverse (ctr_block
+   nonce (c + nblk))` can be threaded to the exported theorems downstream (M2).
+   At the seam the counter has been incremented 3x past the loop-head value
+   gcm_ctr_raw (word (8*k+13)) ctr0 (adds at .S 0x9f8/0xa10/0xeb4, k=(nblk-9)DIV8),
+   landing at gcm_ctr_raw (word (8*k+16)) ctr0.  The third add is un-normalized in
+   the NOSIMP reduce window; WBN_PREPRETAIL_EXT2_TAC folds it (CTR_RAW_INCR_FOLD at
+   s311 + a WORD_RULE 8k+15+1->8k+16) before ENSURES_FINAL.  Load-safe in isolation:
+   this conjunct only STRENGTHENS the seam precond that the downstream WBN_PREP_TO_END
+   / LOOP_PREP / FRONT_TO_PREP legs consume (they ignore the extra assumption). *)
 let wbn_prepretail_post_ext2 =
   mk_abs(`s:armstate`,
     mk_conj(snd(dest_abs wbn_prepretail_post_ext),
-            `read Q9 (s:armstate) =
-             bytes_to_int128 (SUB_LIST (16 * 8 * ((nblk - 9) DIV 8 + 1),16) ibytes)`));;
+            mk_conj(
+              `read Q9 (s:armstate) =
+               bytes_to_int128 (SUB_LIST (16 * 8 * ((nblk - 9) DIV 8 + 1),16) ibytes)`,
+              `read Q30 (s:armstate) =
+               gcm_ctr_raw (word (8 * ((nblk - 9) DIV 8) + 16)) ctr0`)));;
 
 let wbn_prepretail_ext2_goal =
   let kk = `(nblk - 9) DIV 8` in
@@ -11586,6 +11600,15 @@ let WBN_PREPRETAIL_EXT2_TAC idx_lt_thm =
   WBN_Q19_EXTRACT_ABBREV_TAC "s242" THEN
   ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (243--306) THEN
   ARM_STEPS_FOLD_KEEPDATA_NOSIMP_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (307--311) THEN
+  (* SESSION-097: fold the 3rd add-v30 counter increment (un-normalized in the
+     NOSIMP window; the first two were folded by CTR_INCR_NORM at s3/s9).  The
+     lane tower over gcm_ctr_raw (word (8*k+15)) ctr0 collapses to +1, then a
+     WORD_RULE normalizes 8*k+15+1 -> 8*k+16 = the seam counter value.  No
+     add-v30 occurs in steps 312-313 (ldr q9 / ldp q24,q25), so the folded fact
+     carries to the seam state as the latest read Q30. *)
+  CTR_RAW_INCR_FOLD_TAC "Q30" "s311" `word (8*k+15):32 word` THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[WORD_RULE
+    `word_add (word (8*k+15)) (word 1):32 word = word (8*k+16)`]) THEN
   MP_TAC(SPECL [`nblk:num`; `in_p:int64`; `ibytes:byte list`; `k:num`; `s311:armstate`]
     WBN_Q9_SPEC) THEN
   ANTS_TAC THENL
