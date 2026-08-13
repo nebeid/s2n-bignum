@@ -6145,6 +6145,70 @@ let gcm_ctr_raw_def = new_definition
       (word_join (word_join (word_subword ctr0 (0,8):8 word) (word_subword ctr0 (8,8):8 word):16 word)
         (word_join (word_subword ctr0 (16,8):8 word) (word_subword ctr0 (24,8):8 word):16 word):32 word):64 word):int128`;;
 
+(* ivec M2 (session-100): the raw counter accumulator ABSORBS a prior gcm_ctr_add
+   into its own offset.  gcm_ctr_raw v (gcm_ctr_add u x) = gcm_ctr_raw (word_add u v) x.
+   Needed by INNER_TAIL_FEED_TAC to discharge the SHIFTED tail's Q30 (the shift sets
+   ctr0 := gcm_ctr_add (word 8*(q+1)) ctr0) against the M1 seam's Q30, and by the
+   FULL_r ivec reconcile.  Proved at 32-bit-LANE granularity so the symbolic 32-bit
+   addend never enters a 128-bit BDD (a naive WORD_BLAST HANGS -- session-099).
+   gcm_ctr_raw reads only the 4 lanes of its arg; gcm_ctr_add rewrites only lane
+   (96,32); so the low 3 lanes pass through and the top lane composes the two adds. *)
+let BREV_LANE_64 = prove
+ (`!ctr0:int128.
+     word_join (word_join (word_subword ctr0 (64,8):8 word) (word_subword ctr0 (72,8):8 word):16 word)
+       (word_join (word_subword ctr0 (80,8):8 word) (word_subword ctr0 (88,8):8 word):16 word) =
+     word_bytereverse (word_subword ctr0 (64,32):32 word)`,
+  GEN_TAC THEN BITBLAST_TAC);;
+
+let BREV_LANE_32 = prove
+ (`!ctr0:int128.
+     word_join (word_join (word_subword ctr0 (32,8):8 word) (word_subword ctr0 (40,8):8 word):16 word)
+       (word_join (word_subword ctr0 (48,8):8 word) (word_subword ctr0 (56,8):8 word):16 word) =
+     word_bytereverse (word_subword ctr0 (32,32):32 word)`,
+  GEN_TAC THEN BITBLAST_TAC);;
+
+let BREV_LANE_0 = prove
+ (`!ctr0:int128.
+     word_join (word_join (word_subword ctr0 (0,8):8 word) (word_subword ctr0 (8,8):8 word):16 word)
+       (word_join (word_subword ctr0 (16,8):8 word) (word_subword ctr0 (24,8):8 word):16 word) =
+     word_bytereverse (word_subword ctr0 (0,32):32 word)`,
+  GEN_TAC THEN BITBLAST_TAC);;
+
+(* gcm_ctr_raw in 32-bit-lane form: top lane = word_add(brev of z top lane) w,
+   the other three lanes = byte-reverse of z's lanes. *)
+let GCM_CTR_RAW_LANEFORM = prove
+ (`!w z:int128. gcm_ctr_raw w z =
+    word_join
+     (word_join (word_add (word_bytereverse (word_subword z (96,32):32 word)) w)
+                (word_bytereverse (word_subword z (64,32):32 word)):64 word)
+     (word_join (word_bytereverse (word_subword z (32,32):32 word))
+                (word_bytereverse (word_subword z (0,32):32 word)):64 word):int128`,
+  REWRITE_TAC[gcm_ctr_raw_def] THEN
+  REWRITE_TAC[GSYM BREV_TOP_LANE; GSYM BREV_LANE_64; GSYM BREV_LANE_32; GSYM BREV_LANE_0]);;
+
+(* 32-bit-lane insert passthrough: the low 3 lanes are unaffected by the top insert. *)
+let SUBWORD_INSERT_LOW_LANE = prove
+ (`!(x:int128) (nw:32 word).
+     (word_subword (word_insert x (96,32) nw : int128) (0,32):32 word = word_subword x (0,32)) /\
+     (word_subword (word_insert x (96,32) nw : int128) (32,32):32 word = word_subword x (32,32)) /\
+     (word_subword (word_insert x (96,32) nw : int128) (64,32):32 word = word_subword x (64,32))`,
+  REPEAT GEN_TAC THEN REPEAT CONJ_TAC THEN BITBLAST_TAC);;
+
+let GCM_CTR_RAW_ABSORB = prove
+ (`!(u:32 word) (v:32 word) (x:int128).
+     gcm_ctr_raw v (gcm_ctr_add u x) = gcm_ctr_raw (word_add u v) x`,
+  REPEAT GEN_TAC THEN
+  REWRITE_TAC[GCM_CTR_RAW_LANEFORM] THEN
+  REWRITE_TAC[gcm_ctr_add] THEN
+  REWRITE_TAC[SUBWORD_INSERT_TOP; SUBWORD_INSERT_LOW_LANE; BREV_BREV_32] THEN
+  REWRITE_TAC[GSYM WORD_ADD_ASSOC]);;
+
+let GCM_CTR_RAW_ABSORB_NUM = prove
+ (`!a b (x:int128).
+     gcm_ctr_raw (word b) (gcm_ctr_add (word a) x) = gcm_ctr_raw (word (a + b)) x`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[GCM_CTR_RAW_ABSORB] THEN
+  AP_THM_TAC THEN AP_TERM_TAC THEN CONV_TAC WORD_RULE);;
+
 (* ------------------------------------------------------------------------- *)
 (* 3. FRONT-N: capture the nblk>8 front (entry 0x20 -> loop head 0x4a0) as    *)
 (*    WBN_FRONT_BUF.  Its harvested postcondition (state s288 at the loop     *)
