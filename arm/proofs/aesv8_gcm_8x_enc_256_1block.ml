@@ -4,8 +4,8 @@
 (* No CHEAT_TAC, no new axioms.                                              *)
 (* WARNING: GHASH closure uses ABBREV_ALL_PMUL_TAC + WORD_BLAST on the full  *)
 (* REV64 term tree (~145k chars). This may take >15min or fail on slower     *)
-(* machines. A faster approach using per-step SIMD simplification (Mila's    *)
-(* pattern) is documented in _docs/ghash-proof-strategy-2026-06-02.md.       *)
+(* machines. The per-step SIMD simplification used later in this file       *)
+(* (ARM_STEPS_RESOLVE_SIMD_TAC) is the faster alternative.                   *)
 (* ========================================================================= *)
 
 needs "arm/proofs/base.ml";;
@@ -1178,8 +1178,8 @@ let aesv8_gcm_8x_enc_256_mc = define_assert_from_elf "aesv8_gcm_8x_enc_256_mc"
 let AESV8_GCM_8X_ENC_256_EXEC = ARM_MK_EXEC_RULE aesv8_gcm_8x_enc_256_mc;;
 
 (* ------------------------------------------------------------------------- *)
-(* SIMD REV64 fold-back lemmas (ported from Mila's gcm_gmult_v8_spec.ml,     *)
-(* branch mila-gcm_gmult_proof).  The ARM simulator expands REV64.16B into a *)
+(* SIMD REV64 fold-back lemmas (shared with the GCM gmult spec layer).       *)
+(* The ARM simulator expands REV64.16B into a                                *)
 (* 4-level nested word_join/word_subword byte tree (128->64->32->16->8).     *)
 (* These collapse it back to word_reversefields 8 the instant it appears, so *)
 (* the giant (~145k char) term never forms and the final closure is fast.    *)
@@ -1412,7 +1412,7 @@ let RESOLVE_BRANCH_TAC =
 let ARM_STEPS_RESOLVE_TAC exec range =
   MAP_EVERY (fun n -> RESOLVE_BRANCH_TAC THEN ARM_STEPS_TAC exec [n]) (range);;
 
-(* Step with branch resolution + per-step SIMD REV64 folding (Mila's pattern).
+(* Step with branch resolution + per-step SIMD REV64 folding.
    Folds the byte-tree the instant each REV64/EXT step produces it, so the
    final closure never sees a 145k-char term. *)
 let ARM_STEPS_RESOLVE_SIMD_TAC exec range =
@@ -2277,7 +2277,7 @@ let AESV8_GCM_8X_ENC_256_LE1BLOCK = prove(
 (* <=1-block theorem: the out_p output is one byte_list_at clause over the      *)
 (* masked-tail byte spec aes_ctr_tail_bytes (= the first bl bytes of the        *)
 (* ciphertext block), instead of the masked-blend bytes128 read.  This is the   *)
-(* nfull=0 (partial single block) case of Mila's aes256_gcm_encrypt /           *)
+(* nfull=0 (partial single block) case of aes256_gcm_encrypt /                  *)
 (* gcm_ctm_tail, in the XTS byte_list_at shape.  Derived from the masked-blend  *)
 (* theorem by postcondition-weakening (ENSURES_POSTCONDITION_THM) via the       *)
 (* shared bridge BYTE_LIST_AT_TAIL_CTR -- no re-simulation; a cheap corollary   *)

@@ -4,8 +4,8 @@
 (* No CHEAT_TAC, no new axioms.                                              *)
 (* WARNING: GHASH closure uses ABBREV_ALL_PMUL_TAC + WORD_BLAST on the full  *)
 (* REV64 term tree (~145k chars). This may take >15min or fail on slower     *)
-(* machines. A faster approach using per-step SIMD simplification (Mila's    *)
-(* pattern) is documented in _docs/ghash-proof-strategy-2026-06-02.md.       *)
+(* machines. The per-step SIMD simplification used later in this file       *)
+(* (ARM_STEPS_RESOLVE_SIMD_TAC) is the faster alternative.                   *)
 (* ========================================================================= *)
 
 needs "arm/proofs/base.ml";;
@@ -1174,8 +1174,8 @@ let aesv8_gcm_8x_enc_256_mc = define_assert_from_elf "aesv8_gcm_8x_enc_256_mc"
 let AESV8_GCM_8X_ENC_256_EXEC = ARM_MK_EXEC_RULE aesv8_gcm_8x_enc_256_mc;;
 
 (* ------------------------------------------------------------------------- *)
-(* SIMD REV64 fold-back lemmas (ported from Mila's gcm_gmult_v8_spec.ml,     *)
-(* branch mila-gcm_gmult_proof).  The ARM simulator expands REV64.16B into a *)
+(* SIMD REV64 fold-back lemmas (shared with the GCM gmult spec layer).       *)
+(* The ARM simulator expands REV64.16B into a                                *)
 (* 4-level nested word_join/word_subword byte tree (128->64->32->16->8).     *)
 (* These collapse it back to word_reversefields 8 the instant it appears, so *)
 (* the giant (~145k char) term never forms and the final closure is fast.    *)
@@ -1408,7 +1408,7 @@ let RESOLVE_BRANCH_TAC =
 let ARM_STEPS_RESOLVE_TAC exec range =
   MAP_EVERY (fun n -> RESOLVE_BRANCH_TAC THEN ARM_STEPS_TAC exec [n]) (range);;
 
-(* Step with branch resolution + per-step SIMD REV64 folding (Mila's pattern).
+(* Step with branch resolution + per-step SIMD REV64 folding.
    Folds the byte-tree the instant each REV64/EXT step produces it, so the
    final closure never sees a 145k-char term. *)
 let ARM_STEPS_RESOLVE_SIMD_TAC exec range =
@@ -1576,8 +1576,7 @@ let FINISH_WV_TAC : tactic = fun (asl,w) ->
 
 (* Abbreviate the two 64-bit halves of every Karatsuba pmul output as fresh xNl/xNh vars
    (label l=low subword(0,64), h=hi subword(64,64); N from the operand kind: l for
-   subword-at-0 product, h for subword-at-64, m for the (a xor b) mid product).  Ported
-   verbatim from Mila's one_block_aes256_gcm_preloop_tail_direct.ml. *)
+   subword-at-0 product, h for subword-at-64, m for the (a xor b) mid product). *)
 let ABBREV_PMUL_HALVES_TAC : tactic = fun (asl,w) ->
   let classify_pmul eqn =
     try
@@ -1616,7 +1615,7 @@ let ABBREV_PMUL_HALVES_TAC : tactic = fun (asl,w) ->
       (ABBREV_TAC el THEN ABBREV_TAC eh THEN process (vl_var::vh_var::all) rest) (asl,w) in
   process all_frees pmul_vs (asl,w);;
 
-(* Half projection helpers for the Mila close. *)
+(* Half projection helpers for the lane-fold close. *)
 let JOINMID = prove(
   `!q:int128. word_subword (word_join q q :(256)word) (64,128):int128 =
      word_join (word_subword q (0,64):64 word) (word_subword q (64,64):64 word)`,
@@ -1625,8 +1624,8 @@ let QQ0SPLIT = prove(
   `!q:int128. q = word_join (word_subword q (64,64):64 word) (word_subword q (0,64):64 word)`,
   GEN_TAC THEN CONV_TAC WORD_BLAST);;
 
-(* MILA-ROUTE close.  Closes the GHASH bridge by Mila's reduction-as-rewrite instead of one
-   monolithic structural WORD_BLAST over `word_pmul _ W`.  Context at entry (after GMULT GSYM +
+(* Reduction-as-rewrite close.  Closes the GHASH bridge by rewriting the reduction instead of
+   one monolithic structural WORD_BLAST over `word_pmul _ W`.  Context at entry (after GMULT GSYM +
    byteswap128/subword normalize + ABBREV_INNER_PMULS_TAC + MERGE_PMUL_ATOMS_TAC + WORD_XOR_0
    cleanup): the goal is a pure word identity carrying the three Karatsuba product atoms
    qq0,qq1,qq2 (qq1 the H-hi×block-lo product, whose lo limb xhl is the Prop3 reduction limb),
@@ -1635,7 +1634,7 @@ let QQ0SPLIT = prove(
      qq0 -> xll/xlh, qq1 -> xhl/xhh, qq2 -> xml'''/xmh'''  (xhl is the reduction limb).
    Steps:
      1. PMUL_W_64_128: rewrite each `word_pmul V W` to shl63 V ⊕ shl62 V ⊕ shl57 V — this is the
-        key move that removes the ~107s carryless-multiply-by-constant blast.
+        key move: it removes the expensive carryless-multiply-by-constant blast.
      2. JOINMID: collapse the halfswap mid `word_subword (word_join q q) (64,128)` to
         `word_join (sub q 0) (sub q 64)`.
      3. Split the bare product atoms qq0/qq1/qq2 into joins of their (named) halves (QQ0SPLIT),
@@ -1646,10 +1645,7 @@ let QQ0SPLIT = prove(
      5. Abbreviate the second-round shift argument u; fold both xor-orderings of it to the atom u.
      6. Distribute the residual bare r1 into its subwords (WORD_SUBWORD_XOR), fold joins, refold
         the recombine lo-part to u, and finish with one WORD_BLAST over the atoms u / subword r1.
-   Measured on our s348 bridge term: ~42s total (qq-split direct-rewrite ~0.4s + final blast ~30s
-   + r1/u folds ~11s) vs ~107s+27s for the committed FINISH_WV route.  An earlier version proved
-   the qq-split with ASM_MESON_TAC[QQ0SPLIT] (~48s here); the direct LAND-rewrite below replaced it
-   and roughly halved the close. *)
+   This is substantially faster than the structural-blast FINISH_WV route. *)
 let FINISH_WV_REDUCE_TAC : tactic =
   REWRITE_TAC[PMUL_W_64_128] THEN
   ABBREV_PMUL_HALVES_TAC THEN
@@ -1662,8 +1658,8 @@ let FINISH_WV_REDUCE_TAC : tactic =
                REWRITE_TAC[CONJUNCT1(CONJUNCT2 th)] THEN
                REWRITE_TAC[CONJUNCT2(CONJUNCT2 th)]) THENL
    [(* Each conjunct qqN = word_join (sub qqN 64,64) (sub qqN 0,64) by QQ0SPLIT, then the two
-       half hypotheses substitute the subwords.  Direct LAND rewrite + ASM_REWRITE is ~0.4s here;
-       the previous ASM_MESON_TAC[QQ0SPLIT] was ~48s (it searched instead of rewriting). *)
+       half hypotheses substitute the subwords.  Use the direct LAND rewrite + ASM_REWRITE, NOT
+       ASM_MESON_TAC[QQ0SPLIT]: MESON searches instead of rewriting and is far slower. *)
     REPEAT CONJ_TAC THEN GEN_REWRITE_TAC LAND_CONV [QQ0SPLIT] THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
   REWRITE_TAC[WORD_SUBWORD_XOR] THEN ASM_REWRITE_TAC[] THEN
   REWRITE_TAC[JOIN_SUBWORD_RULES] THEN

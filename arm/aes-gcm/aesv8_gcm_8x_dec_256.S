@@ -13,7 +13,7 @@
 // pc+0x0c..0x2c offsets shift). The reorder lets the HOL Light proof enter the
 // function past the saves (at pc+0x18) with the C arguments still in X0..X6,
 // so the precondition can be stated with C_ARGUMENTS, matching the XTS style
-// (see arm/proofs/aesv8_gcm_8x_dec_256_1block.ml, theorem
+// (see arm/proofs/aesv8_gcm_8x_dec_256_le1block.ml, theorem
 // AESV8_GCM_8X_DEC_256_1BLOCK). When re-importing s2n-bignum into aws-lc, this
 // is the sanctioned form of the shipped .S.
 #include "_internal_s2n_bignum_arm.h"

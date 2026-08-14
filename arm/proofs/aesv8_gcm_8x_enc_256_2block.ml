@@ -6,8 +6,7 @@
 (*                                                                            *)
 (* No CHEAT_TAC, no new axioms.                                               *)
 (*                                                                            *)
-(* STATUS (2026-06-17): DONE.  loadt-clean, binds AESV8_GCM_8X_ENC_256_2BLOCK,  *)
-(* no cheats, 3 (standard) axioms.  FULL postcondition: out_p block-0 = ct0,    *)
+(* FULL postcondition: out_p block-0 = ct0,                                    *)
 (* out_p block-1 = word_xor plaintext1 (aes256_encrypt ctr1 keys), and          *)
 (* xi_p = word_bytereverse (ghash_polyval_acc (byteswap128 h)(brev xi)          *)
 (* [brev ct0; brev ct1]).  The block-1 AES counter ctr1 is exposed as a spec    *)
@@ -16,325 +15,46 @@
 (* The 2-product GHASH bridge closes via the targeted MERGE_2BLK_TAC (products  *)
 (* paired by free-var/lane signature, W-reduction pmuls by shared word-const,    *)
 (* operand equalities closed by FAST_OPERAND_TAC: flatten lanes + WORD_BITWISE,  *)
-(* ~1s vs ~90s WORD_BLAST) + FINISH_2BLK_TAC; bridge ~73s, ~16 min total loadt   *)
-(* incl. the 1-block dep.  Direct C_ARGUMENTS entry at pc+0x18 (no ENSURES_TRANS *)
-(* wrapper), exit pc+0x11d8.  See _docs/2block_handoff/BRIDGE.md for history.    *)
+(* much cheaper than WORD_BLAST) + FINISH_2BLK_TAC.  Direct C_ARGUMENTS entry at  *)
+(* pc+0x18 (no ENSURES_TRANS wrapper), exit pc+0x11d8.                           *)
 (* ========================================================================= *)
 
 (* -------------------------------------------------------------------------
-   PROGRESS / PLAN
-   -------------------------------------------------------------------------
-   GOAL: prove the real binary's 2-block (bit_len = 256) path, exit pc TBD,
-   with the GHASH list [brev ct0; brev ct1] and key byteswap128 h.
+   BINARY STRUCTURE AND PROOF NOTES (2-block, bit_len = 256)
 
-   CONTROL FLOW (confirmed from the .S, 2026-06-15):
-     byte_len = 32 -> x5 = ((32-1) & ~127) + x0 = x0, so x0 >= x5 at pc+0x163
-     (line 354/355) => branch to .L256_enc_tail (NOT the 8-way main_loop).
-     In the tail: x5 = x4 - x0 = 32; cmp x5,#112/96/.../16 all fall to the
-     `b.gt .L256_enc_blocks_more_than_1` (x5=32 > 16) => process ONE full
-     block via the more_than_1 body, then fall into less_than_1 for the last
-     block.  So 2 blocks = more_than_1 (block 0, GHASH vs H^2-... actually vs
-     the per-block htable power) + less_than_1 (block 1).
+   Control flow: the front computes the CTR blocks and AES towers, then the
+   length cascade at .L256_enc_tail routes x5 = 32 to more_than_1 (block-0
+   GHASH) and then less_than_1 (block-1 GHASH + the single Prop3 reduction).
+   A `mov` cascade in the tail SHIFTS the keystream registers so the block the
+   body consumes lands in the slot it expects: `mov v7,v1` routes block-1's
+   keystream to Q7, which less_than_1 reads for block-1's ciphertext.  Any
+   assumption-discard filter used across the cascade MUST keep Q7 alive.
 
-     => NO trn1/trn2 (that is only Loop_mod2x_v8, which 2 blocks does NOT
-     reach).  The cascade uses htable-loaded karatsuba mids (ins/pmull),
-     matching GHASH_POLYVAL_ACC_2's shape.  This is the FAVORABLE path: the
-     2-block extension doc (ghash-2block-extension-and-mila-comparison) feared
-     Loop_mod2x_v8; the real 2-block path avoids it.
+   At less_than_1 entry X1 = word 128, NOT 256: the cascade decremented bit_len
+   by the one block more_than_1 already processed.  So less_than_1 sees a FULL
+   last block, its mask v0 is ALL-ONES, and `and v9,v9,v0` is the identity on
+   ct1.  That AND re-expands ct1's AES tower, so the ct1 abbreviation must be
+   re-asserted afterwards (all-ones mask, then WORD_BLAST), exactly as the
+   full-block 1-block proof does.
 
-   GHASH at 2 blocks (aggregate-then-reduce-once, per the tail):
-     more_than_1 GHASHes brev(ct0) into hi/mid/lo accumulators (against the
-     H^2 power loaded from htable), less_than_1 GHASHes brev(ct1) (against H),
-     XORs into the same hi/mid/lo, then ONE Prop3 reduction (MODULO block).
-     Spec closes via GHASH_POLYVAL_ACC_2:
-       ghash_polyval_acc h a [b;c] =
-         prop3(pmul(a XOR b, polyval_dot h h) XOR pmul(c, h))
-     (already proved in common/polyval_ghash.ml).
+   Two term-explosion hazards, both handled by folding rather than brute force:
+     - the 4-lane 32-bit counter increment `add v30.4s,v30.4s,v31.4s` over the
+       symbolic rev32 tree blows Q30 up by orders of magnitude;
+       GCM_SIMD_SIMPLIFY_TAC collapses it back to a clean word_join byte-shuffle
+       of ctr0 with `word_add (...) (word 1)`.  Fold after EACH step of the CTR
+       setup so the derived block counters stay bounded, and do NOT discard Q30
+       mid-setup (the 1-block proof can, since it needs only block 0 = ctr0).
+     - both ciphertexts MUST be abbreviated to atoms BEFORE the rev64 + pmull
+       that feeds GHASH, or the multiply blows up the product registers.
 
-   KEY CONVENTION: byteswap128 h (verified consistent; see methodology §6c).
-     2-block htable preconditions add H^2 slot and its mid:
-       read (htbl_p+32) = byteswap128(polyval_dot h h)   [H^2, lanes-exch]
-       and the karatsuba mid for h^2 from the packed mid slot at htbl_p+16
-       (hi lane) -- need to check the exact lane the more_than_1 path reads.
-
-   PCs (confirmed by objdump of the .o, 2026-06-15):
-     body entry           pc+0x2c   (same as 1-block)
-     branch cascade       pc+0xf08 .. 0xf88 (cmp x5,#0x60/0x50/.../0x10; b.gt)
-       x5 = 32 (0x20): cmp #0x20 b.gt 0x10b8 -> 32>32 FALSE (fall);
-                       cmp #0x10 b.gt 0x10f4 -> 32>16 TRUE  -> more_than_1.
-     more_than_1 body     pc+0x10f4 .. 0x1134  (block 0 GHASH vs H^2 power)
-       0x10f8 ldr q22,[x6,#32]  = byteswap128(h_power h 1)   [the H^2 slot]
-       0x1124 ldr q21,[x6,#16]  = packed mid (mid(h^1)|mid(h^2)), uses hi lane
-       hi=pmull2 v28, lo=pmull v26, mid=pmull2 v27 -> accumulate v17/v19/v18
-     less_than_1 body     pc+0x1138 .. 0x11d4  (block 1 GHASH vs H, + reduce)
-       (same as the 1-block less_than_1; here the hi/mid/lo already hold
-        block-0 contributions, so the final reduction folds BOTH blocks)
-     exit (str q19,[x3])  pc+0x11d4, stop pc+0x11d8.
-
-   STEPS:
-     [x] 1. Confirm exit PC and the precise instruction indices (DONE above).
-     [ ] 2. Write the spec (precondition: 2 plaintext blocks, htable H + H^2 +
-            mids; postcondition: 2 ciphertext blocks + GHASH [brev ct0;brev ct1]).
-     [ ] 3. Reuse the 1-block AES/front stepping (it already steps CTR blocks
-            v0,v1; only v0 was used at 1 block).  Abbreviate ct0, ct1.
-     [ ] 4. Step the more_than_1 body (block 0 GHASH multiply into hi/mid/lo).
-     [ ] 5. Step the less_than_1 body (block 1 GHASH multiply + accumulate +
-            single reduction).
-     [ ] 6. Bridge the pre-reduction Q-state to GHASH_POLYVAL_ACC_2 RHS, then
-            to ghash_polyval_acc ... [brev ct0; brev ct1] (mirror 1-block
-            bridge GMULT route, generalized to 2 products).
-     [ ] 7. Close; verify loadt, no cheats.
-
-   DEAD ENDS / NOTES:
-   - KEY NEW OBSTACLE (found 2026-06-15 by stepping the front): the 1-block
-     proof's `DISCARD_COUNTER_REGS_TAC` discards `read Q1` (block-1's CTR /
-     keystream) whenever it exceeds 500 chars.  2-block NEEDS Q1 preserved
-     (it is block-1's AES keystream input = CTR block 1 = rev32 of the
-     once-incremented Q30).  So the front CANNOT reuse the 1-block discard
-     calls verbatim — must keep Q1 (and Q9/Q8 for the 2nd ciphertext+GHASH)
-     alive.  Plan: write a 2-block DISCARD_COUNTER_REGS_TAC variant that keeps
-     Q1 (and the regs the more_than_1/less_than_1 GHASH uses: Q8,Q9,Q16,Q17,
-     Q18,Q19,Q26,Q27,Q28), or step with finer granularity and abbreviate ct0
-     (Q9 at the block-0 store ~0x10f4) and ct1 (the 2nd block result).
-   - The block-0 ciphertext is stored by `st1 {v9},[x2],#16` at 0x10f4 (start
-     of more_than_1) and out_p advances by 16; block-1 stored at 0x1184-ish in
-     less_than_1.  Spec out_p region is 32 bytes (two blocks).
-   - CTR increment: block 1's counter = rev32(rev32(ctr0)+ (1<<96-lane)).  The
-     1-block never needed ct1, so this byte-arithmetic was never modeled here.
-     Either expose ct1 = aes256_encrypt ctr1 keys with ctr1 a fresh var + a
-     precond pinning ctr1, OR derive ctr1 symbolically in the sim (heavier).
-     Mila's extraction sidesteps this; we must do it for binary faithfulness.
-
-   STATUS 2026-06-15: spec drafted + front stepped interactively to s265
-   (target PC pc+0x10f4 = more_than_1).  Findings at s265:
-     read Q9 s265 = ct0 = word_xor plaintext0 (aes256_encrypt ctr0 keys)  [block-0 ciphertext]
-     read Q8 s265 = plaintext0   (the loaded block, pre-XOR copy)
-     read Q0 s265 = aes tower over ctr0 (block-0 keystream)
-     read Q19 s265 = folded GHASH tag word_join(rev xi_lo)(rev xi_hi)  [survives]
-     read X0 s265 = in_p+16 (block-0 consumed; block-1 not yet loaded)
-   Step 255 needs ARM_VSTEPS_TAC [255] THEN RULE_ASSUM_TAC(REWRITE_RULE
-     [INT_SUB_REFL; INT_OF_NUM_EQ]) to resolve the `in_p - in_p = 0` branch
-     to the tail (pc+3768), same idiom as 1-block.
-
-   TAIL DATAFLOW (read from .S 0x1199+):
-     .tail: ldr q8,[x0] (block-0 PT); eor3 v9,v8,v0,v29 (ct0 via Q0 keystream).
-       Then a CASCADE of `mov v7,v6; mov v6,v5; ... mov v_k,v1` (lines 1216-1277)
-       that SHIFTS the keystream registers so the correct per-path keystream
-       lands in the slot the more_than_N/less_than_1 body consumes.
-     For 2 blocks (x5=32): falls to more_than_1 (block-0 GHASH) then less_than_1
-       (block-1: `eor3 v9,v9,v7,v29` at .S 1442 uses v7 = block-1 keystream).
-     => block-1 keystream (originally CTR block 1 in Q1) IS needed; the `mov`
-        cascade routes Q1->...->v7.  The 1-block proof discarded Q1-Q7 because
-        the 1-block path uses ONLY Q0's keystream.  2-block MUST keep the
-        block-1 keystream alive through the front AND through the mov cascade.
-
-   *** INVESTIGATION (2026-06-15): even with DISCARD_COUNTER_REGS2_TAC (keeps
-   Q1) from step 1, Q1 is ABSENT at step 50 (only Q0,Q26,Q27,Q28,Q31 present).
-   So Q1's absence is NOT simply the discard filter.  Two candidate causes to
-   check next session:
-     (a) block-1's keystream is only fully formed after all 15 AES rounds
-         (~step 250+); at step 50 it is mid-round and may be carried under a
-         different intermediate register, or
-     (b) ARM_STEPS' per-step simplifier only keeps the latest write and the
-         block-1 CTR/keystream chain isn't being asserted/abbreviated, so it
-         evaporates.
-   RESOLVED (2026-06-15, 2nd session): the Q1-Q7 "absence" was the COUNTER
-   ARITHMETIC EXPLODING, not the discard.  Root cause found by single-stepping:
-     - rev32 v30,v0 (0x50, step ~16): Q30 = rev32(ctr0), small (~19 chars).
-     - add v30.4s,v30.4s,v31.4s (0x54, step 17): the 4-lane 32-bit CTR
-       increment over the symbolic rev32 tree BLOWS Q30 to ~25677 chars.
-     - GCM_SIMD_SIMPLIFY_TAC collapses it back to ~727 chars: a clean
-       word_join byte-shuffle of ctr0 with `word_add (...) (word 1)` =
-       the incremented counter.  The block-N CTR rev32 v_N,v30 then stays
-       bounded.
-   So the FRONT RECIPE for 2-block: step the CTR setup (0x50..0x8c) folding
-   with GCM_SIMD_SIMPLIFY_TAC after each `add v30.4s` so Q30 (and the derived
-   block CTRs Q1..Q7) stay bounded; keep Q1 (block-1 keystream src) and Q7
-   (the reg the more_than_1 path consumes after `mov v7,v1`).  Do NOT discard
-   Q30 mid-setup (the 1-block can because it only needs block 0 = Q0=ctr0;
-   2-block needs the increment chain).  After the rounds, abbreviate ct0 (Q9)
-   AND ct1 (block-1 result) as atoms, mirroring the 1-block ct abbreviation.
-   ctr1 (block-1 AES input) = the folded once-incremented counter; can expose
-   as a spec var pinned by the GCM_SIMD_SIMPLIFY normal form, or carry inline.
-
-   *** WORKING FRONT RECIPE (validated interactively 2026-06-15, reaches the
-   tail at pc+3772 with Q0,Q1,Q19 all bounded):
-     REPEAT STRIP_TAC THEN ENSURES_INIT_TAC "s0" THEN
-     define DK1  = DISCARD_ASSUMPTIONS_TAC (drop read Q2..Q7,Q30 when >500),
-            DK1b = same (keeps Q0,Q1,Q19 implicitly by not listing them).
-     ARM_STEPS (1--11)  THEN DK1
-     ARM_STEPS (12--16) [reaches 0x50 rev32 v30,v0]  (then the increment chain)
-     -- key: after the `add v30.4s` (step 17) Q30 blows to ~25k; FOLD with
-        GCM_SIMD_SIMPLIFY_TAC -> ~727 chars, then rev32 v1 (step ~19) gives
-        Q1 ~1365 (block-1 counter).  Step in SMALL batches (<=10) with DK1 so
-        Q2..Q7,Q30 are dropped before the next increment explodes.
-     Continue ARM_STEPS in 1-block-style batches with DK1: (24--30)(31--50)
-        (51--84)(85--173) -- Q0,Q1 grow slowly into AES towers (~219/2178 ch).
-     At the GHASH tag load (~step 183): Q19 -> 49102 ch; GCM_SIMD_SIMPLIFY_TAC
-        folds it to ~122 ch (word_join(rev xi_lo)(rev xi_hi)); use DK1b after.
-     (177--184) THEN GCM_SIMD_SIMPLIFY_TAC THEN DK1b ; (185--254) THEN DK1b.
-     ARM_VSTEPS [255] THEN RULE_ASSUM_TAC(REWRITE_RULE[INT_SUB_REFL;INT_OF_NUM_EQ]).
-     (256--262) THEN DK1b THEN RULE_ASSUM_TAC(REWRITE_RULE[INT_SUB_REFL;
-        INT_OF_NUM_EQ]) ; ARM_STEPS [263] resolves the `in_p-in_p=0` branch to
-        pc+3772 (the TAIL, .L256_enc_tail at 0xeb8).
-   STATE AT TAIL ENTRY (s263, pc+3772): Q0=block-0 AES tower (aes...ctr0),
-     Q1=block-1 AES tower (aes...ctr1 where ctr1 = folded once-incremented
-     counter), Q19=folded GHASH tag.  ALL BOUNDED, no explosion.  ~10s total.
-
-   TAIL CASCADE (validated to more_than_1 @ pc+0x10f4 = pc+4340, step ~315):
-     - At tail entry need X5 = word 32: RULE_ASSUM_TAC(REWRITE_RULE
-       [WORD_RULE `word_sub (word_add in_p (word 32)) in_p = word 32`]) so the
-       cmp x5,#112/96/.../16 b.gt cascade auto-resolves (32 not >32, >16 only).
-     - eor3 v9,v8,v0,v29 (~step 272, pc+3808) gives Q9=ct0 (block-0 ciphertext,
-       ~467 chars: plaintext0 XOR keystream0 XOR v29).
-     - The cascade zeroes Q17/Q18/Q19 (GHASH accumulators) and runs the keystream
-       mov-shuffle; the in_p-in_p branch at the tail entry resolves via INT_SUB_REFL.
-     *** Q7 FIX: the cascade does `mov v7,v1` (.S 1269) so Q7 := block-1 keystream;
-       more_than_1 reads v7 for block-1's ciphertext (eor3 v9,v9,v7).  DK1b DROPS
-       Q7 (>500) -> simulator can't run that eor3.  FIX: in the tail/cascade
-       region use a discard that KEEPS Q7 too (call it DK1c: drop Q2..Q6,Q30 only,
-       keep Q0,Q1,Q7,Q19).  Q7 will be ~2666 chars (= Q1).  Switch DK1b->DK1c
-       at the tail entry (step ~264 onward).
-
-   FRONT FOLD-TUNING — SOLVED (deterministic, 2026-06-15):
-   The CTR setup (steps 1-25, through 0x50..0x8c) must keep Q30 alive while
-   folding the increment.  DETERMINISTIC RECIPE (validated, ~15s):
-     define mk_discard keepset = DISCARD_ASSUMPTIONS_TAC(>500 AND matches any
-       `read Q<n> ` for n in keepset);
-     DKctr = mk_discard [2;3;4;5;6;7]   (* keep Q0,Q1,Q30 *)
-     DK1   = mk_discard [2;3;4;5;6;7;30] (* keep Q0,Q1; drop Q30 too *)
-     DK1b  = DK1   (* keeps Q0,Q1,Q19 in the GHASH-tag region *)
-     -- CTR setup: step 1-AT-A-TIME 1..25 with GCM_SIMD_SIMPLIFY_TAC THEN DKctr
-        after EACH step (a `for i=1 to 25 do e(ARM_STEPS (i--i) THEN
-        GCM_SIMD_SIMPLIFY_TAC THEN DKctr) done`).  Result s25: Q0(18),
-        Q1(1365)=block-1 CTR, Q30(754) all bounded.  KEY: DKctr keeps Q30 so
-        rev32 v1..v7 evaluate; folding each step keeps the increment ~754ch.
-     -- AES bulk: ARM_STEPS (26--84) THEN DK1 ; (85--173) THEN DK1.  Q0,Q1 grow
-        to ~219/2178 (towers).  Q30 now safely dropped (CTR setup done).
-     -- GHASH tag: (174--184) THEN GCM_SIMD_SIMPLIFY_TAC THEN DK1b -> Q19~122ch.
-     -- (185--254) THEN DK1b.
-     -- ARM_VSTEPS [255] THEN RULE_ASSUM_TAC(REWRITE_RULE[INT_SUB_REFL;
-        INT_OF_NUM_EQ]) -> resolves the cmp x0,x5 / b.ge tail branch; PC jumps
-        to pc+3768 (TAIL .L256_enc_tail @ 0xeb8).  State: Q0(391),Q1(2666),
-        Q19(122).  (NB: with per-step folding the step->pc map shifts; the tail
-        branch fires at step 255 here, not 263 as in coarse runs.)
-
-   TAIL CASCADE — SOLVED (reaches more_than_1 GHASH multiply):
-   - At the tail (the cmp x0,x5 / b.ge branch fires at step 255 -> pc+3768),
-     step the tail's `sub x5,x4,x0` (~step 256-260) then set X5 = word 32 via
-     RULE_ASSUM_TAC(REWRITE_RULE[WORD_RULE
-       `word_sub (word_add in_p (word 32)) in_p = word 32`]).  After that the
-     cmp x5,#112/.../#16 b.gt cascade AUTO-RESOLVES (no special resolver needed;
-     X5=word 32 makes ARM_CONV decide each branch by ground arithmetic).
-   - Use DK1c = mk_discard [2;3;4;5;6;30] (keeps Q0,Q1,Q7,Q19) through the
-     cascade so Q7 survives (the cascade's `mov v7,v1` routes block-1 keystream
-     to Q7; verified Q7(2666) present at pc+4348).  Reaches more_than_1
-     (pc+0x10f4=pc+4340) with Q9(467)=ct0, Q7=block-1 keystream, Q19/Q17/Q18
-     zeroed accumulators, Q16=partial tag, Q22=H^2 htable load.
-
-   GHASH MULTIPLY — IN PROGRESS (the algebraic core, next):
-   - *** MUST abbreviate ct0 to an atom BEFORE the rev64+pmull (else the GHASH
-     multiply blows Q8/Q27/etc to ~1M chars).  At pc+4348 (s310, after the
-     block-0 st1, before rev64 v8,v9): ABBREV_TAC ct0 = <the Q9 tower>.  Then
-     Q9 -> ct0 (18ch).  Same for ct1 when block-1's eor3 forms it inside
-     more_than_1 (ldr q9,[x0]; eor3 v9,v9,v7).  Mirror the 1-block's ct
-     abbreviation at s265.  (NB even with ct0 atom, rev64 v8,v9 expands it to a
-     ~27k byte tree -> the GHASH pmull products are big but tractable, exactly
-     like the 1-block; they get bridged at the end, NOT computed.)
-   - more_than_1 (0x10f4-0x1134): block-0 GHASH: rev64 v8,v9; eor v8,v8,v16
-     (feed tag); pmull2 v28 (hi), pmull v26 (lo) vs H^2=Q22; ins/eor/pmull2 v27
-     (mid) vs the H^2 mid lane of Q21=[x6,#16]; accumulate into v17/v19/v18.
-   - less_than_1 (0x1138-0x11d4): block-1 GHASH vs H (Q20=[x6,#0]) + accumulate
-     into the SAME v17/v19/v18, then ONE Prop3 reduction (MODULO block), then
-     ext+rev64 -> store xi_p.  Use ARM_VSTEPS_FOLD_TAC over this region like the
-     1-block tail (fold to keep accumulators bounded over the ct0/ct1 atoms).
-   - BRIDGE: assert read Q19 (pre-store) = the GHASH_POLYVAL_ACC_2 RHS
-       prop3(pmul(brev xi XOR brev ct0, byteswap128 h2_key) XOR pmul(brev ct1, byteswap128 h))
-     then REWRITE[GSYM GHASH_POLYVAL_ACC_2] to get
-       ghash_polyval_acc (byteswap128 h) (brev xi) [brev ct0; brev ct1].
-     (h2_key = polyval_dot(byteswap128 h)(byteswap128 h); check byteswap128 h2 =
-      that, per the htable reconciliation already machine-checked above.)
-   - spec postcond + ctr1: expose ctr1 as var (cleanest) vs inline (ct1's
-     keystream input = the folded once-incremented counter).
-
-   SESSION-2 REACHED: more_than_1 GHASH multiply, BOTH ciphertexts abbreviated.
-   - ct0 abbreviated at pc+4348 (s310, before rev64 v8,v9): ABBREV_TAC
-     ct0 = <Q9 block-0 tower = word_xor (word_xor plaintext0 (aes...ctr0)) v29-ish>.
-   - block-0 GHASH multiply stepped with ARM_VSTEPS_FOLD_TAC (316--320): keeps
-     the pmull products bounded (Q27~892, Q17~488, Q28~455 vs ~1M unfolded).
-   - ct1 abbreviated at s320 (after more_than_1's ldr q9,[x0]; eor3 v9,v9,v7):
-     ABBREV_TAC ct1 = <Q9 block-1 tower>.  IMPORTANT: ct1's keystream input is
-     aes256_encrypt over the byte-shuffled ONCE-INCREMENTED counter:
-       word_join(...)(word_add (word_join (subword ctr0 96,8)(...)) (word 1))...
-     i.e. ctr1 = rev32(rev32(ctr0) + 1) at the lane level.  For the spec, expose
-     `ctr1:int128` as a variable and either (a) add a precond pinning Q1's
-     keystream to aes256_encrypt ctr1 keys, or (b) prove the byte-shuffle = ctr1
-     once via a counter lemma.  ct1 atom now carries it opaquely through GHASH.
-   - NEXT: finish more_than_1 (block-0 mid pmull vs Q21=[x6,#16] hi lane) +
-     less_than_1 (block-1 GHASH vs H, accumulate, 1 Prop3 reduction), folding;
-     DISCARD_OLDSTATE before the bridge; then the GHASH_POLYVAL_ACC_2 bridge.
-
-   *** KEY (session 2, reached less_than_1 @ pc+0x1138): at less_than_1 entry
-   read X1 = word 128 (NOT 256) — the cascade decremented bit_len by 128 for the
-   one block more_than_1 processed.  So less_than_1 sees a FULL last block
-   (x1=128), mask v0 = ALL-ONES, `and v9,v9,v0 = v9 = ct1`.  => less_than_1 for
-   the 2-block is IDENTICAL to the proven full-block 1-block less_than_1
-   (AESV8_GCM_8X_ENC_256_1BLOCK), EXCEPT the GHASH accumulators Q17/Q18/Q19/
-   Q26/Q27/Q28 already hold block-0's contribution, so the single Prop3 reduction
-   at the end folds BOTH blocks.  STRATEGY: replay the 1-block less_than_1
-   stepping (mask collapse to all-ones, rev64 v8,v9, block-1 pmull vs H=Q20,
-   accumulate, MODULO reduction, ext+rev64, store xi_p) — but the pre-reduction
-   Q19 will be the 2-block aggregate.  Bridge it via GHASH_POLYVAL_ACC_2 instead
-   of the 1-block's single GMULT_FULL_CORRECT_BA.
-   State at s340 (pc+0x1174): Q20=H load, Q9=masked ct1, block-0 accumulators
-   in Q17/18/19/26/27/28 (~500-900ch each, bounded), ct0/ct1 atoms.
-
-   IMMEDIATE SUB-TASK (mask collapse on Q9, the dec/enc LE1BLOCK pattern):
-   At s340 read Q9 = word_and (word_insert (word_insert (aese-tower...))) — the
-   `and v9,v9,v0` mask re-expanded ct1's tower (the abbreviation didn't survive
-   the AND because the AND operand was the underlying value).  For x1=128 the
-   mask v0 is ALL-ONES, so this = ct1.  Re-assert read Q9 = ct1 like the
-   full-block 1-block does (its step 325-326): after the AND, do
-     FIRST_X_ASSUM(MP_TAC o SPEC `ct1` o MATCH_MP (MESON[] `read Q9 s = a ==>
-       !a'. a = a' ==> read Q9 s = a'`)) THEN ANTS_TAC THENL
-       [<prove word_and allones tower = ct1>; DISCH_TAC]
-   The 1-block proves the ANTS with CONV_TAC WORD_BLAST (expanding the tower).
-   For 2-block, ct1 is an atom = that tower, so the ANTS goal is
-   `word_and <allones> <tower> = ct1` = (EXPAND_TAC "ct1" THEN identity);
-   since mask is all-ones use a MASK-allones lemma or WORD_BLAST after
-   EXPAND_TAC "ct1".  Verify the mask Q0 is actually all-ones for x1=128 first
-   (the csel x13/x14 with bit_len 128: x1&127=0 -> mask top/bottom = 0xff..ff).
-   THEN proceed exactly as the 1-block less_than_1: VSTEPS the store window,
-   GHASH tail (rev64 v8,v9; pmull vs Q20=H; accumulate into the block-0-loaded
-   v17/v19/v18; MODULO single reduction), bridge via GHASH_POLYVAL_ACC_2.
-
-   *** SIMULATION COMPLETE (session 2 end) — reached pc+0x11d0 (rev64 v19, one
-   step before the xi_p store st1 v19,[x3] @ 0x11d4; exit pc+0x11d8=pc+4568).
-   The mask collapse on Q9 (all-ones, x1=128) was done via the 1-block trick
-   (FIRST_X_ASSUM MP_TAC o SPEC ct1 ... ANTS [EXPAND_TAC "ct1" THEN WORD_BLAST]).
-   Then ARM_VSTEPS_FOLD_TAC through the store window + block-1 GHASH multiply
-   (vs Q20=H) + the single MODULO reduction (which folds BOTH blocks since the
-   accumulators held block-0).  DISCARD_OLDSTATE_TAC between fold groups keeps it
-   bounded.  Step numbering: mask collapse ~s340; multiply/reduce s341-363.
-
-   ALL THAT REMAINS = THE GHASH BRIDGE (algebraic core) + close:
-   - The reduced GHASH result is in Q19 just before the ext(0x11c8)+rev64(0x11d0).
-     Assert read Q19 (pre-ext state, ~s361) = the 2-block aggregate.  Per
-     GHASH_POLYVAL_ACC_2 with key K=byteswap128 h, a=brev xi, b=brev ct0,
-     c=brev ct1:  ghash_polyval_acc K a [b;c] = polyval_reduce_prop3(
-       word_xor (word_pmul (word_xor a b) (polyval_dot K K)) (word_pmul c K)).
-     The assembly computed exactly this (block-0 vs H^2=polyval_dot K K from
-     htbl+32, block-1 vs H=K from htbl+0, aggregated pre-reduction).  Bridge the
-     byte-form Q19 to that RHS (reuse the 1-block bridge machinery PMUL_KARATSUBA
-     /KARATSUBA_LIMBS/PMUL_W_64_128/ABBREV_INNER_PMULS/MERGE_PMUL_ATOMS/lane-fold,
-     now over TWO products), then GSYM GHASH_POLYVAL_ACC_2 -> the list-of-2 form.
-   - htable keys: byteswap128 h2 = polyval_dot K K (machine-checked above);
-     byteswap128 h = K.  The mids: subword hk (0,64)=mid(K) [block1/H],
-     subword hk (64,64)=mid(H^2) [block0] — confirm the exact lanes from the
-     more_than_1 pmull2 v27 (uses Q21=[x6,#16] hi lane) vs less_than_1 (lo lane).
-   - then ext+rev64 -> word_bytereverse(gval); store; ENSURES_FINAL_STATE; close
-     (EXPAND ct0,ct1; the spec postcond GHASHes [brev ct0; brev ct1]).
-   - SPEC still needs finalizing: expose ctr1 var + its precond (ct1 keystream).
+   GHASH bridge: block 0 multiplies against H^2 (= polyval_dot K K, read from
+   htbl+32) and block 1 against H (= K, from htbl+0), accumulating into shared
+   registers so ONE Prop3 reduction at the end folds both blocks.  The pre-store
+   Q19 is bridged to
+     ghash_polyval_acc (byteswap128 h) (brev xi) [brev ct0; brev ct1]
+   via GHASH_POLYVAL_ACC_2 and the 1-block Karatsuba/Prop3 machinery over TWO
+   products.  Packed-mid lanes: subword hk (0,64) = mid(h) is the block-1 / H
+   lane, subword hk (64,64) = mid(h2) the block-0 / H^2 lane.
    ------------------------------------------------------------------------- *)
 
 needs "arm/proofs/base.ml";;
@@ -356,46 +76,26 @@ needs "arm/proofs/utils/aes_ctr_spec.ml";;
 needs "arm/proofs/aesv8_gcm_8x_enc_256_1block.ml";;
 
 (* -------------------------------------------------------------------------
-   SPEC (draft).  bit_len = 256 (two whole blocks).  Entry pc+0x2c (the body,
-   after the prologue arg-setup), exit pc+0x11d8 -- same entry/exit as the
-   1-block body, but x1 = 256 and X9 = 32 so the cascade takes more_than_1
-   then less_than_1.
+   ENTRY CONVENTION.  bit_len = 256 (two whole blocks), so X9 = 32 and the
+   length cascade takes more_than_1 then less_than_1.  Entry is DIRECT at
+   pc+0x18 with the seven C arguments still in registers (X0=in_p, X1=word 256,
+   X2=out_p, X3=xi_p, X4=ivec_p, X5=key_p, X6=htbl_p) and Q30=ctr0, so the
+   precondition is stated with C_ARGUMENTS and needs no ENSURES_TRANS wrapper.
+   The prologue at 0x18-0x28 (lsr x9; mov x16; mov x11; mov x5,#0xc2..;
+   stp x5,xzr,[sp,64]) steps inline and establishes X9/X16/X11 and the Prop3
+   constant at [sp+64] -- the constant needs NO precondition because the
+   prologue writes it; the (sp,80) stack disjointness in the precondition
+   covers that store.
 
-   Plaintext: two blocks at in_p, in_p+16.  CTR blocks: ctr0 (block 0) and
-   ctr1 (block 1); the front derives Q0=rev32-ctr for block 0 and Q1 for
-   block 1 from Q30.  We follow the 1-block style and pass ctr0 as the block-0
-   AES input; ctr1 is the block-1 AES input (the simulation fixes ctr1 in
-   terms of ctr0 via the CTR increment -- TODO: confirm exact symbolic form
-   and whether to expose ctr1 as a variable with a precond or derive it).
+   Plaintext: two blocks at in_p, in_p+16.  Block 0's AES input is ctr0;
+   block 1's is ctr1, exposed as a spec variable pinned by
+   ctr1 = gcm_ctr_inc ctr0.
 
-   htable preconditions: h = read htbl_p (= byteswap128 H), hk = packed mid at
-   +16 ; ADD h2 = read (htbl_p+32) (= byteswap128 H^2) used by more_than_1.
-   Relations needed for the bridge:
-     subword hk (0,64) = mid(h)       [block-1 / H,  as in 1-block]
-     subword hk (64,64) = mid(byteswap128 h2 ... )  [block-0 / H^2; TODO check lane]
-   ------------------------------------------------------------------------- *)
-
-(* -------------------------------------------------------------------------
-   SESSION 3 (2026-06-16): DIRECT C_ARGUMENTS entry (pc+0x18, NO wrapper) works.
-   Prologue 0x18-0x28 (lsr x9; mov x16; mov x11; mov x5,#0xc2..; stp x5,xzr,[sp,64])
-   steps inline as steps 1-5: establishes X9=word 32, X16=ivec_p, X11=key_p, and
-   the Prop3 constant at [sp+64] -- no precondition needed for the constant (the
-   prologue writes it).  Entry registers: X0=in_p,X1=word 256,X2=out_p,X3=xi_p,
-   X4=ivec_p,X5=key_p,X6=htbl_p (the 7 C args), Q30=ctr0.  The (sp,80) stack
-   disjointness in the precond covers the stp store (same as 1-block LE1BLOCK).
-   Body front then runs with +5 step offset.  Reached the FINAL reduced GHASH
-   result read Q19 s367 (pc+0x11cc, ~18433ch byte-form) -- the bridge LHS,
-   analog of the 1-block s348.  Two htable-mid preconds added:
-     subword hk (0,64) = mid(h)   [block1/H, less_than_1 pmull low lane]
-     subword hk (64,64) = mid(h2) [block0/H^2, more_than_1 pmull2 high lane]
-   ct1's keystream input = lane-shuffled once-incremented counter (captured;
-   = aes256_encrypt over word_join(...)(word_add (top-lane) (word 1))...).
-   REMAINING: the GHASH bridge -- assert read Q19 s367 =
-     ghash_polyval_acc (byteswap128 h) (brev xi) [brev ct0; brev ct1]
-   via GHASH_POLYVAL_ACC_2 + the 1-block Karatsuba/Prop3 machinery over TWO
-   products (block0 vs polyval_dot K K = byteswap128 h2, block1 vs K=byteswap128 h);
-   then ext+rev64, store, ENSURES_FINAL_STATE, close.  Then finalize the spec
-   postcond + write the whole thing as one prove(...).
+   htable preconditions: h = read htbl_p (= byteswap128 H), hk = the packed
+   mids at +16, h2 = read (htbl_p+32) (= byteswap128 H^2, used by more_than_1).
+   The bridge needs the mid lanes split as
+     subword hk (0,64)  = mid(h)   [block-1 / H,    less_than_1 pmull low lane]
+     subword hk (64,64) = mid(h2)  [block-0 / H^2, more_than_1 pmull2 hi lane]
    ------------------------------------------------------------------------- *)
 
 (* ========================================================================= *)
@@ -407,7 +107,7 @@ needs "arm/proofs/aesv8_gcm_8x_enc_256_1block.ml";;
 (* ========================================================================= *)
 
 (* ========================================================================= *)
-(* Helper lemmas for the 2-product GHASH bridge (session 3).                 *)
+(* Helper lemmas for the 2-product GHASH bridge.                             *)
 (* ========================================================================= *)
 
 (* word_join lane split: reduces a 128-bit word_join equality to two 64-bit   *)
@@ -895,7 +595,7 @@ let AESV8_GCM_8X_ENC_256_2BLOCK = prove(
 (* BYTE_LIST_AT_2BLOCKS_CTR (whole-block, mask all-ones at bit_len = 256).  No  *)
 (* re-simulation -- this is a cheap corollary of AESV8_GCM_8X_ENC_256_2BLOCK.   *)
 (* This is the postcondition shape that scales to general length via            *)
-(* byte_list_at(out_p, len) and matches AES-XTS / Mila's aes256_gcm_encrypt.    *)
+(* byte_list_at(out_p, len) and matches AES-XTS / aes256_gcm_encrypt.           *)
 (* ========================================================================= *)
 
 let AESV8_GCM_8X_ENC_256_2BLOCK_BYTELIST = prove(
