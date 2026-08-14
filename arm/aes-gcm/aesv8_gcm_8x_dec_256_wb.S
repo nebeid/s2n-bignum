@@ -1347,9 +1347,9 @@ S2N_BN_SYMBOL(aesv8_gcm_8x_dec_256_wb):
 	st1	{ v12.16b}, [x2], #16			  	//AES final-5 block - store result
 
 	pmull	v26.1q, v8.1d, v22.1d				//GHASH final-5 block - low
-	ins	v27.d[1], v27.d[0]					//GHASH final-5 block - mid
+	ext	v10.16b, v21.16b, v21.16b, #8			//[R2] final-5 mid (ext h2k hi->lo lane, off v27 crit-path)
 
-	pmull2	v27.1q, v27.2d, v21.2d				//GHASH final-5 block - mid
+	pmull	v27.1q, v27.1d, v10.1d				//GHASH final-5 block - mid (pmull low, h2k in v10)
 
 	eor	v17.16b, v17.16b, v28.16b					//GHASH final-5 block - high
 .inst	0xce03752c	//eor3 v12.16b, v9.16b, v3.16b, v29.16b				//AES final-4 block - result
@@ -1398,12 +1398,12 @@ S2N_BN_SYMBOL(aesv8_gcm_8x_dec_256_wb):
 
 	eor	v27.8b, v27.8b, v8.8b				//GHASH final-3 block - mid
 
-	ins	v27.d[1], v27.d[0]					//GHASH final-3 block - mid
+	ext	v11.16b, v24.16b, v24.16b, #8			//[R2] final-3 mid (ext h4k hi->lo lane, off v27 crit-path)
 	pmull	v26.1q, v8.1d, v25.1d				//GHASH final-3 block - low
 	pmull2	v28.1q, v8.2d, v25.2d				//GHASH final-3 block - high
 
 	movi	v16.8b, #0						//supress further partial tag feed in
-	pmull2	v27.1q, v27.2d, v24.2d				//GHASH final-3 block - mid
+	pmull	v27.1q, v27.1d, v11.1d				//GHASH final-3 block - mid (pmull low, h4k in v11)
 	eor	v19.16b, v19.16b, v26.16b					//GHASH final-3 block - low
 
 	eor	v17.16b, v17.16b, v28.16b					//GHASH final-3 block - high
@@ -1449,14 +1449,14 @@ S2N_BN_SYMBOL(aesv8_gcm_8x_dec_256_wb):
 	ldr	q21, [x6, #16]				//load h2k | h1k
 	pmull	v26.1q, v8.1d, v22.1d				//GHASH final-1 block - low
 
-	ins	v27.d[1], v27.d[0]					//GHASH final-1 block - mid
+	ext	v10.16b, v21.16b, v21.16b, #8			//[R2] final-1 mid (ext h2k hi->lo lane, off v27 crit-path)
 
 	eor	v19.16b, v19.16b, v26.16b					//GHASH final-1 block - low
 
 .inst	0xce07752c	//eor3 v12.16b, v9.16b, v7.16b, v29.16b				//AES final block - result
 	pmull2	v28.1q, v8.2d, v22.2d				//GHASH final-1 block - high
 
-	pmull2	v27.1q, v27.2d, v21.2d				//GHASH final-1 block - mid
+	pmull	v27.1q, v27.1d, v10.1d				//GHASH final-1 block - mid (pmull low, h2k in v10)
 
 	movi	v16.8b, #0						//supress further partial tag feed in
 	eor	v17.16b, v17.16b, v28.16b					//GHASH final-1 block - high
@@ -1580,9 +1580,9 @@ S2N_BN_SYMBOL(aesv8_gcm_8x_dec_256_wb):
 	st1	{ v12.16b}, [x2], #16			  	//AES final-5 block - store result
 
 	pmull	v26.1q, v8.1d, v22.1d				//GHASH final-5 block - low
-	ins	v27.d[1], v27.d[0]					//GHASH final-5 block - mid
+	ext	v10.16b, v21.16b, v21.16b, #8			//[R2] final-5 mid (ext h2k hi->lo lane, off v27 crit-path)
 
-	pmull2	v27.1q, v27.2d, v21.2d				//GHASH final-5 block - mid
+	pmull	v27.1q, v27.1d, v10.1d				//GHASH final-5 block - mid (pmull low, h2k in v10)
 
 .inst	0xce1c3631	//eor3 v17.16b, v17.16b, v28.16b, v13.16b	//[opt] fused high (final-6,final-5)
 .inst	0xce03752c	//eor3 v12.16b, v9.16b, v3.16b, v29.16b				//AES final-4 block - result
@@ -1628,11 +1628,11 @@ S2N_BN_SYMBOL(aesv8_gcm_8x_dec_256_wb):
 
 	eor	v27.8b, v27.8b, v8.8b				//GHASH final-3 block - mid
 
-	ins	v27.d[1], v27.d[0]					//GHASH final-3 block - mid
+	ext	v11.16b, v24.16b, v24.16b, #8			//[R2] final-3 mid (ext h4k hi->lo lane, off v27 crit-path)
 	pmull	v26.1q, v8.1d, v25.1d				//GHASH final-3 block - low
 	pmull2	v28.1q, v8.2d, v25.2d				//GHASH final-3 block - high
 
-	pmull2	v27.1q, v27.2d, v24.2d				//GHASH final-3 block - mid
+	pmull	v27.1q, v27.1d, v11.1d				//GHASH final-3 block - mid (pmull low, h4k in v11)
 .inst	0xce1a3a73	//eor3 v19.16b, v19.16b, v26.16b, v14.16b	//[opt] fused low (final-4,final-3)
 
 .inst	0xce1c3631	//eor3 v17.16b, v17.16b, v28.16b, v13.16b	//[opt] fused high (final-4,final-3)
@@ -1676,14 +1676,14 @@ S2N_BN_SYMBOL(aesv8_gcm_8x_dec_256_wb):
 	ldr	q21, [x6, #16]				//load h2k | h1k
 	pmull	v26.1q, v8.1d, v22.1d				//GHASH final-1 block - low
 
-	ins	v27.d[1], v27.d[0]					//GHASH final-1 block - mid
+	ext	v10.16b, v21.16b, v21.16b, #8			//[R2] final-1 mid (ext h2k hi->lo lane, off v27 crit-path)
 
 .inst	0xce1a3a73	//eor3 v19.16b, v19.16b, v26.16b, v14.16b	//[opt] fused low (final-2,final-1)
 
 .inst	0xce07752c	//eor3 v12.16b, v9.16b, v7.16b, v29.16b				//AES final block - result
 	pmull2	v28.1q, v8.2d, v22.2d				//GHASH final-1 block - high
 
-	pmull2	v27.1q, v27.2d, v21.2d				//GHASH final-1 block - mid
+	pmull	v27.1q, v27.1d, v10.1d				//GHASH final-1 block - mid (pmull low, h2k in v10)
 
 .inst	0xce1c3631	//eor3 v17.16b, v17.16b, v28.16b, v13.16b	//[opt] fused high (final-2,final-1)
 
