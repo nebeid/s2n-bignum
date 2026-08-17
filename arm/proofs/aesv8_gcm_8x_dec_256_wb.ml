@@ -14197,6 +14197,72 @@ let WBN_LOOP_INV_VOCAB = prove
   ASM_SIMP_TAC[STORE_FORALL_CONG_KS; INPUT_FORALL_IFF] THEN
   REWRITE_TAC[]);;
 
+(* Core (PC/decode-stripped) form of the vocabulary equivalence, the shape the  *)
+(* recompose consumers thread (wbn_loop_inv_core / wbn_core_applied).            *)
+let wbn_loop_inv_core_nist =
+  let eqn = snd(strip_forall(concl wbn_loop_invariant_nist)) in
+  let lhs_full, rhs_full = dest_eq eqn in
+  let hd, params = strip_comb lhs_full in
+  let ivars, body = strip_abs rhs_full in
+  let cs = conjuncts body in
+  let core_body = list_mk_conj (List.tl (List.tl cs)) in
+  let core_rhs = list_mk_abs(ivars, core_body) in
+  let newhead = mk_var("wbn_loop_inv_core_nist", type_of hd) in
+  new_definition (mk_eq(list_mk_comb(newhead, params), core_rhs));;
+
+let wbn_inv_nist_args =
+  snd(strip_comb(fst(dest_eq(snd(strip_forall(concl wbn_loop_invariant_nist))))));;
+
+let WBN_INV_NIST_SPLIT = prove
+ (list_mk_forall(wbn_inv_nist_args @ [`i:num`;`s:armstate`],
+    mk_eq(
+      list_mk_comb(`wbn_loop_invariant_nist`, wbn_inv_nist_args @ [`i:num`;`s:armstate`]),
+      list_mk_conj[
+        `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
+        `read PC s = word (pc + 1208)`;
+        list_mk_comb(`wbn_loop_inv_core_nist`, wbn_inv_nist_args @ [`i:num`;`s:armstate`])])),
+  REWRITE_TAC[wbn_loop_invariant_nist; wbn_loop_inv_core_nist] THEN
+  CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN REWRITE_TAC[CONJ_ACI]);;
+
+(* wbn_loop_inv_core <=> wbn_loop_inv_core_nist under the same adapter hyps.  The *)
+(* bridges act on the core conjuncts (no PC/aligned), so this is proved directly  *)
+(* on the core defs — a full-invariant equivalence would not by itself entail a   *)
+(* core one.                                                                      *)
+let WBN_INV_CORE_VOCAB = prove
+ (`!pc ctr0 in_p out_p xi_p ivec_p key_p htbl_p stackpointer nblk ibytes xi h
+     k0 k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13 k14
+     nonce c inblock tag0 rk i s.
+     128 * nblk < 2 EXP 62 /\
+     8 * (i + 1) <= nblk /\
+     word_bytereverse ctr0 = ctr_block nonce c /\
+     xi = word_reversefields 8 tag0 /\
+     byteswap128 h = ghash_twist (aes256_encrypt (word 0) rk) /\
+     rk = [k0;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14] /\
+     ibytes = int128_list_to_bytes (list_of_seq inblock nblk)
+     ==> (wbn_loop_inv_core pc ctr0 in_p out_p xi_p ivec_p key_p htbl_p stackpointer
+            nblk ibytes xi h k0 k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13 k14 i s <=>
+          wbn_loop_inv_core_nist pc nonce c in_p out_p xi_p ivec_p key_p htbl_p
+            stackpointer nblk inblock tag0 rk i s)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  FIRST_X_ASSUM(SUBST_ALL_TAC o check(fun th ->
+    is_eq(concl th) && lhs(concl th) = `ibytes:byte list`)) THEN
+  FIRST_X_ASSUM(SUBST_ALL_TAC o check(fun th ->
+    is_eq(concl th) && lhs(concl th) = `rk:int128 list`)) THEN
+  SUBGOAL_THEN `8 * i <= nblk` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN
+    `8*i+0<nblk /\ 8*i+1<nblk /\ 8*i+2<nblk /\ 8*i+3<nblk /\
+     8*i+4<nblk /\ 8*i+5<nblk /\ 8*i+6<nblk /\ 8*i+7<nblk`
+    STRIP_ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  REWRITE_TAC[wbn_loop_inv_core; wbn_loop_inv_core_nist] THEN
+  CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN
+  ASM_SIMP_TAC[CTR_ADD_AS_CTR_BLOCK; CTR_RAW_AS_CTR_BLOCK;
+               HTABLE_MEM_DEC_IS_HTABLE_MEM_8; INBLOCK_OF_ASSEMBLED;
+               KEYSTREAM_ENDBLOCK_NIST; Q19_NIST_ASSEMBLED] THEN
+  CONV_TAC(DEPTH_CONV EL_CONV) THEN
+  ASM_SIMP_TAC[STORE_FORALL_CONG_KS; INPUT_FORALL_IFF] THEN
+  REWRITE_TAC[]);;
+
+
 (* ========================================================================= *)
 (* THE EXPORTED CORE CONTRACT (consolidation; reshape).                         *)
 (*                                                                             *)
