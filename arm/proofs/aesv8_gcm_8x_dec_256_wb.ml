@@ -13868,6 +13868,335 @@ let NIST_INPUT_OF_ASSEMBLED = prove
   ASM_REWRITE_TAC[] THEN DISCH_THEN SUBST1_TAC THEN
   REWRITE_TAC[GSYM BREV_RF8_128]);;
 
+
+(* ------------------------------------------------------------------------- *)
+(* Loop invariant in the shared NIST SP 800-38D vocabulary.                    *)
+(*                                                                             *)
+(* wbn_loop_invariant (above) is stated in the raw per-register dialect the    *)
+(* symbolic simulation produces (gcm_ctr_add/gcm_ctr_raw counters, aes13       *)
+(* keystream towers, a ghash_polyval_acc accumulator over byte-reversed        *)
+(* SUB_LIST inputs, htable_mem_dec, individual key slots k0..k14).             *)
+(* wbn_loop_invariant_nist below re-presents the SAME machine state in the     *)
+(* vocabulary the sibling AES-GCM proofs use (ctr_block nonce / aes_ctr_block  *)
+(* / nist_ghash / htable_mem_8 / EL n rk), and WBN_LOOP_INV_VOCAB proves the    *)
+(* two coincide under the standard adapter hypotheses.  The GHASH accumulator  *)
+(* is the PLAIN nist_ghash form (no byteswap128 wrapper): the loop accumulator *)
+(* is the pre-tag-store value, and the tag store is where the outer            *)
+(* byte-reversal enters, so WBN_TAG_NIST_BRIDGE's outer word_bytereverse       *)
+(* strips off (WBN_LOOP_Q19_NIST).                                             *)
+(* ------------------------------------------------------------------------- *)
+
+(* counter register Q0..Q4: gcm_ctr_add is a byte-reversed NIST counter block. *)
+let CTR_ADD_AS_CTR_BLOCK = prove
+ (`!m (nonce:96 word) c ctr0.
+     word_bytereverse ctr0 = ctr_block nonce c
+     ==> gcm_ctr_add (word m) ctr0 = word_reversefields 8 (ctr_block nonce (c + m))`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[GSYM GCM_CTR_INC_ITER_ADD] THEN
+  MP_TAC(SPECL [`m:num`;`nonce:96 word`;`c:num`;`ctr0:int128`]
+    GCM_CTR_INC_ITER_CTR_BLOCK) THEN
+  ASM_REWRITE_TAC[] THEN DISCH_THEN SUBST1_TAC THEN
+  REWRITE_TAC[BREV_RF8_128]);;
+
+(* raw counter register Q30: gcm_ctr_raw is a 32-field reverse of gcm_ctr_add. *)
+let RAW_IS_RF32_BREV_ADD = prove
+ (`!m ctr0. gcm_ctr_raw (word m) ctr0 =
+            word_reversefields 32 (word_bytereverse (gcm_ctr_add (word m) ctr0))`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[gcm_ctr_raw_def; gcm_ctr_add] THEN
+  REWRITE_TAC[GSYM BREV_TOP_LANE] THEN
+  ABBREV_TAC `t:32 word = word_bytereverse (word_subword (ctr0:int128) (96,32):32 word)` THEN
+  ABBREV_TAC `p:32 word = word_add t (word m)` THEN
+  CONV_TAC WORD_BLAST);;
+
+let BREV_RF8_INV = prove
+ (`!y:int128. word_bytereverse (word_reversefields 8 y) = y`,
+  GEN_TAC THEN REWRITE_TAC[GSYM(REWRITE_RULE[FUN_EQ_THM] WORD_BYTEREVERSE_REVERSEFIELDS)] THEN
+  REWRITE_TAC[WORD_BYTEREVERSE_BYTEREVERSE]);;
+
+let Q30_TEMPLATE = prove
+ (`!m ctr0 (kb:int128).
+     gcm_ctr_add (word m) ctr0 = word_reversefields 8 kb
+     ==> gcm_ctr_raw (word m) ctr0 = word_reversefields 32 kb`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[RAW_IS_RF32_BREV_ADD] THEN
+  ASM_REWRITE_TAC[BREV_RF8_INV]);;
+
+let CTR_RAW_AS_CTR_BLOCK = prove
+ (`!m (nonce:96 word) c ctr0.
+     word_bytereverse ctr0 = ctr_block nonce c
+     ==> gcm_ctr_raw (word m) ctr0 = word_reversefields 32 (ctr_block nonce (c + m))`,
+  REPEAT STRIP_TAC THEN MATCH_MP_TAC Q30_TEMPLATE THEN
+  MATCH_MP_TAC CTR_ADD_AS_CTR_BLOCK THEN ASM_REWRITE_TAC[]);;
+
+(* Q19 accumulator: the plain nist_ghash form (WBN_TAG_NIST_BRIDGE stripped of  *)
+(* its outer injective word_bytereverse).                                       *)
+let WBN_LOOP_Q19_NIST = prove
+ (`!(H:int128) h xi tag0 ibytes N.
+     byteswap128 h = ghash_twist H /\ xi = word_reversefields 8 tag0
+     ==> ghash_polyval_acc (byteswap128 h) (word_bytereverse xi)
+           (MAP word_bytereverse
+             (list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16) ibytes)) N)) =
+         nist_ghash H tag0 (list_of_seq (nist_input_block ibytes) N)`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(SPECL [`H:int128`;`h:int128`;`xi:int128`;`tag0:int128`;
+               `ibytes:byte list`;`N:num`] WBN_TAG_NIST_BRIDGE) THEN
+  ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[GSYM BREV_RF8_128] THEN
+  DISCH_THEN(MP_TAC o AP_TERM `word_bytereverse:int128->int128`) THEN
+  REWRITE_TAC[WORD_BYTEREVERSE_BYTEREVERSE]);;
+
+(* The shared-vocabulary loop invariant.  Same machine state as                *)
+(* wbn_loop_invariant; the parameters are the NIST ones (nonce, counter base c, *)
+(* abstract indexed input `inblock`, initial tag `tag0`, round-key list `rk`)   *)
+(* rather than the raw ctr0/ibytes/xi/h/k0..k14.  The two-stream pipeline lag   *)
+(* (stores/counters at 8(i+1), GHASH at 8i) is preserved verbatim.              *)
+let wbn_loop_invariant_nist = new_definition
+ `wbn_loop_invariant_nist (pc:num) (nonce:96 word) (c:num) (in_p:int64) (out_p:int64)
+    (xi_p:int64) (ivec_p:int64) (key_p:int64) (htbl_p:int64) (stackpointer:int64)
+    (nblk:num) (inblock:num->int128) (tag0:int128) (rk:int128 list) =
+  \(i:num) (s:armstate).
+    aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
+    read PC s = word (pc + 1208) /\
+    read Q0 s = word_reversefields 8 (ctr_block nonce (c + (8 * i + 8))) /\
+    read Q1 s = word_reversefields 8 (ctr_block nonce (c + (8 * i + 9))) /\
+    read Q2 s = word_reversefields 8 (ctr_block nonce (c + (8 * i + 10))) /\
+    read Q3 s = word_reversefields 8 (ctr_block nonce (c + (8 * i + 11))) /\
+    read Q4 s = word_reversefields 8 (ctr_block nonce (c + (8 * i + 12))) /\
+    read Q5 s = word_xor (aes_ctr_block nonce rk (c + (8 * i + 5))) (inblock (8 * i + 5)) /\
+    read Q6 s = word_xor (aes_ctr_block nonce rk (c + (8 * i + 6))) (inblock (8 * i + 6)) /\
+    read Q7 s = word_xor (aes_ctr_block nonce rk (c + (8 * i + 7))) (inblock (8 * i + 7)) /\
+    read Q8 s = inblock (8 * i + 0) /\
+    read Q9 s = inblock (8 * i + 1) /\
+    read Q10 s = inblock (8 * i + 2) /\
+    read Q11 s = inblock (8 * i + 3) /\
+    read Q12 s = inblock (8 * i + 4) /\
+    read Q13 s = inblock (8 * i + 5) /\
+    read Q14 s = inblock (8 * i + 6) /\
+    read Q15 s = inblock (8 * i + 7) /\
+    read Q19 s =
+      nist_ghash (aes256_encrypt (word 0) rk) tag0
+        (list_of_seq (\k. word_bytereverse (inblock k)) (8 * i)) /\
+    read X0 s = word_add in_p (word (128 * (i + 1))) /\
+    read X2 s = word_add out_p (word (128 * (i + 1))) /\
+    read X4 s = word_add in_p (word (16 * nblk)) /\
+    read X5 s = word_add (word (128 * (nblk - 1) DIV 8)) in_p /\
+    read X9 s = word (16 * nblk) /\
+    read X10 s = word_add stackpointer (word 64) /\
+    read X1 s = word (128 * nblk) /\
+    read X15 s = word 4294967296 /\
+    read Q31 s = word 79228162514264337593543950336 /\
+    read Q30 s = word_reversefields 32 (ctr_block nonce (c + (8 * i + 13))) /\
+    read X16 s = ivec_p /\
+    read X6 s = htbl_p /\
+    read X3 s = xi_p /\
+    read X11 s = key_p /\
+    read SP s = stackpointer /\
+    read (memory :> bytes64 (word_add stackpointer (word 64))) s =
+      word 13979173243358019584 /\
+    (!j. j < 8 * (i + 1)
+         ==> read (memory :> bytes128 (word_add out_p (word (16 * j)))) s =
+             word_xor (aes_ctr_block nonce rk (c + j)) (inblock j)) /\
+    (!j. j < nblk
+         ==> read (memory :> bytes128 (word_add in_p (word (16 * j)))) s = inblock j) /\
+    read (memory :> bytes128 key_p) s = EL 0 rk /\
+    read (memory :> bytes128 (word_add key_p (word 16))) s = EL 1 rk /\
+    read (memory :> bytes128 (word_add key_p (word 32))) s = EL 2 rk /\
+    read (memory :> bytes128 (word_add key_p (word 48))) s = EL 3 rk /\
+    read (memory :> bytes128 (word_add key_p (word 64))) s = EL 4 rk /\
+    read (memory :> bytes128 (word_add key_p (word 80))) s = EL 5 rk /\
+    read (memory :> bytes128 (word_add key_p (word 96))) s = EL 6 rk /\
+    read (memory :> bytes128 (word_add key_p (word 112))) s = EL 7 rk /\
+    read (memory :> bytes128 (word_add key_p (word 128))) s = EL 8 rk /\
+    read (memory :> bytes128 (word_add key_p (word 144))) s = EL 9 rk /\
+    read (memory :> bytes128 (word_add key_p (word 160))) s = EL 10 rk /\
+    read (memory :> bytes128 (word_add key_p (word 176))) s = EL 11 rk /\
+    read (memory :> bytes128 (word_add key_p (word 192))) s = EL 12 rk /\
+    read (memory :> bytes128 (word_add key_p (word 208))) s = EL 13 rk /\
+    read (memory :> bytes128 (word_add key_p (word 224))) s = EL 14 rk /\
+    htable_mem_8 (ghash_twist (aes256_encrypt (word 0) rk)) htbl_p s`;;
+
+(* Per-block keystream: the raw aes13 store tower over the assembled input IS   *)
+(* the NIST aes_ctr_block XOR the input block (rk the literal 15-key list).      *)
+let KEYSTREAM_ENDBLOCK_NIST = prove
+ (`!inblock nblk ctr0 (nonce:96 word) c k0 k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13 k14 j.
+     j < nblk /\
+     word_bytereverse ctr0 = ctr_block nonce c
+     ==> word_xor
+           (word_xor (bytes_to_int128 (SUB_LIST (16 * j,16)
+                        (int128_list_to_bytes (list_of_seq inblock nblk))))
+             (aes13 (gcm_ctr_inc_iter j ctr0) k0 k1 k2 k3 k4 k5 k6 k7 k8 k9
+                    k10 k11 k12 k13))
+           k14 =
+         word_xor
+           (aes_ctr_block nonce [k0;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]
+              (c + j))
+           (inblock j)`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(SPECL [`nblk:num`;
+               `int128_list_to_bytes (list_of_seq (inblock:num->int128) nblk)`;
+               `ctr0:int128`;`k0:int128`;`k1:int128`;`k2:int128`;`k3:int128`;`k4:int128`;
+               `k5:int128`;`k6:int128`;`k7:int128`;`k8:int128`;`k9:int128`;`k10:int128`;
+               `k11:int128`;`k12:int128`;`k13:int128`;`k14:int128`;`j:num`]
+    WBN_ENDBLOCK_IS_AES_CTR) THEN
+  ASM_REWRITE_TAC[] THEN DISCH_THEN SUBST1_TAC THEN
+  MP_TAC(SPECL [`gcm_dec_blocks_from 0 nblk
+                  (int128_list_to_bytes (list_of_seq (inblock:num->int128) nblk))`;
+               `ctr0:int128`;
+               `[k0;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]:int128 list`;`j:num`]
+    EL_AES_CTR) THEN
+  REWRITE_TAC[LENGTH_GCM_DEC_BLOCKS_FROM] THEN
+  ANTS_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN DISCH_THEN SUBST1_TAC THEN
+  MP_TAC(SPECL [`inblock:num->int128`;`nblk:num`;`j:num`] GCM_DEC_BLOCKS_FROM_ASSEMBLED) THEN
+  ASM_REWRITE_TAC[] THEN DISCH_THEN SUBST1_TAC THEN
+  MP_TAC(SPECL [`j:num`;`nonce:96 word`;`c:num`;`ctr0:int128`]
+    GCM_CTR_INC_ITER_CTR_BLOCK) THEN
+  ASM_REWRITE_TAC[] THEN DISCH_THEN SUBST1_TAC THEN
+  REWRITE_TAC[aes_ctr_block] THEN CONV_TAC WORD_BITWISE_RULE);;
+
+(* congruence lifting the per-block keystream identity under the store-forall.  *)
+let STORE_FORALL_CONG_KS = prove
+ (`!(A:num->int128) inblock nblk ctr0 (nonce:96 word) c
+     k0 k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13 k14 i.
+     8 * (i + 1) <= nblk /\
+     word_bytereverse ctr0 = ctr_block nonce c
+     ==> ((!j. j < 8 * (i + 1)
+              ==> A j =
+                  word_xor
+                    (word_xor (bytes_to_int128 (SUB_LIST (16 * j,16)
+                        (int128_list_to_bytes (list_of_seq inblock nblk))))
+                      (aes13 (gcm_ctr_inc_iter j ctr0) k0 k1 k2 k3 k4 k5 k6 k7 k8 k9
+                             k10 k11 k12 k13))
+                    k14) <=>
+          (!j. j < 8 * (i + 1)
+              ==> A j = word_xor
+                          (aes_ctr_block nonce
+                             [k0;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14]
+                             (c + j))
+                          (inblock j)))`,
+  REPEAT STRIP_TAC THEN
+  MATCH_MP_TAC(MESON[] `(!j. j < K ==> (f j = g j)) ==>
+     ((!j. j < K ==> A j = f j) <=> (!j. j < K ==> A j = g j))`) THEN
+  X_GEN_TAC `j:num` THEN DISCH_TAC THEN
+  MATCH_MP_TAC KEYSTREAM_ENDBLOCK_NIST THEN ASM_REWRITE_TAC[] THEN
+  ASM_ARITH_TAC);;
+
+(* GHASH input list over the assembled input, prefix-N form. *)
+let NIST_INPUT_OF_ASSEMBLED_PREFIX = prove
+ (`!inblock nblk N. N <= nblk
+     ==> list_of_seq
+           (nist_input_block (int128_list_to_bytes (list_of_seq inblock nblk))) N =
+         list_of_seq (\i. word_bytereverse (inblock i)) N`,
+  REPEAT STRIP_TAC THEN MATCH_MP_TAC LIST_OF_SEQ_EQ_PTWISE THEN
+  X_GEN_TAC `i:num` THEN DISCH_TAC THEN
+  REWRITE_TAC[nist_input_block] THEN
+  MP_TAC(SPECL [`inblock:num->int128`;`nblk:num`;`i:num`] INBLOCK_OF_ASSEMBLED) THEN
+  ANTS_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN DISCH_THEN SUBST1_TAC THEN
+  REWRITE_TAC[GSYM BREV_RF8_128]);;
+
+(* Q19 accumulator over the assembled input = nist_ghash, in the form the       *)
+(* equivalence goal presents after the ghash_twist/word_reversefields adapters. *)
+let Q19_NIST_ASSEMBLED = prove
+ (`!(H:int128) tag0 inblock nblk N.
+     N <= nblk
+     ==> ghash_polyval_acc (ghash_twist H)
+           (word_bytereverse (word_reversefields 8 tag0))
+           (MAP word_bytereverse
+             (list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16)
+                (int128_list_to_bytes (list_of_seq inblock nblk)))) N)) =
+         nist_ghash H tag0 (list_of_seq (\i. word_bytereverse (inblock i)) N)`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(ISPECL [`H:int128`;
+               `byteswap128 (ghash_twist H):int128`;
+               `word_reversefields 8 (tag0:int128)`;
+               `tag0:int128`;
+               `int128_list_to_bytes (list_of_seq (inblock:num->int128) nblk):byte list`;
+               `N:num`]
+    WBN_LOOP_Q19_NIST) THEN
+  REWRITE_TAC[BYTESWAP128_INVOLUTION] THEN DISCH_THEN SUBST1_TAC THEN
+  ASM_SIMP_TAC[NIST_INPUT_OF_ASSEMBLED_PREFIX]);;
+
+(* input buffer: the whole-buffer byte read = the per-block bytes128 reads.      *)
+let INPUT_FORALL_IFF = prove
+ (`!inblock nblk in_p s.
+     128 * nblk < 2 EXP 62
+     ==> (read (memory :> bytes (in_p,16 * nblk)) s =
+            num_of_bytelist (int128_list_to_bytes (list_of_seq inblock nblk)) <=>
+          (!j. j < nblk
+               ==> read (memory :> bytes128 (word_add in_p (word (16 * j)))) s = inblock j))`,
+  REPEAT STRIP_TAC THEN EQ_TAC THENL
+   [DISCH_TAC THEN
+    MP_TAC(SPECL [`nblk:num`;`in_p:int64`;
+                  `int128_list_to_bytes (list_of_seq (inblock:num->int128) nblk)`;
+                  `s:armstate`] INPUT_BYTES_TO_BYTE128_LANES) THEN
+    ANTS_TAC THENL
+     [REWRITE_TAC[LENGTH_INT128_LIST_TO_BYTES; LENGTH_LIST_OF_SEQ; LE_REFL] THEN
+      SUBGOAL_THEN `SUB_LIST (0,16 * nblk)
+         (int128_list_to_bytes (list_of_seq (inblock:num->int128) nblk)) =
+         int128_list_to_bytes (list_of_seq inblock nblk)`
+        (fun th -> ASM_REWRITE_TAC[th]) THEN
+      MATCH_MP_TAC SUB_LIST_LENGTH_IMPLIES THEN
+      REWRITE_TAC[LENGTH_INT128_LIST_TO_BYTES; LENGTH_LIST_OF_SEQ; LE_REFL];
+      ALL_TAC] THEN
+    DISCH_TAC THEN X_GEN_TAC `j:num` THEN DISCH_TAC THEN
+    FIRST_X_ASSUM(MP_TAC o SPEC `j:num`) THEN ASM_REWRITE_TAC[] THEN
+    DISCH_THEN SUBST1_TAC THEN
+    MATCH_MP_TAC INBLOCK_OF_ASSEMBLED THEN ASM_REWRITE_TAC[];
+    DISCH_TAC THEN
+    MP_TAC(SPECL [`16 * nblk`;`in_p:int64`;
+                  `int128_list_to_bytes (list_of_seq (inblock:num->int128) nblk)`;
+                  `s:armstate`] BYTE_LIST_TO_NUM_THM) THEN
+    REWRITE_TAC[LENGTH_INT128_LIST_TO_BYTES; LENGTH_LIST_OF_SEQ; LE_REFL] THEN
+    SUBGOAL_THEN `SUB_LIST (0,16 * nblk)
+       (int128_list_to_bytes (list_of_seq (inblock:num->int128) nblk)) =
+       int128_list_to_bytes (list_of_seq inblock nblk)`
+      SUBST1_TAC THENL
+     [MATCH_MP_TAC SUB_LIST_LENGTH_IMPLIES THEN
+      REWRITE_TAC[LENGTH_INT128_LIST_TO_BYTES; LENGTH_LIST_OF_SEQ; LE_REFL]; ALL_TAC] THEN
+    DISCH_THEN(fun th -> REWRITE_TAC[GSYM th]) THEN
+    MP_TAC(SPECL [`inblock:num->int128`;`nblk:num`;`in_p:int64`;`s:armstate`]
+      WBN_INPUT_ASSEMBLE) THEN
+    ASM_REWRITE_TAC[byte_list_at] THEN
+    SUBGOAL_THEN `val (word (16 * nblk):int64) = 16 * nblk` SUBST1_TAC THENL
+     [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN
+      MP_TAC(ASSUME `128 * nblk < 2 EXP 62`) THEN ARITH_TAC; ALL_TAC] THEN
+    REWRITE_TAC[]]);;
+
+(* The two invariants coincide under the standard adapter hypotheses plus the   *)
+(* loop side-condition 8*(i+1) <= nblk (a theorem in the loop context, where     *)
+(* i < (nblk-9) DIV 8).                                                          *)
+let WBN_LOOP_INV_VOCAB = prove
+ (`!pc ctr0 in_p out_p xi_p ivec_p key_p htbl_p stackpointer nblk ibytes xi h
+     k0 k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13 k14
+     nonce c inblock tag0 rk i s.
+     128 * nblk < 2 EXP 62 /\
+     8 * (i + 1) <= nblk /\
+     word_bytereverse ctr0 = ctr_block nonce c /\
+     xi = word_reversefields 8 tag0 /\
+     byteswap128 h = ghash_twist (aes256_encrypt (word 0) rk) /\
+     rk = [k0;k1;k2;k3;k4;k5;k6;k7;k8;k9;k10;k11;k12;k13;k14] /\
+     ibytes = int128_list_to_bytes (list_of_seq inblock nblk)
+     ==> (wbn_loop_invariant pc ctr0 in_p out_p xi_p ivec_p key_p htbl_p stackpointer
+            nblk ibytes xi h k0 k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13 k14 i s <=>
+          wbn_loop_invariant_nist pc nonce c in_p out_p xi_p ivec_p key_p htbl_p
+            stackpointer nblk inblock tag0 rk i s)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  FIRST_X_ASSUM(SUBST_ALL_TAC o check(fun th ->
+    is_eq(concl th) && lhs(concl th) = `ibytes:byte list`)) THEN
+  FIRST_X_ASSUM(SUBST_ALL_TAC o check(fun th ->
+    is_eq(concl th) && lhs(concl th) = `rk:int128 list`)) THEN
+  SUBGOAL_THEN `8 * i <= nblk` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN
+    `8*i+0<nblk /\ 8*i+1<nblk /\ 8*i+2<nblk /\ 8*i+3<nblk /\
+     8*i+4<nblk /\ 8*i+5<nblk /\ 8*i+6<nblk /\ 8*i+7<nblk`
+    STRIP_ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  REWRITE_TAC[wbn_loop_invariant; wbn_loop_invariant_nist] THEN
+  CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN
+  ASM_SIMP_TAC[CTR_ADD_AS_CTR_BLOCK; CTR_RAW_AS_CTR_BLOCK;
+               HTABLE_MEM_DEC_IS_HTABLE_MEM_8; INBLOCK_OF_ASSEMBLED;
+               KEYSTREAM_ENDBLOCK_NIST; Q19_NIST_ASSEMBLED] THEN
+  CONV_TAC(DEPTH_CONV EL_CONV) THEN
+  ASM_SIMP_TAC[STORE_FORALL_CONG_KS; INPUT_FORALL_IFF] THEN
+  REWRITE_TAC[]);;
+
 (* ========================================================================= *)
 (* THE EXPORTED CORE CONTRACT (consolidation; reshape).                         *)
 (*                                                                             *)
