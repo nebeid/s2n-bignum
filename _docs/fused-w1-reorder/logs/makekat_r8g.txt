@@ -1,0 +1,12 @@
+base   make-built .o vs mk.sh .o: SAME   | === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+s4h    make-built .o vs mk.sh .o: SAME   | === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+w1     make-built .o vs mk.sh .o: SAME   | === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+c3     make-built .o vs mk.sh .o: SAME   | === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+c5     make-built .o vs mk.sh .o: SAME   | === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+d5     make-built .o vs mk.sh .o: SAME   | === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+e1     make-built .o vs mk.sh .o: SAME   | === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+e3     make-built .o vs mk.sh .o: SAME   | === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+cl4    make-built .o vs mk.sh .o: SAME   | === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+kb     make-built .o vs mk.sh .o: SAME   | === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+f4i    make-built .o vs mk.sh .o: SAME   | === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+ptre   make-built .o vs mk.sh .o: SAME   | === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 

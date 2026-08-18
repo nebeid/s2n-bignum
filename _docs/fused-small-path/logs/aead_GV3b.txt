@@ -1,0 +1,888 @@
+### rep=1 variant=A
+Did 4945000 AEAD-AES-256-GCM seal init operations in 500071us (9888595.8 ops/sec)
+Did 4970500 AEAD-AES-256-GCM seal (16 bytes) operations in 500006us (9940880.7 ops/sec): 159.1 MB/s
+Did 4896000 AEAD-AES-256-GCM seal (32 bytes) operations in 500023us (9791549.6 ops/sec): 313.3 MB/s
+Did 4702250 AEAD-AES-256-GCM seal (64 bytes) operations in 500022us (9404086.2 ops/sec): 601.9 MB/s
+Did 4046500 AEAD-AES-256-GCM seal (128 bytes) operations in 500021us (8092660.1 ops/sec): 1035.9 MB/s
+Did 3311500 AEAD-AES-256-GCM seal (256 bytes) operations in 500010us (6622867.5 ops/sec): 1695.5 MB/s
+Did 2567500 AEAD-AES-256-GCM seal (512 bytes) operations in 500040us (5134589.2 ops/sec): 2628.9 MB/s
+Did 1764500 AEAD-AES-256-GCM seal (1024 bytes) operations in 500031us (3528781.2 ops/sec): 3613.5 MB/s
+Did 614000 AEAD-AES-256-GCM seal (4096 bytes) operations in 500599us (1226530.6 ops/sec): 5023.9 MB/s
+Did 4941000 AEAD-AES-256-GCM open init operations in 500024us (9881525.7 ops/sec)
+Did 4510000 AEAD-AES-256-GCM open (16 bytes) operations in 500068us (9018773.4 ops/sec): 144.3 MB/s
+Did 4447000 AEAD-AES-256-GCM open (32 bytes) operations in 500074us (8892683.9 ops/sec): 284.6 MB/s
+Did 4364750 AEAD-AES-256-GCM open (64 bytes) operations in 500022us (8729115.9 ops/sec): 558.7 MB/s
+Did 3736250 AEAD-AES-256-GCM open (128 bytes) operations in 500013us (7472305.7 ops/sec): 956.5 MB/s
+Did 3010000 AEAD-AES-256-GCM open (256 bytes) operations in 500043us (6019482.3 ops/sec): 1541.0 MB/s
+Did 2311000 AEAD-AES-256-GCM open (512 bytes) operations in 500011us (4621898.3 ops/sec): 2366.4 MB/s
+Did 1646000 AEAD-AES-256-GCM open (1024 bytes) operations in 500054us (3291644.5 ops/sec): 3370.6 MB/s
+Did 610000 AEAD-AES-256-GCM open (4096 bytes) operations in 500563us (1218627.8 ops/sec): 4991.5 MB/s
+Did 10011500 AEAD-AES-256-GCM-SIV seal init operations in 500003us (20022879.9 ops/sec)
+Did 1554000 AEAD-AES-256-GCM-SIV seal (16 bytes) operations in 500108us (3107328.8 ops/sec): 49.7 MB/s
+Did 1476000 AEAD-AES-256-GCM-SIV seal (32 bytes) operations in 500123us (2951274.0 ops/sec): 94.4 MB/s
+Did 1345250 AEAD-AES-256-GCM-SIV seal (64 bytes) operations in 500044us (2690263.3 ops/sec): 172.2 MB/s
+Did 1120000 AEAD-AES-256-GCM-SIV seal (128 bytes) operations in 500332us (2238513.6 ops/sec): 286.5 MB/s
+Did 824000 AEAD-AES-256-GCM-SIV seal (256 bytes) operations in 500041us (1647864.9 ops/sec): 421.9 MB/s
+Did 548000 AEAD-AES-256-GCM-SIV seal (512 bytes) operations in 500830us (1094183.7 ops/sec): 560.2 MB/s
+Did 328000 AEAD-AES-256-GCM-SIV seal (1024 bytes) operations in 500549us (655280.5 ops/sec): 671.0 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV seal (4096 bytes) operations in 504527us (192259.3 ops/sec): 787.5 MB/s
+Did 10341500 AEAD-AES-256-GCM-SIV open init operations in 500012us (20682503.6 ops/sec)
+Did 1629000 AEAD-AES-256-GCM-SIV open (16 bytes) operations in 500211us (3256625.7 ops/sec): 52.1 MB/s
+Did 1581000 AEAD-AES-256-GCM-SIV open (32 bytes) operations in 500122us (3161228.7 ops/sec): 101.2 MB/s
+Did 1444000 AEAD-AES-256-GCM-SIV open (64 bytes) operations in 500069us (2887601.5 ops/sec): 184.8 MB/s
+Did 1190000 AEAD-AES-256-GCM-SIV open (128 bytes) operations in 500268us (2378725.0 ops/sec): 304.5 MB/s
+Did 869000 AEAD-AES-256-GCM-SIV open (256 bytes) operations in 500343us (1736808.5 ops/sec): 444.6 MB/s
+Did 565250 AEAD-AES-256-GCM-SIV open (512 bytes) operations in 500071us (1130339.5 ops/sec): 578.7 MB/s
+Did 333000 AEAD-AES-256-GCM-SIV open (1024 bytes) operations in 500265us (665647.2 ops/sec): 681.6 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV open (4096 bytes) operations in 503662us (192589.5 ops/sec): 788.8 MB/s
+### rep=1 variant=B
+Did 4954250 AEAD-AES-256-GCM seal init operations in 500022us (9908064.0 ops/sec)
+Did 4439250 AEAD-AES-256-GCM seal (16 bytes) operations in 500009us (8878340.2 ops/sec): 142.1 MB/s
+Did 4413250 AEAD-AES-256-GCM seal (32 bytes) operations in 500025us (8826058.7 ops/sec): 282.4 MB/s
+Did 4293750 AEAD-AES-256-GCM seal (64 bytes) operations in 500021us (8587139.3 ops/sec): 549.6 MB/s
+Did 3967500 AEAD-AES-256-GCM seal (128 bytes) operations in 500030us (7934523.9 ops/sec): 1015.6 MB/s
+Did 3342500 AEAD-AES-256-GCM seal (256 bytes) operations in 500016us (6684786.1 ops/sec): 1711.3 MB/s
+Did 2581000 AEAD-AES-256-GCM seal (512 bytes) operations in 500045us (5161535.5 ops/sec): 2642.7 MB/s
+Did 1773000 AEAD-AES-256-GCM seal (1024 bytes) operations in 500009us (3545936.2 ops/sec): 3631.0 MB/s
+Did 618000 AEAD-AES-256-GCM seal (4096 bytes) operations in 500401us (1235009.5 ops/sec): 5058.6 MB/s
+Did 4953500 AEAD-AES-256-GCM open init operations in 500014us (9906722.6 ops/sec)
+Did 4118250 AEAD-AES-256-GCM open (16 bytes) operations in 500012us (8236302.3 ops/sec): 131.8 MB/s
+Did 4045750 AEAD-AES-256-GCM open (32 bytes) operations in 500007us (8091386.7 ops/sec): 258.9 MB/s
+Did 3944500 AEAD-AES-256-GCM open (64 bytes) operations in 500025us (7888605.6 ops/sec): 504.9 MB/s
+Did 3923250 AEAD-AES-256-GCM open (128 bytes) operations in 500026us (7846092.0 ops/sec): 1004.3 MB/s
+Did 3180000 AEAD-AES-256-GCM open (256 bytes) operations in 500033us (6359580.3 ops/sec): 1628.1 MB/s
+Did 2390000 AEAD-AES-256-GCM open (512 bytes) operations in 500192us (4778165.2 ops/sec): 2446.4 MB/s
+Did 1695000 AEAD-AES-256-GCM open (1024 bytes) operations in 500266us (3388197.5 ops/sec): 3469.5 MB/s
+Did 615000 AEAD-AES-256-GCM open (4096 bytes) operations in 500690us (1228304.9 ops/sec): 5031.1 MB/s
+Did 10074750 AEAD-AES-256-GCM-SIV seal init operations in 500004us (20149338.8 ops/sec)
+Did 1592250 AEAD-AES-256-GCM-SIV seal (16 bytes) operations in 500021us (3184366.3 ops/sec): 50.9 MB/s
+Did 1513000 AEAD-AES-256-GCM-SIV seal (32 bytes) operations in 500223us (3024651.0 ops/sec): 96.8 MB/s
+Did 1374250 AEAD-AES-256-GCM-SIV seal (64 bytes) operations in 500080us (2748060.3 ops/sec): 175.9 MB/s
+Did 1137500 AEAD-AES-256-GCM-SIV seal (128 bytes) operations in 500107us (2274513.3 ops/sec): 291.1 MB/s
+Did 831750 AEAD-AES-256-GCM-SIV seal (256 bytes) operations in 500052us (1663327.0 ops/sec): 425.8 MB/s
+Did 551000 AEAD-AES-256-GCM-SIV seal (512 bytes) operations in 500578us (1100727.6 ops/sec): 563.6 MB/s
+Did 329000 AEAD-AES-256-GCM-SIV seal (1024 bytes) operations in 500801us (656947.6 ops/sec): 672.7 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV seal (4096 bytes) operations in 504441us (192292.1 ops/sec): 787.6 MB/s
+Did 10063750 AEAD-AES-256-GCM-SIV open init operations in 500007us (20127218.2 ops/sec)
+Did 1633000 AEAD-AES-256-GCM-SIV open (16 bytes) operations in 500222us (3264550.5 ops/sec): 52.2 MB/s
+Did 1584000 AEAD-AES-256-GCM-SIV open (32 bytes) operations in 500019us (3167879.6 ops/sec): 101.4 MB/s
+Did 1451000 AEAD-AES-256-GCM-SIV open (64 bytes) operations in 500317us (2900161.3 ops/sec): 185.6 MB/s
+Did 1191000 AEAD-AES-256-GCM-SIV open (128 bytes) operations in 500260us (2380762.0 ops/sec): 304.7 MB/s
+Did 869000 AEAD-AES-256-GCM-SIV open (256 bytes) operations in 500052us (1737819.3 ops/sec): 444.9 MB/s
+Did 566000 AEAD-AES-256-GCM-SIV open (512 bytes) operations in 500784us (1130227.8 ops/sec): 578.7 MB/s
+Did 333000 AEAD-AES-256-GCM-SIV open (1024 bytes) operations in 500675us (665102.1 ops/sec): 681.1 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV open (4096 bytes) operations in 503527us (192641.1 ops/sec): 789.1 MB/s
+### rep=1 variant=C
+Did 4957750 AEAD-AES-256-GCM seal init operations in 500021us (9915083.6 ops/sec)
+Did 4441000 AEAD-AES-256-GCM seal (16 bytes) operations in 500009us (8881840.1 ops/sec): 142.1 MB/s
+Did 4413500 AEAD-AES-256-GCM seal (32 bytes) operations in 500008us (8826858.8 ops/sec): 282.5 MB/s
+Did 4290250 AEAD-AES-256-GCM seal (64 bytes) operations in 500024us (8580088.2 ops/sec): 549.1 MB/s
+Did 3970750 AEAD-AES-256-GCM seal (128 bytes) operations in 500022us (7941150.6 ops/sec): 1016.5 MB/s
+Did 3340500 AEAD-AES-256-GCM seal (256 bytes) operations in 500011us (6680853.0 ops/sec): 1710.3 MB/s
+Did 2581000 AEAD-AES-256-GCM seal (512 bytes) operations in 500042us (5161566.4 ops/sec): 2642.7 MB/s
+Did 1773500 AEAD-AES-256-GCM seal (1024 bytes) operations in 500017us (3546879.4 ops/sec): 3632.0 MB/s
+Did 618000 AEAD-AES-256-GCM seal (4096 bytes) operations in 500243us (1235399.6 ops/sec): 5060.2 MB/s
+Did 4957750 AEAD-AES-256-GCM open init operations in 500003us (9915440.5 ops/sec)
+Did 4587000 AEAD-AES-256-GCM open (16 bytes) operations in 500017us (9173688.1 ops/sec): 146.8 MB/s
+Did 4540750 AEAD-AES-256-GCM open (32 bytes) operations in 500009us (9081336.5 ops/sec): 290.6 MB/s
+Did 4446000 AEAD-AES-256-GCM open (64 bytes) operations in 500002us (8891964.4 ops/sec): 569.1 MB/s
+Did 3880250 AEAD-AES-256-GCM open (128 bytes) operations in 500025us (7760112.0 ops/sec): 993.3 MB/s
+Did 3178250 AEAD-AES-256-GCM open (256 bytes) operations in 500034us (6356067.8 ops/sec): 1627.2 MB/s
+Did 2359500 AEAD-AES-256-GCM open (512 bytes) operations in 500026us (4718754.6 ops/sec): 2416.0 MB/s
+Did 1682500 AEAD-AES-256-GCM open (1024 bytes) operations in 500061us (3364589.5 ops/sec): 3445.3 MB/s
+Did 617000 AEAD-AES-256-GCM open (4096 bytes) operations in 500081us (1233800.1 ops/sec): 5053.6 MB/s
+Did 10090000 AEAD-AES-256-GCM-SIV seal init operations in 500049us (20178022.6 ops/sec)
+Did 1591000 AEAD-AES-256-GCM-SIV seal (16 bytes) operations in 500070us (3181554.6 ops/sec): 50.9 MB/s
+Did 1510500 AEAD-AES-256-GCM-SIV seal (32 bytes) operations in 500060us (3020637.5 ops/sec): 96.7 MB/s
+Did 1375000 AEAD-AES-256-GCM-SIV seal (64 bytes) operations in 500043us (2749763.5 ops/sec): 176.0 MB/s
+Did 1141000 AEAD-AES-256-GCM-SIV seal (128 bytes) operations in 500020us (2281908.7 ops/sec): 292.1 MB/s
+Did 834000 AEAD-AES-256-GCM-SIV seal (256 bytes) operations in 500581us (1666064.0 ops/sec): 426.5 MB/s
+Did 552000 AEAD-AES-256-GCM-SIV seal (512 bytes) operations in 500769us (1102304.7 ops/sec): 564.4 MB/s
+Did 329000 AEAD-AES-256-GCM-SIV seal (1024 bytes) operations in 500326us (657571.3 ops/sec): 673.4 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV seal (4096 bytes) operations in 504085us (192427.9 ops/sec): 788.2 MB/s
+Did 10353000 AEAD-AES-256-GCM-SIV open init operations in 500004us (20705834.4 ops/sec)
+Did 1632000 AEAD-AES-256-GCM-SIV open (16 bytes) operations in 500053us (3263654.1 ops/sec): 52.2 MB/s
+Did 1585000 AEAD-AES-256-GCM-SIV open (32 bytes) operations in 500023us (3169854.2 ops/sec): 101.4 MB/s
+Did 1452250 AEAD-AES-256-GCM-SIV open (64 bytes) operations in 500004us (2904476.8 ops/sec): 185.9 MB/s
+Did 1192750 AEAD-AES-256-GCM-SIV open (128 bytes) operations in 500053us (2385247.2 ops/sec): 305.3 MB/s
+Did 869500 AEAD-AES-256-GCM-SIV open (256 bytes) operations in 500117us (1738593.2 ops/sec): 445.1 MB/s
+Did 567000 AEAD-AES-256-GCM-SIV open (512 bytes) operations in 500858us (1132057.4 ops/sec): 579.6 MB/s
+Did 333000 AEAD-AES-256-GCM-SIV open (1024 bytes) operations in 500204us (665728.4 ops/sec): 681.7 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV open (4096 bytes) operations in 503296us (192729.5 ops/sec): 789.4 MB/s
+### rep=2 variant=A
+Did 4937500 AEAD-AES-256-GCM seal init operations in 500010us (9874802.5 ops/sec)
+Did 5027000 AEAD-AES-256-GCM seal (16 bytes) operations in 500014us (10053718.5 ops/sec): 160.9 MB/s
+Did 4932500 AEAD-AES-256-GCM seal (32 bytes) operations in 500010us (9864802.7 ops/sec): 315.7 MB/s
+Did 4700500 AEAD-AES-256-GCM seal (64 bytes) operations in 500005us (9400906.0 ops/sec): 601.7 MB/s
+Did 4049750 AEAD-AES-256-GCM seal (128 bytes) operations in 500006us (8099402.8 ops/sec): 1036.7 MB/s
+Did 3311000 AEAD-AES-256-GCM seal (256 bytes) operations in 500015us (6621801.3 ops/sec): 1695.2 MB/s
+Did 2575750 AEAD-AES-256-GCM seal (512 bytes) operations in 500031us (5151180.6 ops/sec): 2637.4 MB/s
+Did 1774000 AEAD-AES-256-GCM seal (1024 bytes) operations in 500081us (3547425.3 ops/sec): 3632.6 MB/s
+Did 617000 AEAD-AES-256-GCM seal (4096 bytes) operations in 500275us (1233321.7 ops/sec): 5051.7 MB/s
+Did 4940000 AEAD-AES-256-GCM open init operations in 500014us (9879723.4 ops/sec)
+Did 4470500 AEAD-AES-256-GCM open (16 bytes) operations in 500018us (8940678.1 ops/sec): 143.1 MB/s
+Did 4403500 AEAD-AES-256-GCM open (32 bytes) operations in 500002us (8806964.8 ops/sec): 281.8 MB/s
+Did 4335000 AEAD-AES-256-GCM open (64 bytes) operations in 500085us (8668526.4 ops/sec): 554.8 MB/s
+Did 3713500 AEAD-AES-256-GCM open (128 bytes) operations in 500026us (7426613.8 ops/sec): 950.6 MB/s
+Did 2992000 AEAD-AES-256-GCM open (256 bytes) operations in 500097us (5982839.3 ops/sec): 1531.6 MB/s
+Did 2297750 AEAD-AES-256-GCM open (512 bytes) operations in 500007us (4595435.7 ops/sec): 2352.9 MB/s
+Did 1623000 AEAD-AES-256-GCM open (1024 bytes) operations in 500197us (3244721.6 ops/sec): 3322.6 MB/s
+Did 608250 AEAD-AES-256-GCM open (4096 bytes) operations in 500029us (1216429.4 ops/sec): 4982.5 MB/s
+Did 10085500 AEAD-AES-256-GCM-SIV seal init operations in 500004us (20170838.6 ops/sec)
+Did 1596000 AEAD-AES-256-GCM-SIV seal (16 bytes) operations in 500205us (3190691.8 ops/sec): 51.1 MB/s
+Did 1508750 AEAD-AES-256-GCM-SIV seal (32 bytes) operations in 500049us (3017204.3 ops/sec): 96.6 MB/s
+Did 1375250 AEAD-AES-256-GCM-SIV seal (64 bytes) operations in 500039us (2750285.5 ops/sec): 176.0 MB/s
+Did 1137000 AEAD-AES-256-GCM-SIV seal (128 bytes) operations in 500025us (2273886.3 ops/sec): 291.1 MB/s
+Did 826500 AEAD-AES-256-GCM-SIV seal (256 bytes) operations in 500055us (1652818.2 ops/sec): 423.1 MB/s
+Did 545000 AEAD-AES-256-GCM-SIV seal (512 bytes) operations in 500345us (1089248.4 ops/sec): 557.7 MB/s
+Did 324000 AEAD-AES-256-GCM-SIV seal (1024 bytes) operations in 500348us (647549.3 ops/sec): 663.1 MB/s
+Did 95000 AEAD-AES-256-GCM-SIV seal (4096 bytes) operations in 504109us (188451.3 ops/sec): 771.9 MB/s
+Did 10076000 AEAD-AES-256-GCM-SIV open init operations in 500002us (20151919.4 ops/sec)
+Did 1591250 AEAD-AES-256-GCM-SIV open (16 bytes) operations in 500066us (3182080.0 ops/sec): 50.9 MB/s
+Did 1545000 AEAD-AES-256-GCM-SIV open (32 bytes) operations in 500235us (3088548.4 ops/sec): 98.8 MB/s
+Did 1417750 AEAD-AES-256-GCM-SIV open (64 bytes) operations in 500056us (2835182.5 ops/sec): 181.5 MB/s
+Did 1170250 AEAD-AES-256-GCM-SIV open (128 bytes) operations in 500025us (2340383.0 ops/sec): 299.6 MB/s
+Did 858000 AEAD-AES-256-GCM-SIV open (256 bytes) operations in 500292us (1714998.4 ops/sec): 439.0 MB/s
+Did 561000 AEAD-AES-256-GCM-SIV open (512 bytes) operations in 500602us (1120650.7 ops/sec): 573.8 MB/s
+Did 332000 AEAD-AES-256-GCM-SIV open (1024 bytes) operations in 501502us (662011.3 ops/sec): 677.9 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV open (4096 bytes) operations in 504477us (192278.3 ops/sec): 787.6 MB/s
+### rep=2 variant=B
+Did 4943000 AEAD-AES-256-GCM seal init operations in 500061us (9884794.1 ops/sec)
+Did 4444750 AEAD-AES-256-GCM seal (16 bytes) operations in 500021us (8889126.7 ops/sec): 142.2 MB/s
+Did 4428250 AEAD-AES-256-GCM seal (32 bytes) operations in 500028us (8856004.1 ops/sec): 283.4 MB/s
+Did 4301500 AEAD-AES-256-GCM seal (64 bytes) operations in 500026us (8602552.7 ops/sec): 550.6 MB/s
+Did 3989000 AEAD-AES-256-GCM seal (128 bytes) operations in 500034us (7977457.5 ops/sec): 1021.1 MB/s
+Did 3352000 AEAD-AES-256-GCM seal (256 bytes) operations in 500121us (6702378.0 ops/sec): 1715.8 MB/s
+Did 2591000 AEAD-AES-256-GCM seal (512 bytes) operations in 500168us (5180259.4 ops/sec): 2652.3 MB/s
+Did 1777000 AEAD-AES-256-GCM seal (1024 bytes) operations in 500054us (3553616.2 ops/sec): 3638.9 MB/s
+Did 618000 AEAD-AES-256-GCM seal (4096 bytes) operations in 500262us (1235352.7 ops/sec): 5060.0 MB/s
+Did 4929000 AEAD-AES-256-GCM open init operations in 500014us (9857724.0 ops/sec)
+Did 4085250 AEAD-AES-256-GCM open (16 bytes) operations in 500011us (8170320.3 ops/sec): 130.7 MB/s
+Did 4019500 AEAD-AES-256-GCM open (32 bytes) operations in 500020us (8038678.5 ops/sec): 257.2 MB/s
+Did 3925750 AEAD-AES-256-GCM open (64 bytes) operations in 500028us (7851060.3 ops/sec): 502.5 MB/s
+Did 3899750 AEAD-AES-256-GCM open (128 bytes) operations in 500017us (7799234.8 ops/sec): 998.3 MB/s
+Did 3166250 AEAD-AES-256-GCM open (256 bytes) operations in 500019us (6332259.4 ops/sec): 1621.1 MB/s
+Did 2376000 AEAD-AES-256-GCM open (512 bytes) operations in 500186us (4750232.9 ops/sec): 2432.1 MB/s
+Did 1687000 AEAD-AES-256-GCM open (1024 bytes) operations in 500059us (3373601.9 ops/sec): 3454.6 MB/s
+Did 612250 AEAD-AES-256-GCM open (4096 bytes) operations in 500063us (1224345.7 ops/sec): 5014.9 MB/s
+Did 10063250 AEAD-AES-256-GCM-SIV seal init operations in 500009us (20126137.7 ops/sec)
+Did 1593250 AEAD-AES-256-GCM-SIV seal (16 bytes) operations in 500043us (3186226.0 ops/sec): 51.0 MB/s
+Did 1508000 AEAD-AES-256-GCM-SIV seal (32 bytes) operations in 500128us (3015228.1 ops/sec): 96.5 MB/s
+Did 1376000 AEAD-AES-256-GCM-SIV seal (64 bytes) operations in 500014us (2751922.9 ops/sec): 176.1 MB/s
+Did 1133000 AEAD-AES-256-GCM-SIV seal (128 bytes) operations in 500075us (2265660.2 ops/sec): 290.0 MB/s
+Did 824000 AEAD-AES-256-GCM-SIV seal (256 bytes) operations in 500028us (1647907.7 ops/sec): 421.9 MB/s
+Did 544000 AEAD-AES-256-GCM-SIV seal (512 bytes) operations in 500359us (1087219.4 ops/sec): 556.7 MB/s
+Did 324000 AEAD-AES-256-GCM-SIV seal (1024 bytes) operations in 501478us (646090.2 ops/sec): 661.6 MB/s
+Did 95000 AEAD-AES-256-GCM-SIV seal (4096 bytes) operations in 504355us (188359.4 ops/sec): 771.5 MB/s
+Did 10359500 AEAD-AES-256-GCM-SIV open init operations in 500008us (20718668.5 ops/sec)
+Did 1592000 AEAD-AES-256-GCM-SIV open (16 bytes) operations in 500061us (3183611.6 ops/sec): 50.9 MB/s
+Did 1546500 AEAD-AES-256-GCM-SIV open (32 bytes) operations in 500053us (3092672.2 ops/sec): 99.0 MB/s
+Did 1416000 AEAD-AES-256-GCM-SIV open (64 bytes) operations in 500079us (2831552.6 ops/sec): 181.2 MB/s
+Did 1168000 AEAD-AES-256-GCM-SIV open (128 bytes) operations in 500252us (2334823.2 ops/sec): 298.9 MB/s
+Did 857000 AEAD-AES-256-GCM-SIV open (256 bytes) operations in 500458us (1712431.4 ops/sec): 438.4 MB/s
+Did 560000 AEAD-AES-256-GCM-SIV open (512 bytes) operations in 500092us (1119794.0 ops/sec): 573.3 MB/s
+Did 331000 AEAD-AES-256-GCM-SIV open (1024 bytes) operations in 500125us (661834.5 ops/sec): 677.7 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV open (4096 bytes) operations in 504142us (192406.1 ops/sec): 788.1 MB/s
+### rep=2 variant=C
+Did 4962250 AEAD-AES-256-GCM seal init operations in 500005us (9924400.8 ops/sec)
+Did 4433250 AEAD-AES-256-GCM seal (16 bytes) operations in 500019us (8866163.1 ops/sec): 141.9 MB/s
+Did 4407750 AEAD-AES-256-GCM seal (32 bytes) operations in 500026us (8815041.6 ops/sec): 282.1 MB/s
+Did 4295000 AEAD-AES-256-GCM seal (64 bytes) operations in 500060us (8588969.3 ops/sec): 549.7 MB/s
+Did 3969000 AEAD-AES-256-GCM seal (128 bytes) operations in 500030us (7937523.7 ops/sec): 1016.0 MB/s
+Did 3340500 AEAD-AES-256-GCM seal (256 bytes) operations in 500024us (6680679.3 ops/sec): 1710.3 MB/s
+Did 2579750 AEAD-AES-256-GCM seal (512 bytes) operations in 500005us (5159448.4 ops/sec): 2641.6 MB/s
+Did 1776000 AEAD-AES-256-GCM seal (1024 bytes) operations in 500243us (3550274.6 ops/sec): 3635.5 MB/s
+Did 618000 AEAD-AES-256-GCM seal (4096 bytes) operations in 500475us (1234826.9 ops/sec): 5057.9 MB/s
+Did 4943750 AEAD-AES-256-GCM open init operations in 500004us (9887420.9 ops/sec)
+Did 4585500 AEAD-AES-256-GCM open (16 bytes) operations in 500016us (9170706.5 ops/sec): 146.7 MB/s
+Did 4542250 AEAD-AES-256-GCM open (32 bytes) operations in 500004us (9084427.3 ops/sec): 290.7 MB/s
+Did 4449000 AEAD-AES-256-GCM open (64 bytes) operations in 500026us (8897537.3 ops/sec): 569.4 MB/s
+Did 3880750 AEAD-AES-256-GCM open (128 bytes) operations in 500006us (7761406.9 ops/sec): 993.5 MB/s
+Did 3183000 AEAD-AES-256-GCM open (256 bytes) operations in 500102us (6364701.6 ops/sec): 1629.4 MB/s
+Did 2369250 AEAD-AES-256-GCM open (512 bytes) operations in 500030us (4738215.7 ops/sec): 2426.0 MB/s
+Did 1688000 AEAD-AES-256-GCM open (1024 bytes) operations in 500021us (3375858.2 ops/sec): 3456.9 MB/s
+Did 618000 AEAD-AES-256-GCM open (4096 bytes) operations in 500685us (1234309.0 ops/sec): 5055.7 MB/s
+Did 10336000 AEAD-AES-256-GCM-SIV seal init operations in 500008us (20671669.3 ops/sec)
+Did 1591750 AEAD-AES-256-GCM-SIV seal (16 bytes) operations in 500074us (3183028.9 ops/sec): 50.9 MB/s
+Did 1513000 AEAD-AES-256-GCM-SIV seal (32 bytes) operations in 500142us (3025140.9 ops/sec): 96.8 MB/s
+Did 1376000 AEAD-AES-256-GCM-SIV seal (64 bytes) operations in 500211us (2750839.1 ops/sec): 176.1 MB/s
+Did 1140250 AEAD-AES-256-GCM-SIV seal (128 bytes) operations in 500064us (2280208.1 ops/sec): 291.9 MB/s
+Did 833000 AEAD-AES-256-GCM-SIV seal (256 bytes) operations in 500142us (1665527.0 ops/sec): 426.4 MB/s
+Did 551000 AEAD-AES-256-GCM-SIV seal (512 bytes) operations in 500115us (1101746.6 ops/sec): 564.1 MB/s
+Did 329000 AEAD-AES-256-GCM-SIV seal (1024 bytes) operations in 500244us (657679.1 ops/sec): 673.5 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV seal (4096 bytes) operations in 504059us (192437.8 ops/sec): 788.2 MB/s
+Did 10350000 AEAD-AES-256-GCM-SIV open init operations in 500035us (20698551.1 ops/sec)
+Did 1633750 AEAD-AES-256-GCM-SIV open (16 bytes) operations in 500057us (3267127.5 ops/sec): 52.3 MB/s
+Did 1585000 AEAD-AES-256-GCM-SIV open (32 bytes) operations in 500016us (3169898.6 ops/sec): 101.4 MB/s
+Did 1452250 AEAD-AES-256-GCM-SIV open (64 bytes) operations in 500044us (2904244.4 ops/sec): 185.9 MB/s
+Did 1192500 AEAD-AES-256-GCM-SIV open (128 bytes) operations in 500028us (2384866.4 ops/sec): 305.3 MB/s
+Did 870000 AEAD-AES-256-GCM-SIV open (256 bytes) operations in 500532us (1738150.6 ops/sec): 445.0 MB/s
+Did 567000 AEAD-AES-256-GCM-SIV open (512 bytes) operations in 500743us (1132317.4 ops/sec): 579.7 MB/s
+Did 334000 AEAD-AES-256-GCM-SIV open (1024 bytes) operations in 501235us (666354.1 ops/sec): 682.3 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV open (4096 bytes) operations in 503017us (192836.4 ops/sec): 789.9 MB/s
+### rep=3 variant=A
+Did 4955000 AEAD-AES-256-GCM seal init operations in 500082us (9908375.0 ops/sec)
+Did 4990000 AEAD-AES-256-GCM seal (16 bytes) operations in 500078us (9978443.4 ops/sec): 159.7 MB/s
+Did 4928500 AEAD-AES-256-GCM seal (32 bytes) operations in 500003us (9856940.9 ops/sec): 315.4 MB/s
+Did 4723750 AEAD-AES-256-GCM seal (64 bytes) operations in 500020us (9447122.1 ops/sec): 604.6 MB/s
+Did 4060250 AEAD-AES-256-GCM seal (128 bytes) operations in 500026us (8120077.8 ops/sec): 1039.4 MB/s
+Did 3317250 AEAD-AES-256-GCM seal (256 bytes) operations in 500036us (6634022.4 ops/sec): 1698.3 MB/s
+Did 2576500 AEAD-AES-256-GCM seal (512 bytes) operations in 500013us (5152866.0 ops/sec): 2638.3 MB/s
+Did 1772500 AEAD-AES-256-GCM seal (1024 bytes) operations in 500034us (3544759.0 ops/sec): 3629.8 MB/s
+Did 617000 AEAD-AES-256-GCM seal (4096 bytes) operations in 500032us (1233921.0 ops/sec): 5054.1 MB/s
+Did 4957000 AEAD-AES-256-GCM open init operations in 500052us (9912969.1 ops/sec)
+Did 4463500 AEAD-AES-256-GCM open (16 bytes) operations in 500021us (8926625.1 ops/sec): 142.8 MB/s
+Did 4401250 AEAD-AES-256-GCM open (32 bytes) operations in 500014us (8802253.5 ops/sec): 281.7 MB/s
+Did 4328500 AEAD-AES-256-GCM open (64 bytes) operations in 500006us (8656896.1 ops/sec): 554.0 MB/s
+Did 3713250 AEAD-AES-256-GCM open (128 bytes) operations in 500012us (7426321.8 ops/sec): 950.6 MB/s
+Did 3000500 AEAD-AES-256-GCM open (256 bytes) operations in 500026us (6000688.0 ops/sec): 1536.2 MB/s
+Did 2305750 AEAD-AES-256-GCM open (512 bytes) operations in 500034us (4611186.4 ops/sec): 2360.9 MB/s
+Did 1634250 AEAD-AES-256-GCM open (1024 bytes) operations in 500053us (3268153.6 ops/sec): 3346.6 MB/s
+Did 609000 AEAD-AES-256-GCM open (4096 bytes) operations in 500542us (1216681.1 ops/sec): 4983.5 MB/s
+Did 10064000 AEAD-AES-256-GCM-SIV seal init operations in 500009us (20127637.7 ops/sec)
+Did 1596000 AEAD-AES-256-GCM-SIV seal (16 bytes) operations in 500114us (3191272.4 ops/sec): 51.1 MB/s
+Did 1510000 AEAD-AES-256-GCM-SIV seal (32 bytes) operations in 500211us (3018726.1 ops/sec): 96.6 MB/s
+Did 1375000 AEAD-AES-256-GCM-SIV seal (64 bytes) operations in 500015us (2749917.5 ops/sec): 176.0 MB/s
+Did 1138000 AEAD-AES-256-GCM-SIV seal (128 bytes) operations in 500182us (2275171.8 ops/sec): 291.2 MB/s
+Did 829000 AEAD-AES-256-GCM-SIV seal (256 bytes) operations in 500063us (1657791.1 ops/sec): 424.4 MB/s
+Did 544000 AEAD-AES-256-GCM-SIV seal (512 bytes) operations in 500174us (1087621.5 ops/sec): 556.9 MB/s
+Did 324000 AEAD-AES-256-GCM-SIV seal (1024 bytes) operations in 500631us (647183.3 ops/sec): 662.7 MB/s
+Did 95000 AEAD-AES-256-GCM-SIV seal (4096 bytes) operations in 504599us (188268.3 ops/sec): 771.1 MB/s
+Did 10068500 AEAD-AES-256-GCM-SIV open init operations in 500003us (20136879.2 ops/sec)
+Did 1590750 AEAD-AES-256-GCM-SIV open (16 bytes) operations in 500021us (3181366.4 ops/sec): 50.9 MB/s
+Did 1545000 AEAD-AES-256-GCM-SIV open (32 bytes) operations in 500107us (3089338.9 ops/sec): 98.9 MB/s
+Did 1418000 AEAD-AES-256-GCM-SIV open (64 bytes) operations in 500294us (2834333.4 ops/sec): 181.4 MB/s
+Did 1169500 AEAD-AES-256-GCM-SIV open (128 bytes) operations in 500091us (2338574.4 ops/sec): 299.3 MB/s
+Did 857000 AEAD-AES-256-GCM-SIV open (256 bytes) operations in 500021us (1713928.0 ops/sec): 438.8 MB/s
+Did 561000 AEAD-AES-256-GCM-SIV open (512 bytes) operations in 500696us (1120440.3 ops/sec): 573.7 MB/s
+Did 331000 AEAD-AES-256-GCM-SIV open (1024 bytes) operations in 500151us (661800.1 ops/sec): 677.7 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV open (4096 bytes) operations in 504310us (192342.0 ops/sec): 787.8 MB/s
+### rep=3 variant=B
+Did 4959750 AEAD-AES-256-GCM seal init operations in 500013us (9919242.1 ops/sec)
+Did 4454250 AEAD-AES-256-GCM seal (16 bytes) operations in 500018us (8908179.3 ops/sec): 142.5 MB/s
+Did 4423250 AEAD-AES-256-GCM seal (32 bytes) operations in 500012us (8846287.7 ops/sec): 283.1 MB/s
+Did 4296000 AEAD-AES-256-GCM seal (64 bytes) operations in 500028us (8591518.9 ops/sec): 549.9 MB/s
+Did 3976500 AEAD-AES-256-GCM seal (128 bytes) operations in 500031us (7952506.9 ops/sec): 1017.9 MB/s
+Did 3351500 AEAD-AES-256-GCM seal (256 bytes) operations in 500030us (6702597.8 ops/sec): 1715.9 MB/s
+Did 2582250 AEAD-AES-256-GCM seal (512 bytes) operations in 500047us (5164014.6 ops/sec): 2644.0 MB/s
+Did 1773750 AEAD-AES-256-GCM seal (1024 bytes) operations in 500006us (3547457.4 ops/sec): 3632.6 MB/s
+Did 618000 AEAD-AES-256-GCM seal (4096 bytes) operations in 500579us (1234570.4 ops/sec): 5056.8 MB/s
+Did 4970000 AEAD-AES-256-GCM open init operations in 500076us (9938489.3 ops/sec)
+Did 4127000 AEAD-AES-256-GCM open (16 bytes) operations in 500112us (8252151.5 ops/sec): 132.0 MB/s
+Did 4049250 AEAD-AES-256-GCM open (32 bytes) operations in 500001us (8098483.8 ops/sec): 259.2 MB/s
+Did 3949500 AEAD-AES-256-GCM open (64 bytes) operations in 500013us (7898794.6 ops/sec): 505.5 MB/s
+Did 3929500 AEAD-AES-256-GCM open (128 bytes) operations in 500012us (7858811.4 ops/sec): 1005.9 MB/s
+Did 3198000 AEAD-AES-256-GCM open (256 bytes) operations in 500139us (6394222.4 ops/sec): 1636.9 MB/s
+Did 2390000 AEAD-AES-256-GCM open (512 bytes) operations in 500096us (4779082.4 ops/sec): 2446.9 MB/s
+Did 1693000 AEAD-AES-256-GCM open (1024 bytes) operations in 500230us (3384443.2 ops/sec): 3465.7 MB/s
+Did 615000 AEAD-AES-256-GCM open (4096 bytes) operations in 500758us (1228138.1 ops/sec): 5030.5 MB/s
+Did 10084000 AEAD-AES-256-GCM-SIV seal init operations in 500012us (20167516.0 ops/sec)
+Did 1593500 AEAD-AES-256-GCM-SIV seal (16 bytes) operations in 500043us (3186725.9 ops/sec): 51.0 MB/s
+Did 1511750 AEAD-AES-256-GCM-SIV seal (32 bytes) operations in 500022us (3023367.0 ops/sec): 96.7 MB/s
+Did 1374500 AEAD-AES-256-GCM-SIV seal (64 bytes) operations in 500054us (2748703.1 ops/sec): 175.9 MB/s
+Did 1137500 AEAD-AES-256-GCM-SIV seal (128 bytes) operations in 500096us (2274563.3 ops/sec): 291.1 MB/s
+Did 832000 AEAD-AES-256-GCM-SIV seal (256 bytes) operations in 500581us (1662068.7 ops/sec): 425.5 MB/s
+Did 551000 AEAD-AES-256-GCM-SIV seal (512 bytes) operations in 500485us (1100932.1 ops/sec): 563.7 MB/s
+Did 329000 AEAD-AES-256-GCM-SIV seal (1024 bytes) operations in 500540us (657290.1 ops/sec): 673.1 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV seal (4096 bytes) operations in 504090us (192426.0 ops/sec): 788.2 MB/s
+Did 10347750 AEAD-AES-256-GCM-SIV open init operations in 500009us (20695127.5 ops/sec)
+Did 1632750 AEAD-AES-256-GCM-SIV open (16 bytes) operations in 500051us (3265167.0 ops/sec): 52.2 MB/s
+Did 1587000 AEAD-AES-256-GCM-SIV open (32 bytes) operations in 500163us (3172965.6 ops/sec): 101.5 MB/s
+Did 1450250 AEAD-AES-256-GCM-SIV open (64 bytes) operations in 500078us (2900047.6 ops/sec): 185.6 MB/s
+Did 1189750 AEAD-AES-256-GCM-SIV open (128 bytes) operations in 500031us (2379352.5 ops/sec): 304.6 MB/s
+Did 869000 AEAD-AES-256-GCM-SIV open (256 bytes) operations in 500129us (1737551.7 ops/sec): 444.8 MB/s
+Did 566000 AEAD-AES-256-GCM-SIV open (512 bytes) operations in 500209us (1131527.0 ops/sec): 579.3 MB/s
+Did 333000 AEAD-AES-256-GCM-SIV open (1024 bytes) operations in 500429us (665429.1 ops/sec): 681.4 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV open (4096 bytes) operations in 503521us (192643.4 ops/sec): 789.1 MB/s
+### rep=3 variant=C
+Did 4932750 AEAD-AES-256-GCM seal init operations in 500014us (9865223.8 ops/sec)
+Did 4398000 AEAD-AES-256-GCM seal (16 bytes) operations in 500027us (8795525.0 ops/sec): 140.7 MB/s
+Did 4368750 AEAD-AES-256-GCM seal (32 bytes) operations in 500025us (8737063.1 ops/sec): 279.6 MB/s
+Did 4240000 AEAD-AES-256-GCM seal (64 bytes) operations in 500022us (8479626.9 ops/sec): 542.7 MB/s
+Did 3928500 AEAD-AES-256-GCM seal (128 bytes) operations in 500028us (7856560.0 ops/sec): 1005.6 MB/s
+Did 3317000 AEAD-AES-256-GCM seal (256 bytes) operations in 500029us (6633615.3 ops/sec): 1698.2 MB/s
+Did 2561250 AEAD-AES-256-GCM seal (512 bytes) operations in 500010us (5122397.6 ops/sec): 2622.7 MB/s
+Did 1764000 AEAD-AES-256-GCM seal (1024 bytes) operations in 500137us (3527033.6 ops/sec): 3611.7 MB/s
+Did 614000 AEAD-AES-256-GCM seal (4096 bytes) operations in 500497us (1226780.6 ops/sec): 5024.9 MB/s
+Did 4932000 AEAD-AES-256-GCM open init operations in 500014us (9863723.8 ops/sec)
+Did 4603250 AEAD-AES-256-GCM open (16 bytes) operations in 500012us (9206279.0 ops/sec): 147.3 MB/s
+Did 4567250 AEAD-AES-256-GCM open (32 bytes) operations in 500009us (9134335.6 ops/sec): 292.3 MB/s
+Did 4481500 AEAD-AES-256-GCM open (64 bytes) operations in 500028us (8962498.1 ops/sec): 573.6 MB/s
+Did 3911500 AEAD-AES-256-GCM open (128 bytes) operations in 500021us (7822671.4 ops/sec): 1001.3 MB/s
+Did 3188250 AEAD-AES-256-GCM open (256 bytes) operations in 500034us (6376066.4 ops/sec): 1632.3 MB/s
+Did 2365000 AEAD-AES-256-GCM open (512 bytes) operations in 500079us (4729252.8 ops/sec): 2421.4 MB/s
+Did 1672250 AEAD-AES-256-GCM open (1024 bytes) operations in 500054us (3344138.8 ops/sec): 3424.4 MB/s
+Did 607000 AEAD-AES-256-GCM open (4096 bytes) operations in 500288us (1213301.1 ops/sec): 4969.7 MB/s
+Did 10003750 AEAD-AES-256-GCM-SIV seal init operations in 500001us (20007460.0 ops/sec)
+Did 1553500 AEAD-AES-256-GCM-SIV seal (16 bytes) operations in 500057us (3106645.8 ops/sec): 49.7 MB/s
+Did 1476000 AEAD-AES-256-GCM-SIV seal (32 bytes) operations in 500215us (2950731.2 ops/sec): 94.4 MB/s
+Did 1346000 AEAD-AES-256-GCM-SIV seal (64 bytes) operations in 500169us (2691090.4 ops/sec): 172.2 MB/s
+Did 1119750 AEAD-AES-256-GCM-SIV seal (128 bytes) operations in 500100us (2239052.2 ops/sec): 286.6 MB/s
+Did 822500 AEAD-AES-256-GCM-SIV seal (256 bytes) operations in 500061us (1644799.3 ops/sec): 421.1 MB/s
+Did 548000 AEAD-AES-256-GCM-SIV seal (512 bytes) operations in 500625us (1094631.7 ops/sec): 560.5 MB/s
+Did 328000 AEAD-AES-256-GCM-SIV seal (1024 bytes) operations in 500439us (655424.5 ops/sec): 671.2 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV seal (4096 bytes) operations in 504240us (192368.7 ops/sec): 787.9 MB/s
+Did 10330000 AEAD-AES-256-GCM-SIV open init operations in 500011us (20659545.5 ops/sec)
+Did 1627000 AEAD-AES-256-GCM-SIV open (16 bytes) operations in 500054us (3253648.6 ops/sec): 52.1 MB/s
+Did 1583000 AEAD-AES-256-GCM-SIV open (32 bytes) operations in 500155us (3165018.8 ops/sec): 101.3 MB/s
+Did 1446000 AEAD-AES-256-GCM-SIV open (64 bytes) operations in 500074us (2891572.0 ops/sec): 185.1 MB/s
+Did 1190000 AEAD-AES-256-GCM-SIV open (128 bytes) operations in 500074us (2379647.8 ops/sec): 304.6 MB/s
+Did 868000 AEAD-AES-256-GCM-SIV open (256 bytes) operations in 500403us (1734601.9 ops/sec): 444.1 MB/s
+Did 566000 AEAD-AES-256-GCM-SIV open (512 bytes) operations in 500449us (1130984.4 ops/sec): 579.1 MB/s
+Did 333000 AEAD-AES-256-GCM-SIV open (1024 bytes) operations in 500667us (665112.7 ops/sec): 681.1 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV open (4096 bytes) operations in 503465us (192664.8 ops/sec): 789.2 MB/s
+### rep=4 variant=A
+Did 4964250 AEAD-AES-256-GCM seal init operations in 500025us (9928003.6 ops/sec)
+Did 5014750 AEAD-AES-256-GCM seal (16 bytes) operations in 500020us (10029098.8 ops/sec): 160.5 MB/s
+Did 4917500 AEAD-AES-256-GCM seal (32 bytes) operations in 500011us (9834783.6 ops/sec): 314.7 MB/s
+Did 4717000 AEAD-AES-256-GCM seal (64 bytes) operations in 500006us (9433886.8 ops/sec): 603.8 MB/s
+Did 4058000 AEAD-AES-256-GCM seal (128 bytes) operations in 500003us (8115951.3 ops/sec): 1038.8 MB/s
+Did 3321000 AEAD-AES-256-GCM seal (256 bytes) operations in 500030us (6641601.5 ops/sec): 1700.2 MB/s
+Did 2583000 AEAD-AES-256-GCM seal (512 bytes) operations in 500131us (5164646.9 ops/sec): 2644.3 MB/s
+Did 1771750 AEAD-AES-256-GCM seal (1024 bytes) operations in 500046us (3543174.0 ops/sec): 3628.2 MB/s
+Did 617000 AEAD-AES-256-GCM seal (4096 bytes) operations in 500039us (1233903.8 ops/sec): 5054.1 MB/s
+Did 4961500 AEAD-AES-256-GCM open init operations in 500012us (9922761.9 ops/sec)
+Did 4493250 AEAD-AES-256-GCM open (16 bytes) operations in 500017us (8986194.5 ops/sec): 143.8 MB/s
+Did 4438500 AEAD-AES-256-GCM open (32 bytes) operations in 500002us (8876964.5 ops/sec): 284.1 MB/s
+Did 4363500 AEAD-AES-256-GCM open (64 bytes) operations in 500022us (8726616.0 ops/sec): 558.5 MB/s
+Did 3732500 AEAD-AES-256-GCM open (128 bytes) operations in 500005us (7464925.4 ops/sec): 955.5 MB/s
+Did 2998000 AEAD-AES-256-GCM open (256 bytes) operations in 500092us (5994896.9 ops/sec): 1534.7 MB/s
+Did 2301500 AEAD-AES-256-GCM open (512 bytes) operations in 500030us (4602723.8 ops/sec): 2356.6 MB/s
+Did 1628500 AEAD-AES-256-GCM open (1024 bytes) operations in 500069us (3256550.6 ops/sec): 3334.7 MB/s
+Did 611000 AEAD-AES-256-GCM open (4096 bytes) operations in 500226us (1221447.9 ops/sec): 5003.1 MB/s
+Did 10354250 AEAD-AES-256-GCM-SIV seal init operations in 500007us (20708210.1 ops/sec)
+Did 1592500 AEAD-AES-256-GCM-SIV seal (16 bytes) operations in 500063us (3184598.7 ops/sec): 51.0 MB/s
+Did 1511500 AEAD-AES-256-GCM-SIV seal (32 bytes) operations in 500020us (3022879.1 ops/sec): 96.7 MB/s
+Did 1375500 AEAD-AES-256-GCM-SIV seal (64 bytes) operations in 500020us (2750890.0 ops/sec): 176.1 MB/s
+Did 1141000 AEAD-AES-256-GCM-SIV seal (128 bytes) operations in 500239us (2280909.7 ops/sec): 292.0 MB/s
+Did 834000 AEAD-AES-256-GCM-SIV seal (256 bytes) operations in 500195us (1667349.7 ops/sec): 426.8 MB/s
+Did 551000 AEAD-AES-256-GCM-SIV seal (512 bytes) operations in 500236us (1101480.1 ops/sec): 564.0 MB/s
+Did 329000 AEAD-AES-256-GCM-SIV seal (1024 bytes) operations in 500451us (657407.0 ops/sec): 673.2 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV seal (4096 bytes) operations in 504374us (192317.6 ops/sec): 787.7 MB/s
+Did 10347500 AEAD-AES-256-GCM-SIV open init operations in 500008us (20694668.9 ops/sec)
+Did 1631750 AEAD-AES-256-GCM-SIV open (16 bytes) operations in 500007us (3263454.3 ops/sec): 52.2 MB/s
+Did 1584000 AEAD-AES-256-GCM-SIV open (32 bytes) operations in 500150us (3167049.9 ops/sec): 101.3 MB/s
+Did 1450500 AEAD-AES-256-GCM-SIV open (64 bytes) operations in 500072us (2900582.3 ops/sec): 185.6 MB/s
+Did 1192000 AEAD-AES-256-GCM-SIV open (128 bytes) operations in 500047us (2383775.9 ops/sec): 305.1 MB/s
+Did 871000 AEAD-AES-256-GCM-SIV open (256 bytes) operations in 500347us (1740791.9 ops/sec): 445.6 MB/s
+Did 566000 AEAD-AES-256-GCM-SIV open (512 bytes) operations in 500211us (1131522.5 ops/sec): 579.3 MB/s
+Did 334000 AEAD-AES-256-GCM-SIV open (1024 bytes) operations in 501262us (666318.2 ops/sec): 682.3 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV open (4096 bytes) operations in 503566us (192626.2 ops/sec): 789.0 MB/s
+### rep=4 variant=B
+Did 4950000 AEAD-AES-256-GCM seal init operations in 500033us (9899346.6 ops/sec)
+Did 4402250 AEAD-AES-256-GCM seal (16 bytes) operations in 500020us (8804147.8 ops/sec): 140.9 MB/s
+Did 4370750 AEAD-AES-256-GCM seal (32 bytes) operations in 500026us (8741045.5 ops/sec): 279.7 MB/s
+Did 4243500 AEAD-AES-256-GCM seal (64 bytes) operations in 500029us (8486507.8 ops/sec): 543.1 MB/s
+Did 3929000 AEAD-AES-256-GCM seal (128 bytes) operations in 500023us (7857638.5 ops/sec): 1005.8 MB/s
+Did 3321000 AEAD-AES-256-GCM seal (256 bytes) operations in 500008us (6641893.7 ops/sec): 1700.3 MB/s
+Did 2565000 AEAD-AES-256-GCM seal (512 bytes) operations in 500157us (5128389.7 ops/sec): 2625.7 MB/s
+Did 1764000 AEAD-AES-256-GCM seal (1024 bytes) operations in 500113us (3527202.9 ops/sec): 3611.9 MB/s
+Did 614000 AEAD-AES-256-GCM seal (4096 bytes) operations in 500485us (1226810.0 ops/sec): 5025.0 MB/s
+Did 4938750 AEAD-AES-256-GCM open init operations in 500012us (9877262.9 ops/sec)
+Did 4117250 AEAD-AES-256-GCM open (16 bytes) operations in 500011us (8234318.8 ops/sec): 131.7 MB/s
+Did 4054000 AEAD-AES-256-GCM open (32 bytes) operations in 500025us (8107594.6 ops/sec): 259.4 MB/s
+Did 3957250 AEAD-AES-256-GCM open (64 bytes) operations in 500027us (7914072.6 ops/sec): 506.5 MB/s
+Did 3924250 AEAD-AES-256-GCM open (128 bytes) operations in 500030us (7848029.1 ops/sec): 1004.5 MB/s
+Did 3197500 AEAD-AES-256-GCM open (256 bytes) operations in 500014us (6394820.9 ops/sec): 1637.1 MB/s
+Did 2388750 AEAD-AES-256-GCM open (512 bytes) operations in 500016us (4777347.1 ops/sec): 2446.0 MB/s
+Did 1695000 AEAD-AES-256-GCM open (1024 bytes) operations in 500207us (3388597.1 ops/sec): 3469.9 MB/s
+Did 614500 AEAD-AES-256-GCM open (4096 bytes) operations in 500134us (1228670.7 ops/sec): 5032.6 MB/s
+Did 10031000 AEAD-AES-256-GCM-SIV seal init operations in 500012us (20061518.5 ops/sec)
+Did 1555000 AEAD-AES-256-GCM-SIV seal (16 bytes) operations in 500307us (3108091.6 ops/sec): 49.7 MB/s
+Did 1475750 AEAD-AES-256-GCM-SIV seal (32 bytes) operations in 500051us (2951199.0 ops/sec): 94.4 MB/s
+Did 1344750 AEAD-AES-256-GCM-SIV seal (64 bytes) operations in 500074us (2689102.0 ops/sec): 172.1 MB/s
+Did 1117000 AEAD-AES-256-GCM-SIV seal (128 bytes) operations in 500089us (2233602.4 ops/sec): 285.9 MB/s
+Did 824000 AEAD-AES-256-GCM-SIV seal (256 bytes) operations in 500523us (1646278.0 ops/sec): 421.4 MB/s
+Did 547000 AEAD-AES-256-GCM-SIV seal (512 bytes) operations in 500914us (1092003.8 ops/sec): 559.1 MB/s
+Did 328000 AEAD-AES-256-GCM-SIV seal (1024 bytes) operations in 501232us (654387.6 ops/sec): 670.1 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV seal (4096 bytes) operations in 504742us (192177.4 ops/sec): 787.2 MB/s
+Did 10340000 AEAD-AES-256-GCM-SIV open init operations in 500009us (20679627.8 ops/sec)
+Did 1626000 AEAD-AES-256-GCM-SIV open (16 bytes) operations in 500060us (3251609.8 ops/sec): 52.0 MB/s
+Did 1584000 AEAD-AES-256-GCM-SIV open (32 bytes) operations in 500192us (3166784.0 ops/sec): 101.3 MB/s
+Did 1446000 AEAD-AES-256-GCM-SIV open (64 bytes) operations in 500284us (2890358.3 ops/sec): 185.0 MB/s
+Did 1187500 AEAD-AES-256-GCM-SIV open (128 bytes) operations in 500065us (2374691.3 ops/sec): 304.0 MB/s
+Did 867750 AEAD-AES-256-GCM-SIV open (256 bytes) operations in 500023us (1735420.2 ops/sec): 444.3 MB/s
+Did 566000 AEAD-AES-256-GCM-SIV open (512 bytes) operations in 500464us (1130950.5 ops/sec): 579.0 MB/s
+Did 333000 AEAD-AES-256-GCM-SIV open (1024 bytes) operations in 500436us (665419.8 ops/sec): 681.4 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV open (4096 bytes) operations in 503701us (192574.6 ops/sec): 788.8 MB/s
+### rep=4 variant=C
+Did 4939500 AEAD-AES-256-GCM seal init operations in 500021us (9878585.1 ops/sec)
+Did 4403000 AEAD-AES-256-GCM seal (16 bytes) operations in 500013us (8805771.0 ops/sec): 140.9 MB/s
+Did 4370250 AEAD-AES-256-GCM seal (32 bytes) operations in 500004us (8740430.1 ops/sec): 279.7 MB/s
+Did 4246000 AEAD-AES-256-GCM seal (64 bytes) operations in 500034us (8491422.6 ops/sec): 543.5 MB/s
+Did 3935000 AEAD-AES-256-GCM seal (128 bytes) operations in 500056us (7869118.7 ops/sec): 1007.2 MB/s
+Did 3317000 AEAD-AES-256-GCM seal (256 bytes) operations in 500035us (6633535.7 ops/sec): 1698.2 MB/s
+Did 2559750 AEAD-AES-256-GCM seal (512 bytes) operations in 500022us (5119274.8 ops/sec): 2621.1 MB/s
+Did 1761000 AEAD-AES-256-GCM seal (1024 bytes) operations in 500008us (3521943.6 ops/sec): 3606.5 MB/s
+Did 614000 AEAD-AES-256-GCM seal (4096 bytes) operations in 500677us (1226339.5 ops/sec): 5023.1 MB/s
+Did 4943500 AEAD-AES-256-GCM open init operations in 500006us (9886881.4 ops/sec)
+Did 4604500 AEAD-AES-256-GCM open (16 bytes) operations in 500021us (9208613.2 ops/sec): 147.3 MB/s
+Did 4567750 AEAD-AES-256-GCM open (32 bytes) operations in 500005us (9135408.6 ops/sec): 292.3 MB/s
+Did 4480000 AEAD-AES-256-GCM open (64 bytes) operations in 500026us (8959534.1 ops/sec): 573.4 MB/s
+Did 3917000 AEAD-AES-256-GCM open (128 bytes) operations in 500087us (7832637.1 ops/sec): 1002.6 MB/s
+Did 3189250 AEAD-AES-256-GCM open (256 bytes) operations in 500038us (6378015.3 ops/sec): 1632.8 MB/s
+Did 2372750 AEAD-AES-256-GCM open (512 bytes) operations in 500033us (4745186.8 ops/sec): 2429.5 MB/s
+Did 1676750 AEAD-AES-256-GCM open (1024 bytes) operations in 500066us (3353057.4 ops/sec): 3433.5 MB/s
+Did 608000 AEAD-AES-256-GCM open (4096 bytes) operations in 500638us (1214450.4 ops/sec): 4974.4 MB/s
+Did 10029750 AEAD-AES-256-GCM-SIV seal init operations in 500010us (20059098.8 ops/sec)
+Did 1555000 AEAD-AES-256-GCM-SIV seal (16 bytes) operations in 500253us (3108427.1 ops/sec): 49.7 MB/s
+Did 1476000 AEAD-AES-256-GCM-SIV seal (32 bytes) operations in 500199us (2950825.6 ops/sec): 94.4 MB/s
+Did 1345000 AEAD-AES-256-GCM-SIV seal (64 bytes) operations in 500009us (2689951.6 ops/sec): 172.2 MB/s
+Did 1119250 AEAD-AES-256-GCM-SIV seal (128 bytes) operations in 500101us (2238047.9 ops/sec): 286.5 MB/s
+Did 823000 AEAD-AES-256-GCM-SIV seal (256 bytes) operations in 500255us (1645161.0 ops/sec): 421.2 MB/s
+Did 548000 AEAD-AES-256-GCM-SIV seal (512 bytes) operations in 500834us (1094174.9 ops/sec): 560.2 MB/s
+Did 328000 AEAD-AES-256-GCM-SIV seal (1024 bytes) operations in 500672us (655119.5 ops/sec): 670.8 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV seal (4096 bytes) operations in 504200us (192384.0 ops/sec): 788.0 MB/s
+Did 10365000 AEAD-AES-256-GCM-SIV open init operations in 500044us (20728175.9 ops/sec)
+Did 1626000 AEAD-AES-256-GCM-SIV open (16 bytes) operations in 500026us (3251830.9 ops/sec): 52.0 MB/s
+Did 1584000 AEAD-AES-256-GCM-SIV open (32 bytes) operations in 500269us (3166296.5 ops/sec): 101.3 MB/s
+Did 1446750 AEAD-AES-256-GCM-SIV open (64 bytes) operations in 500003us (2893482.6 ops/sec): 185.2 MB/s
+Did 1189500 AEAD-AES-256-GCM-SIV open (128 bytes) operations in 500097us (2378538.6 ops/sec): 304.5 MB/s
+Did 867250 AEAD-AES-256-GCM-SIV open (256 bytes) operations in 500088us (1734194.8 ops/sec): 444.0 MB/s
+Did 566000 AEAD-AES-256-GCM-SIV open (512 bytes) operations in 500469us (1130939.2 ops/sec): 579.0 MB/s
+Did 333000 AEAD-AES-256-GCM-SIV open (1024 bytes) operations in 500674us (665103.4 ops/sec): 681.1 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV open (4096 bytes) operations in 503334us (192715.0 ops/sec): 789.4 MB/s
+### rep=5 variant=A
+Did 4938750 AEAD-AES-256-GCM seal init operations in 500009us (9877322.2 ops/sec)
+Did 5026750 AEAD-AES-256-GCM seal (16 bytes) operations in 500007us (10053359.3 ops/sec): 160.9 MB/s
+Did 4932750 AEAD-AES-256-GCM seal (32 bytes) operations in 500004us (9865421.1 ops/sec): 315.7 MB/s
+Did 4713000 AEAD-AES-256-GCM seal (64 bytes) operations in 500106us (9424002.1 ops/sec): 603.1 MB/s
+Did 4050000 AEAD-AES-256-GCM seal (128 bytes) operations in 500021us (8099659.8 ops/sec): 1036.8 MB/s
+Did 3313750 AEAD-AES-256-GCM seal (256 bytes) operations in 500038us (6626996.3 ops/sec): 1696.5 MB/s
+Did 2575000 AEAD-AES-256-GCM seal (512 bytes) operations in 500032us (5149670.4 ops/sec): 2636.6 MB/s
+Did 1773000 AEAD-AES-256-GCM seal (1024 bytes) operations in 500078us (3545446.9 ops/sec): 3630.5 MB/s
+Did 617000 AEAD-AES-256-GCM seal (4096 bytes) operations in 500272us (1233329.1 ops/sec): 5051.7 MB/s
+Did 4935750 AEAD-AES-256-GCM open init operations in 500010us (9871302.6 ops/sec)
+Did 4470500 AEAD-AES-256-GCM open (16 bytes) operations in 500016us (8940713.9 ops/sec): 143.1 MB/s
+Did 4403500 AEAD-AES-256-GCM open (32 bytes) operations in 500022us (8806612.5 ops/sec): 281.8 MB/s
+Did 4335000 AEAD-AES-256-GCM open (64 bytes) operations in 500077us (8668665.0 ops/sec): 554.8 MB/s
+Did 3712500 AEAD-AES-256-GCM open (128 bytes) operations in 500031us (7424539.7 ops/sec): 950.3 MB/s
+Did 2992500 AEAD-AES-256-GCM open (256 bytes) operations in 500014us (5984832.4 ops/sec): 1532.1 MB/s
+Did 2300000 AEAD-AES-256-GCM open (512 bytes) operations in 500019us (4599825.2 ops/sec): 2355.1 MB/s
+Did 1635000 AEAD-AES-256-GCM open (1024 bytes) operations in 500242us (3268418.1 ops/sec): 3346.9 MB/s
+Did 609000 AEAD-AES-256-GCM open (4096 bytes) operations in 500659us (1216396.8 ops/sec): 4982.4 MB/s
+Did 10074750 AEAD-AES-256-GCM-SIV seal init operations in 500008us (20149177.6 ops/sec)
+Did 1593750 AEAD-AES-256-GCM-SIV seal (16 bytes) operations in 500012us (3187423.5 ops/sec): 51.0 MB/s
+Did 1509000 AEAD-AES-256-GCM-SIV seal (32 bytes) operations in 500083us (3017499.1 ops/sec): 96.6 MB/s
+Did 1377000 AEAD-AES-256-GCM-SIV seal (64 bytes) operations in 500269us (2752519.1 ops/sec): 176.2 MB/s
+Did 1138000 AEAD-AES-256-GCM-SIV seal (128 bytes) operations in 500217us (2275012.6 ops/sec): 291.2 MB/s
+Did 827000 AEAD-AES-256-GCM-SIV seal (256 bytes) operations in 500113us (1653626.3 ops/sec): 423.3 MB/s
+Did 545000 AEAD-AES-256-GCM-SIV seal (512 bytes) operations in 500459us (1089000.3 ops/sec): 557.6 MB/s
+Did 324000 AEAD-AES-256-GCM-SIV seal (1024 bytes) operations in 500360us (647533.8 ops/sec): 663.1 MB/s
+Did 95000 AEAD-AES-256-GCM-SIV seal (4096 bytes) operations in 504391us (188345.9 ops/sec): 771.5 MB/s
+Did 10059750 AEAD-AES-256-GCM-SIV open init operations in 500006us (20119258.6 ops/sec)
+Did 1591250 AEAD-AES-256-GCM-SIV open (16 bytes) operations in 500008us (3182449.1 ops/sec): 50.9 MB/s
+Did 1544000 AEAD-AES-256-GCM-SIV open (32 bytes) operations in 500053us (3087672.7 ops/sec): 98.8 MB/s
+Did 1416750 AEAD-AES-256-GCM-SIV open (64 bytes) operations in 500003us (2833483.0 ops/sec): 181.3 MB/s
+Did 1170000 AEAD-AES-256-GCM-SIV open (128 bytes) operations in 500097us (2339546.1 ops/sec): 299.5 MB/s
+Did 857000 AEAD-AES-256-GCM-SIV open (256 bytes) operations in 500027us (1713907.4 ops/sec): 438.8 MB/s
+Did 561000 AEAD-AES-256-GCM-SIV open (512 bytes) operations in 500781us (1120250.2 ops/sec): 573.6 MB/s
+Did 331000 AEAD-AES-256-GCM-SIV open (1024 bytes) operations in 500465us (661384.9 ops/sec): 677.3 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV open (4096 bytes) operations in 505089us (192045.4 ops/sec): 786.6 MB/s
+### rep=5 variant=B
+Did 4949750 AEAD-AES-256-GCM seal init operations in 500011us (9899282.2 ops/sec)
+Did 4451500 AEAD-AES-256-GCM seal (16 bytes) operations in 500021us (8902626.1 ops/sec): 142.4 MB/s
+Did 4427500 AEAD-AES-256-GCM seal (32 bytes) operations in 500028us (8854504.1 ops/sec): 283.3 MB/s
+Did 4306000 AEAD-AES-256-GCM seal (64 bytes) operations in 500017us (8611707.2 ops/sec): 551.1 MB/s
+Did 3982500 AEAD-AES-256-GCM seal (128 bytes) operations in 500019us (7964697.3 ops/sec): 1019.5 MB/s
+Did 3356250 AEAD-AES-256-GCM seal (256 bytes) operations in 500027us (6712137.5 ops/sec): 1718.3 MB/s
+Did 2588000 AEAD-AES-256-GCM seal (512 bytes) operations in 500008us (5175917.2 ops/sec): 2650.1 MB/s
+Did 1777750 AEAD-AES-256-GCM seal (1024 bytes) operations in 500040us (3555215.6 ops/sec): 3640.5 MB/s
+Did 618000 AEAD-AES-256-GCM seal (4096 bytes) operations in 500239us (1235409.5 ops/sec): 5060.2 MB/s
+Did 4952000 AEAD-AES-256-GCM open init operations in 500026us (9903485.0 ops/sec)
+Did 4089500 AEAD-AES-256-GCM open (16 bytes) operations in 500028us (8178542.0 ops/sec): 130.9 MB/s
+Did 4024250 AEAD-AES-256-GCM open (32 bytes) operations in 500007us (8048387.3 ops/sec): 257.5 MB/s
+Did 3930000 AEAD-AES-256-GCM open (64 bytes) operations in 500040us (7859371.3 ops/sec): 503.0 MB/s
+Did 3909000 AEAD-AES-256-GCM open (128 bytes) operations in 500127us (7816014.7 ops/sec): 1000.4 MB/s
+Did 3176500 AEAD-AES-256-GCM open (256 bytes) operations in 500005us (6352936.5 ops/sec): 1626.4 MB/s
+Did 2380250 AEAD-AES-256-GCM open (512 bytes) operations in 500003us (4760471.4 ops/sec): 2437.4 MB/s
+Did 1691000 AEAD-AES-256-GCM open (1024 bytes) operations in 500175us (3380816.7 ops/sec): 3462.0 MB/s
+Did 613000 AEAD-AES-256-GCM open (4096 bytes) operations in 500185us (1225546.5 ops/sec): 5019.8 MB/s
+Did 10080500 AEAD-AES-256-GCM-SIV seal init operations in 500001us (20160959.7 ops/sec)
+Did 1593000 AEAD-AES-256-GCM-SIV seal (16 bytes) operations in 500046us (3185706.9 ops/sec): 51.0 MB/s
+Did 1506750 AEAD-AES-256-GCM-SIV seal (32 bytes) operations in 500043us (3013240.9 ops/sec): 96.4 MB/s
+Did 1375000 AEAD-AES-256-GCM-SIV seal (64 bytes) operations in 500031us (2749829.5 ops/sec): 176.0 MB/s
+Did 1131750 AEAD-AES-256-GCM-SIV seal (128 bytes) operations in 500068us (2263192.2 ops/sec): 289.7 MB/s
+Did 825000 AEAD-AES-256-GCM-SIV seal (256 bytes) operations in 500014us (1649953.8 ops/sec): 422.4 MB/s
+Did 543500 AEAD-AES-256-GCM-SIV seal (512 bytes) operations in 500149us (1086676.2 ops/sec): 556.4 MB/s
+Did 323000 AEAD-AES-256-GCM-SIV seal (1024 bytes) operations in 500534us (645310.8 ops/sec): 660.8 MB/s
+Did 95000 AEAD-AES-256-GCM-SIV seal (4096 bytes) operations in 504640us (188253.0 ops/sec): 771.1 MB/s
+Did 10373000 AEAD-AES-256-GCM-SIV open init operations in 500001us (20745958.5 ops/sec)
+Did 1591750 AEAD-AES-256-GCM-SIV open (16 bytes) operations in 500003us (3183480.9 ops/sec): 50.9 MB/s
+Did 1546500 AEAD-AES-256-GCM-SIV open (32 bytes) operations in 500040us (3092752.6 ops/sec): 99.0 MB/s
+Did 1416000 AEAD-AES-256-GCM-SIV open (64 bytes) operations in 500010us (2831943.4 ops/sec): 181.2 MB/s
+Did 1167500 AEAD-AES-256-GCM-SIV open (128 bytes) operations in 500104us (2334514.4 ops/sec): 298.8 MB/s
+Did 857000 AEAD-AES-256-GCM-SIV open (256 bytes) operations in 500158us (1713458.5 ops/sec): 438.6 MB/s
+Did 560250 AEAD-AES-256-GCM-SIV open (512 bytes) operations in 500156us (1120150.5 ops/sec): 573.5 MB/s
+Did 331000 AEAD-AES-256-GCM-SIV open (1024 bytes) operations in 500202us (661732.7 ops/sec): 677.6 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV open (4096 bytes) operations in 504155us (192401.1 ops/sec): 788.1 MB/s
+### rep=5 variant=C
+Did 4944750 AEAD-AES-256-GCM seal init operations in 500016us (9889183.5 ops/sec)
+Did 4425250 AEAD-AES-256-GCM seal (16 bytes) operations in 500015us (8850234.5 ops/sec): 141.6 MB/s
+Did 4391250 AEAD-AES-256-GCM seal (32 bytes) operations in 500002us (8782464.9 ops/sec): 281.0 MB/s
+Did 4262000 AEAD-AES-256-GCM seal (64 bytes) operations in 500026us (8523556.8 ops/sec): 545.5 MB/s
+Did 3944000 AEAD-AES-256-GCM seal (128 bytes) operations in 500027us (7887574.1 ops/sec): 1009.6 MB/s
+Did 3330000 AEAD-AES-256-GCM seal (256 bytes) operations in 500018us (6659760.2 ops/sec): 1704.9 MB/s
+Did 2575000 AEAD-AES-256-GCM seal (512 bytes) operations in 500154us (5148414.3 ops/sec): 2636.0 MB/s
+Did 1765500 AEAD-AES-256-GCM seal (1024 bytes) operations in 500062us (3530562.2 ops/sec): 3615.3 MB/s
+Did 614000 AEAD-AES-256-GCM seal (4096 bytes) operations in 500257us (1227369.1 ops/sec): 5027.3 MB/s
+Did 4939500 AEAD-AES-256-GCM open init operations in 500015us (9878703.6 ops/sec)
+Did 4610500 AEAD-AES-256-GCM open (16 bytes) operations in 500006us (9220889.3 ops/sec): 147.5 MB/s
+Did 4568250 AEAD-AES-256-GCM open (32 bytes) operations in 500007us (9136372.1 ops/sec): 292.4 MB/s
+Did 4491000 AEAD-AES-256-GCM open (64 bytes) operations in 500082us (8980527.2 ops/sec): 574.8 MB/s
+Did 3918500 AEAD-AES-256-GCM open (128 bytes) operations in 500025us (7836608.2 ops/sec): 1003.1 MB/s
+Did 3190750 AEAD-AES-256-GCM open (256 bytes) operations in 500031us (6381104.4 ops/sec): 1633.6 MB/s
+Did 2374750 AEAD-AES-256-GCM open (512 bytes) operations in 500012us (4749386.0 ops/sec): 2431.7 MB/s
+Did 1680000 AEAD-AES-256-GCM open (1024 bytes) operations in 500248us (3358334.3 ops/sec): 3438.9 MB/s
+Did 608000 AEAD-AES-256-GCM open (4096 bytes) operations in 500446us (1214916.3 ops/sec): 4976.3 MB/s
+Did 10338000 AEAD-AES-256-GCM-SIV seal init operations in 500005us (20675793.2 ops/sec)
+Did 1504000 AEAD-AES-256-GCM-SIV seal (16 bytes) operations in 500010us (3007939.8 ops/sec): 48.1 MB/s
+Did 1427250 AEAD-AES-256-GCM-SIV seal (32 bytes) operations in 500010us (2854442.9 ops/sec): 91.3 MB/s
+Did 1305500 AEAD-AES-256-GCM-SIV seal (64 bytes) operations in 500027us (2610859.0 ops/sec): 167.1 MB/s
+Did 1092250 AEAD-AES-256-GCM-SIV seal (128 bytes) operations in 500015us (2184434.5 ops/sec): 279.6 MB/s
+Did 809000 AEAD-AES-256-GCM-SIV seal (256 bytes) operations in 500005us (1617983.8 ops/sec): 414.2 MB/s
+Did 541000 AEAD-AES-256-GCM-SIV seal (512 bytes) operations in 500648us (1080599.5 ops/sec): 553.3 MB/s
+Did 326000 AEAD-AES-256-GCM-SIV seal (1024 bytes) operations in 501347us (650248.2 ops/sec): 665.9 MB/s
+Did 96000 AEAD-AES-256-GCM-SIV seal (4096 bytes) operations in 500608us (191766.8 ops/sec): 785.5 MB/s
+Did 10331500 AEAD-AES-256-GCM-SIV open init operations in 500002us (20662917.3 ops/sec)
+Did 1560500 AEAD-AES-256-GCM-SIV open (16 bytes) operations in 500059us (3120631.8 ops/sec): 49.9 MB/s
+Did 1521000 AEAD-AES-256-GCM-SIV open (32 bytes) operations in 500152us (3041075.5 ops/sec): 97.3 MB/s
+Did 1396000 AEAD-AES-256-GCM-SIV open (64 bytes) operations in 500088us (2791508.7 ops/sec): 178.7 MB/s
+Did 1155750 AEAD-AES-256-GCM-SIV open (128 bytes) operations in 500057us (2311236.5 ops/sec): 295.8 MB/s
+Did 848750 AEAD-AES-256-GCM-SIV open (256 bytes) operations in 500022us (1697425.3 ops/sec): 434.5 MB/s
+Did 558000 AEAD-AES-256-GCM-SIV open (512 bytes) operations in 500183us (1115591.7 ops/sec): 571.2 MB/s
+Did 331000 AEAD-AES-256-GCM-SIV open (1024 bytes) operations in 501369us (660192.4 ops/sec): 676.0 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV open (4096 bytes) operations in 504342us (192329.8 ops/sec): 787.8 MB/s
+### rep=6 variant=A
+Did 4959000 AEAD-AES-256-GCM seal init operations in 500003us (9917940.5 ops/sec)
+Did 5007250 AEAD-AES-256-GCM seal (16 bytes) operations in 500010us (10014299.7 ops/sec): 160.2 MB/s
+Did 4911500 AEAD-AES-256-GCM seal (32 bytes) operations in 500006us (9822882.1 ops/sec): 314.3 MB/s
+Did 4713500 AEAD-AES-256-GCM seal (64 bytes) operations in 500009us (9426830.3 ops/sec): 603.3 MB/s
+Did 4056250 AEAD-AES-256-GCM seal (128 bytes) operations in 500029us (8112029.5 ops/sec): 1038.3 MB/s
+Did 3316500 AEAD-AES-256-GCM seal (256 bytes) operations in 500017us (6632774.5 ops/sec): 1698.0 MB/s
+Did 2579000 AEAD-AES-256-GCM seal (512 bytes) operations in 500042us (5157566.8 ops/sec): 2640.7 MB/s
+Did 1772500 AEAD-AES-256-GCM seal (1024 bytes) operations in 500047us (3544666.8 ops/sec): 3629.7 MB/s
+Did 617000 AEAD-AES-256-GCM seal (4096 bytes) operations in 500063us (1233844.5 ops/sec): 5053.8 MB/s
+Did 4962500 AEAD-AES-256-GCM open init operations in 500001us (9924980.2 ops/sec)
+Did 4494000 AEAD-AES-256-GCM open (16 bytes) operations in 500015us (8987730.4 ops/sec): 143.8 MB/s
+Did 4437000 AEAD-AES-256-GCM open (32 bytes) operations in 500027us (8873520.8 ops/sec): 284.0 MB/s
+Did 4364000 AEAD-AES-256-GCM open (64 bytes) operations in 500067us (8726830.6 ops/sec): 558.5 MB/s
+Did 3732000 AEAD-AES-256-GCM open (128 bytes) operations in 500012us (7463820.9 ops/sec): 955.4 MB/s
+Did 3014000 AEAD-AES-256-GCM open (256 bytes) operations in 500160us (6026071.7 ops/sec): 1542.7 MB/s
+Did 2309750 AEAD-AES-256-GCM open (512 bytes) operations in 500026us (4619259.8 ops/sec): 2365.1 MB/s
+Did 1616500 AEAD-AES-256-GCM open (1024 bytes) operations in 500008us (3232948.3 ops/sec): 3310.5 MB/s
+Did 611000 AEAD-AES-256-GCM open (4096 bytes) operations in 500371us (1221093.9 ops/sec): 5001.6 MB/s
+Did 10072750 AEAD-AES-256-GCM-SIV seal init operations in 500012us (20145016.5 ops/sec)
+Did 1592750 AEAD-AES-256-GCM-SIV seal (16 bytes) operations in 500046us (3185207.0 ops/sec): 51.0 MB/s
+Did 1511500 AEAD-AES-256-GCM-SIV seal (32 bytes) operations in 500042us (3022746.1 ops/sec): 96.7 MB/s
+Did 1375250 AEAD-AES-256-GCM-SIV seal (64 bytes) operations in 500076us (2750082.0 ops/sec): 176.0 MB/s
+Did 1140000 AEAD-AES-256-GCM-SIV seal (128 bytes) operations in 500051us (2279767.5 ops/sec): 291.8 MB/s
+Did 832000 AEAD-AES-256-GCM-SIV seal (256 bytes) operations in 500255us (1663151.8 ops/sec): 425.8 MB/s
+Did 551000 AEAD-AES-256-GCM-SIV seal (512 bytes) operations in 500059us (1101870.0 ops/sec): 564.2 MB/s
+Did 329000 AEAD-AES-256-GCM-SIV seal (1024 bytes) operations in 500074us (657902.6 ops/sec): 673.7 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV seal (4096 bytes) operations in 504045us (192443.1 ops/sec): 788.2 MB/s
+Did 10373000 AEAD-AES-256-GCM-SIV open init operations in 500015us (20745377.6 ops/sec)
+Did 1633000 AEAD-AES-256-GCM-SIV open (16 bytes) operations in 500219us (3264570.1 ops/sec): 52.2 MB/s
+Did 1582750 AEAD-AES-256-GCM-SIV open (32 bytes) operations in 500030us (3165310.1 ops/sec): 101.3 MB/s
+Did 1450500 AEAD-AES-256-GCM-SIV open (64 bytes) operations in 500041us (2900762.1 ops/sec): 185.6 MB/s
+Did 1191750 AEAD-AES-256-GCM-SIV open (128 bytes) operations in 500021us (2383399.9 ops/sec): 305.1 MB/s
+Did 870250 AEAD-AES-256-GCM-SIV open (256 bytes) operations in 500081us (1740218.1 ops/sec): 445.5 MB/s
+Did 566000 AEAD-AES-256-GCM-SIV open (512 bytes) operations in 500109us (1131753.3 ops/sec): 579.5 MB/s
+Did 334000 AEAD-AES-256-GCM-SIV open (1024 bytes) operations in 501314us (666249.1 ops/sec): 682.2 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV open (4096 bytes) operations in 503553us (192631.2 ops/sec): 789.0 MB/s
+### rep=6 variant=B
+Did 4942250 AEAD-AES-256-GCM seal init operations in 500004us (9884420.9 ops/sec)
+Did 4463250 AEAD-AES-256-GCM seal (16 bytes) operations in 500001us (8926482.1 ops/sec): 142.8 MB/s
+Did 4425000 AEAD-AES-256-GCM seal (32 bytes) operations in 500015us (8849734.5 ops/sec): 283.2 MB/s
+Did 4298750 AEAD-AES-256-GCM seal (64 bytes) operations in 500001us (8597482.8 ops/sec): 550.2 MB/s
+Did 3976750 AEAD-AES-256-GCM seal (128 bytes) operations in 500026us (7953086.4 ops/sec): 1018.0 MB/s
+Did 3361000 AEAD-AES-256-GCM seal (256 bytes) operations in 500069us (6721072.5 ops/sec): 1720.6 MB/s
+Did 2581750 AEAD-AES-256-GCM seal (512 bytes) operations in 500038us (5163107.6 ops/sec): 2643.5 MB/s
+Did 1777000 AEAD-AES-256-GCM seal (1024 bytes) operations in 500144us (3552976.7 ops/sec): 3638.2 MB/s
+Did 618000 AEAD-AES-256-GCM seal (4096 bytes) operations in 500213us (1235473.7 ops/sec): 5060.5 MB/s
+Did 4941250 AEAD-AES-256-GCM open init operations in 500023us (9882045.4 ops/sec)
+Did 4081750 AEAD-AES-256-GCM open (16 bytes) operations in 500009us (8163353.1 ops/sec): 130.6 MB/s
+Did 4017000 AEAD-AES-256-GCM open (32 bytes) operations in 500026us (8033582.3 ops/sec): 257.1 MB/s
+Did 3926750 AEAD-AES-256-GCM open (64 bytes) operations in 500013us (7853295.8 ops/sec): 502.6 MB/s
+Did 3904250 AEAD-AES-256-GCM open (128 bytes) operations in 500022us (7808156.4 ops/sec): 999.4 MB/s
+Did 3171250 AEAD-AES-256-GCM open (256 bytes) operations in 500029us (6342132.2 ops/sec): 1623.6 MB/s
+Did 2383000 AEAD-AES-256-GCM open (512 bytes) operations in 500110us (4764951.7 ops/sec): 2439.7 MB/s
+Did 1688000 AEAD-AES-256-GCM open (1024 bytes) operations in 500015us (3375898.7 ops/sec): 3456.9 MB/s
+Did 612750 AEAD-AES-256-GCM open (4096 bytes) operations in 500024us (1225441.2 ops/sec): 5019.4 MB/s
+Did 10068500 AEAD-AES-256-GCM-SIV seal init operations in 500001us (20136959.7 ops/sec)
+Did 1594000 AEAD-AES-256-GCM-SIV seal (16 bytes) operations in 500169us (3186922.8 ops/sec): 51.0 MB/s
+Did 1507000 AEAD-AES-256-GCM-SIV seal (32 bytes) operations in 500030us (3013819.2 ops/sec): 96.4 MB/s
+Did 1376000 AEAD-AES-256-GCM-SIV seal (64 bytes) operations in 500350us (2750074.9 ops/sec): 176.0 MB/s
+Did 1132250 AEAD-AES-256-GCM-SIV seal (128 bytes) operations in 500006us (2264472.8 ops/sec): 289.9 MB/s
+Did 825000 AEAD-AES-256-GCM-SIV seal (256 bytes) operations in 500502us (1648345.1 ops/sec): 422.0 MB/s
+Did 544000 AEAD-AES-256-GCM-SIV seal (512 bytes) operations in 500413us (1087102.1 ops/sec): 556.6 MB/s
+Did 324000 AEAD-AES-256-GCM-SIV seal (1024 bytes) operations in 501220us (646422.7 ops/sec): 661.9 MB/s
+Did 95000 AEAD-AES-256-GCM-SIV seal (4096 bytes) operations in 504566us (188280.6 ops/sec): 771.2 MB/s
+Did 10074250 AEAD-AES-256-GCM-SIV open init operations in 500013us (20147976.2 ops/sec)
+Did 1592000 AEAD-AES-256-GCM-SIV open (16 bytes) operations in 500049us (3183688.0 ops/sec): 50.9 MB/s
+Did 1546500 AEAD-AES-256-GCM-SIV open (32 bytes) operations in 500075us (3092536.1 ops/sec): 99.0 MB/s
+Did 1416250 AEAD-AES-256-GCM-SIV open (64 bytes) operations in 500005us (2832471.7 ops/sec): 181.3 MB/s
+Did 1168000 AEAD-AES-256-GCM-SIV open (128 bytes) operations in 500106us (2335504.9 ops/sec): 298.9 MB/s
+Did 858000 AEAD-AES-256-GCM-SIV open (256 bytes) operations in 500568us (1714052.8 ops/sec): 438.8 MB/s
+Did 561000 AEAD-AES-256-GCM-SIV open (512 bytes) operations in 500860us (1120073.5 ops/sec): 573.5 MB/s
+Did 331000 AEAD-AES-256-GCM-SIV open (1024 bytes) operations in 500238us (661685.0 ops/sec): 677.6 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV open (4096 bytes) operations in 504386us (192313.0 ops/sec): 787.7 MB/s
+### rep=6 variant=C
+Did 4964500 AEAD-AES-256-GCM seal init operations in 500011us (9928781.6 ops/sec)
+Did 4456000 AEAD-AES-256-GCM seal (16 bytes) operations in 500056us (8911002.0 ops/sec): 142.6 MB/s
+Did 4427000 AEAD-AES-256-GCM seal (32 bytes) operations in 500013us (8853769.8 ops/sec): 283.3 MB/s
+Did 4293500 AEAD-AES-256-GCM seal (64 bytes) operations in 500025us (8586570.7 ops/sec): 549.5 MB/s
+Did 3978250 AEAD-AES-256-GCM seal (128 bytes) operations in 500007us (7956388.6 ops/sec): 1018.4 MB/s
+Did 3351250 AEAD-AES-256-GCM seal (256 bytes) operations in 500002us (6702473.2 ops/sec): 1715.8 MB/s
+Did 2582250 AEAD-AES-256-GCM seal (512 bytes) operations in 500011us (5164386.4 ops/sec): 2644.2 MB/s
+Did 1778000 AEAD-AES-256-GCM seal (1024 bytes) operations in 500153us (3554912.2 ops/sec): 3640.2 MB/s
+Did 618000 AEAD-AES-256-GCM seal (4096 bytes) operations in 500515us (1234728.2 ops/sec): 5057.4 MB/s
+Did 4961750 AEAD-AES-256-GCM open init operations in 500010us (9923301.5 ops/sec)
+Did 4598000 AEAD-AES-256-GCM open (16 bytes) operations in 500104us (9194087.6 ops/sec): 147.1 MB/s
+Did 4544750 AEAD-AES-256-GCM open (32 bytes) operations in 500005us (9089409.1 ops/sec): 290.9 MB/s
+Did 4448500 AEAD-AES-256-GCM open (64 bytes) operations in 500013us (8896768.7 ops/sec): 569.4 MB/s
+Did 3882500 AEAD-AES-256-GCM open (128 bytes) operations in 500004us (7764937.9 ops/sec): 993.9 MB/s
+Did 3186000 AEAD-AES-256-GCM open (256 bytes) operations in 500029us (6371630.4 ops/sec): 1631.1 MB/s
+Did 2368250 AEAD-AES-256-GCM open (512 bytes) operations in 500028us (4736234.8 ops/sec): 2425.0 MB/s
+Did 1686750 AEAD-AES-256-GCM open (1024 bytes) operations in 500057us (3373115.5 ops/sec): 3454.1 MB/s
+Did 618000 AEAD-AES-256-GCM open (4096 bytes) operations in 500346us (1235145.3 ops/sec): 5059.2 MB/s
+Did 10088750 AEAD-AES-256-GCM-SIV seal init operations in 500004us (20177338.6 ops/sec)
+Did 1594000 AEAD-AES-256-GCM-SIV seal (16 bytes) operations in 500234us (3186508.7 ops/sec): 51.0 MB/s
+Did 1512000 AEAD-AES-256-GCM-SIV seal (32 bytes) operations in 500003us (3023981.9 ops/sec): 96.8 MB/s
+Did 1376000 AEAD-AES-256-GCM-SIV seal (64 bytes) operations in 500334us (2750162.9 ops/sec): 176.0 MB/s
+Did 1140500 AEAD-AES-256-GCM-SIV seal (128 bytes) operations in 500078us (2280644.2 ops/sec): 291.9 MB/s
+Did 833000 AEAD-AES-256-GCM-SIV seal (256 bytes) operations in 500028us (1665906.7 ops/sec): 426.5 MB/s
+Did 551000 AEAD-AES-256-GCM-SIV seal (512 bytes) operations in 500045us (1101900.8 ops/sec): 564.2 MB/s
+Did 329000 AEAD-AES-256-GCM-SIV seal (1024 bytes) operations in 500210us (657723.8 ops/sec): 673.5 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV seal (4096 bytes) operations in 504078us (192430.5 ops/sec): 788.2 MB/s
+Did 10319250 AEAD-AES-256-GCM-SIV open init operations in 500001us (20638458.7 ops/sec)
+Did 1633000 AEAD-AES-256-GCM-SIV open (16 bytes) operations in 500040us (3265738.7 ops/sec): 52.3 MB/s
+Did 1587000 AEAD-AES-256-GCM-SIV open (32 bytes) operations in 500116us (3173263.8 ops/sec): 101.5 MB/s
+Did 1452250 AEAD-AES-256-GCM-SIV open (64 bytes) operations in 500014us (2904418.7 ops/sec): 185.9 MB/s
+Did 1192500 AEAD-AES-256-GCM-SIV open (128 bytes) operations in 500042us (2384799.7 ops/sec): 305.3 MB/s
+Did 869500 AEAD-AES-256-GCM-SIV open (256 bytes) operations in 500023us (1738920.0 ops/sec): 445.2 MB/s
+Did 567000 AEAD-AES-256-GCM-SIV open (512 bytes) operations in 500527us (1132806.0 ops/sec): 580.0 MB/s
+Did 334000 AEAD-AES-256-GCM-SIV open (1024 bytes) operations in 501319us (666242.5 ops/sec): 682.2 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV open (4096 bytes) operations in 503177us (192775.1 ops/sec): 789.6 MB/s
+### rep=7 variant=A
+Did 4943750 AEAD-AES-256-GCM seal init operations in 500008us (9887341.8 ops/sec)
+Did 4965750 AEAD-AES-256-GCM seal (16 bytes) operations in 500004us (9931420.5 ops/sec): 158.9 MB/s
+Did 4895000 AEAD-AES-256-GCM seal (32 bytes) operations in 500016us (9789686.7 ops/sec): 313.3 MB/s
+Did 4704000 AEAD-AES-256-GCM seal (64 bytes) operations in 500019us (9407642.5 ops/sec): 602.1 MB/s
+Did 4048500 AEAD-AES-256-GCM seal (128 bytes) operations in 500030us (8096514.2 ops/sec): 1036.4 MB/s
+Did 3313750 AEAD-AES-256-GCM seal (256 bytes) operations in 500024us (6627181.9 ops/sec): 1696.6 MB/s
+Did 2570250 AEAD-AES-256-GCM seal (512 bytes) operations in 500046us (5140027.1 ops/sec): 2631.7 MB/s
+Did 1765750 AEAD-AES-256-GCM seal (1024 bytes) operations in 500037us (3531238.7 ops/sec): 3616.0 MB/s
+Did 614000 AEAD-AES-256-GCM seal (4096 bytes) operations in 500433us (1226937.5 ops/sec): 5025.5 MB/s
+Did 4949000 AEAD-AES-256-GCM open init operations in 500070us (9896614.5 ops/sec)
+Did 4498000 AEAD-AES-256-GCM open (16 bytes) operations in 500017us (8995694.1 ops/sec): 143.9 MB/s
+Did 4438000 AEAD-AES-256-GCM open (32 bytes) operations in 500007us (8875875.7 ops/sec): 284.0 MB/s
+Did 4357750 AEAD-AES-256-GCM open (64 bytes) operations in 500015us (8715238.5 ops/sec): 557.8 MB/s
+Did 3730000 AEAD-AES-256-GCM open (128 bytes) operations in 500001us (7459985.1 ops/sec): 954.9 MB/s
+Did 3006500 AEAD-AES-256-GCM open (256 bytes) operations in 500018us (6012783.5 ops/sec): 1539.3 MB/s
+Did 2308500 AEAD-AES-256-GCM open (512 bytes) operations in 500016us (4616852.3 ops/sec): 2363.8 MB/s
+Did 1646000 AEAD-AES-256-GCM open (1024 bytes) operations in 500156us (3290973.2 ops/sec): 3370.0 MB/s
+Did 610000 AEAD-AES-256-GCM open (4096 bytes) operations in 500630us (1218464.7 ops/sec): 4990.8 MB/s
+Did 10019500 AEAD-AES-256-GCM-SIV seal init operations in 500009us (20038639.3 ops/sec)
+Did 1530500 AEAD-AES-256-GCM-SIV seal (16 bytes) operations in 500072us (3060559.3 ops/sec): 49.0 MB/s
+Did 1460000 AEAD-AES-256-GCM-SIV seal (32 bytes) operations in 500017us (2919900.7 ops/sec): 93.4 MB/s
+Did 1330750 AEAD-AES-256-GCM-SIV seal (64 bytes) operations in 500007us (2661462.7 ops/sec): 170.3 MB/s
+Did 1108500 AEAD-AES-256-GCM-SIV seal (128 bytes) operations in 500021us (2216906.9 ops/sec): 283.8 MB/s
+Did 821000 AEAD-AES-256-GCM-SIV seal (256 bytes) operations in 500053us (1641826.0 ops/sec): 420.3 MB/s
+Did 546000 AEAD-AES-256-GCM-SIV seal (512 bytes) operations in 500630us (1090625.8 ops/sec): 558.4 MB/s
+Did 328000 AEAD-AES-256-GCM-SIV seal (1024 bytes) operations in 501455us (654096.6 ops/sec): 669.8 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV seal (4096 bytes) operations in 504623us (192222.7 ops/sec): 787.3 MB/s
+Did 10001750 AEAD-AES-256-GCM-SIV open init operations in 500012us (20003019.9 ops/sec)
+Did 1628250 AEAD-AES-256-GCM-SIV open (16 bytes) operations in 500059us (3256115.8 ops/sec): 52.1 MB/s
+Did 1581000 AEAD-AES-256-GCM-SIV open (32 bytes) operations in 500141us (3161108.6 ops/sec): 101.2 MB/s
+Did 1443250 AEAD-AES-256-GCM-SIV open (64 bytes) operations in 500006us (2886465.4 ops/sec): 184.7 MB/s
+Did 1189000 AEAD-AES-256-GCM-SIV open (128 bytes) operations in 500079us (2377624.3 ops/sec): 304.3 MB/s
+Did 869000 AEAD-AES-256-GCM-SIV open (256 bytes) operations in 500555us (1736073.0 ops/sec): 444.4 MB/s
+Did 566000 AEAD-AES-256-GCM-SIV open (512 bytes) operations in 500671us (1130482.9 ops/sec): 578.8 MB/s
+Did 333000 AEAD-AES-256-GCM-SIV open (1024 bytes) operations in 500182us (665757.7 ops/sec): 681.7 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV open (4096 bytes) operations in 503387us (192694.7 ops/sec): 789.3 MB/s
+### rep=7 variant=B
+Did 4944250 AEAD-AES-256-GCM seal init operations in 500019us (9888124.3 ops/sec)
+Did 4461250 AEAD-AES-256-GCM seal (16 bytes) operations in 500025us (8922053.9 ops/sec): 142.8 MB/s
+Did 4427000 AEAD-AES-256-GCM seal (32 bytes) operations in 500021us (8853628.1 ops/sec): 283.3 MB/s
+Did 4296250 AEAD-AES-256-GCM seal (64 bytes) operations in 500009us (8592345.3 ops/sec): 549.9 MB/s
+Did 3976750 AEAD-AES-256-GCM seal (128 bytes) operations in 500012us (7953309.1 ops/sec): 1018.0 MB/s
+Did 3351500 AEAD-AES-256-GCM seal (256 bytes) operations in 500035us (6702530.8 ops/sec): 1715.8 MB/s
+Did 2588000 AEAD-AES-256-GCM seal (512 bytes) operations in 500137us (5174582.2 ops/sec): 2649.4 MB/s
+Did 1774500 AEAD-AES-256-GCM seal (1024 bytes) operations in 500053us (3548623.8 ops/sec): 3633.8 MB/s
+Did 618000 AEAD-AES-256-GCM seal (4096 bytes) operations in 500722us (1234217.8 ops/sec): 5055.4 MB/s
+Did 4937750 AEAD-AES-256-GCM open init operations in 500010us (9875302.5 ops/sec)
+Did 4083000 AEAD-AES-256-GCM open (16 bytes) operations in 500021us (8165657.0 ops/sec): 130.7 MB/s
+Did 4020750 AEAD-AES-256-GCM open (32 bytes) operations in 500010us (8041339.2 ops/sec): 257.3 MB/s
+Did 3928000 AEAD-AES-256-GCM open (64 bytes) operations in 500004us (7855937.2 ops/sec): 502.8 MB/s
+Did 3904000 AEAD-AES-256-GCM open (128 bytes) operations in 500011us (7807828.2 ops/sec): 999.4 MB/s
+Did 3180000 AEAD-AES-256-GCM open (256 bytes) operations in 500142us (6358194.3 ops/sec): 1627.7 MB/s
+Did 2385000 AEAD-AES-256-GCM open (512 bytes) operations in 500090us (4769141.6 ops/sec): 2441.8 MB/s
+Did 1691000 AEAD-AES-256-GCM open (1024 bytes) operations in 500062us (3381580.7 ops/sec): 3462.7 MB/s
+Did 613000 AEAD-AES-256-GCM open (4096 bytes) operations in 500025us (1225938.7 ops/sec): 5021.4 MB/s
+Did 10080000 AEAD-AES-256-GCM-SIV seal init operations in 500005us (20159798.4 ops/sec)
+Did 1594000 AEAD-AES-256-GCM-SIV seal (16 bytes) operations in 500120us (3187235.1 ops/sec): 51.0 MB/s
+Did 1508000 AEAD-AES-256-GCM-SIV seal (32 bytes) operations in 500082us (3015505.5 ops/sec): 96.5 MB/s
+Did 1373500 AEAD-AES-256-GCM-SIV seal (64 bytes) operations in 500077us (2746577.0 ops/sec): 175.8 MB/s
+Did 1133000 AEAD-AES-256-GCM-SIV seal (128 bytes) operations in 500375us (2264301.8 ops/sec): 289.8 MB/s
+Did 825000 AEAD-AES-256-GCM-SIV seal (256 bytes) operations in 500416us (1648628.3 ops/sec): 422.0 MB/s
+Did 544000 AEAD-AES-256-GCM-SIV seal (512 bytes) operations in 500055us (1087880.3 ops/sec): 557.0 MB/s
+Did 323000 AEAD-AES-256-GCM-SIV seal (1024 bytes) operations in 500214us (645723.6 ops/sec): 661.2 MB/s
+Did 95000 AEAD-AES-256-GCM-SIV seal (4096 bytes) operations in 504618us (188261.2 ops/sec): 771.1 MB/s
+Did 10369750 AEAD-AES-256-GCM-SIV open init operations in 500012us (20739002.3 ops/sec)
+Did 1593000 AEAD-AES-256-GCM-SIV open (16 bytes) operations in 500284us (3184191.4 ops/sec): 50.9 MB/s
+Did 1547000 AEAD-AES-256-GCM-SIV open (32 bytes) operations in 500114us (3093294.7 ops/sec): 99.0 MB/s
+Did 1418000 AEAD-AES-256-GCM-SIV open (64 bytes) operations in 500321us (2834180.5 ops/sec): 181.4 MB/s
+Did 1168000 AEAD-AES-256-GCM-SIV open (128 bytes) operations in 500239us (2334883.9 ops/sec): 298.9 MB/s
+Did 857000 AEAD-AES-256-GCM-SIV open (256 bytes) operations in 500062us (1713787.5 ops/sec): 438.7 MB/s
+Did 560500 AEAD-AES-256-GCM-SIV open (512 bytes) operations in 500060us (1120865.5 ops/sec): 573.9 MB/s
+Did 331000 AEAD-AES-256-GCM-SIV open (1024 bytes) operations in 500069us (661908.7 ops/sec): 677.8 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV open (4096 bytes) operations in 504387us (192312.6 ops/sec): 787.7 MB/s
+### rep=7 variant=C
+Did 4963000 AEAD-AES-256-GCM seal init operations in 500013us (9925741.9 ops/sec)
+Did 4452500 AEAD-AES-256-GCM seal (16 bytes) operations in 500014us (8904750.7 ops/sec): 142.5 MB/s
+Did 4426000 AEAD-AES-256-GCM seal (32 bytes) operations in 500003us (8851946.9 ops/sec): 283.3 MB/s
+Did 4293000 AEAD-AES-256-GCM seal (64 bytes) operations in 500018us (8585690.9 ops/sec): 549.5 MB/s
+Did 3978250 AEAD-AES-256-GCM seal (128 bytes) operations in 500021us (7956165.8 ops/sec): 1018.4 MB/s
+Did 3358000 AEAD-AES-256-GCM seal (256 bytes) operations in 500131us (6714240.9 ops/sec): 1718.8 MB/s
+Did 2582000 AEAD-AES-256-GCM seal (512 bytes) operations in 500038us (5163607.6 ops/sec): 2643.8 MB/s
+Did 1774000 AEAD-AES-256-GCM seal (1024 bytes) operations in 500060us (3547574.3 ops/sec): 3632.7 MB/s
+Did 618000 AEAD-AES-256-GCM seal (4096 bytes) operations in 500408us (1234992.2 ops/sec): 5058.5 MB/s
+Did 4967000 AEAD-AES-256-GCM open init operations in 500013us (9933741.7 ops/sec)
+Did 4593500 AEAD-AES-256-GCM open (16 bytes) operations in 500015us (9186724.4 ops/sec): 147.0 MB/s
+Did 4542000 AEAD-AES-256-GCM open (32 bytes) operations in 500002us (9083963.7 ops/sec): 290.7 MB/s
+Did 4452000 AEAD-AES-256-GCM open (64 bytes) operations in 500008us (8903857.5 ops/sec): 569.8 MB/s
+Did 3883000 AEAD-AES-256-GCM open (128 bytes) operations in 500030us (7765534.1 ops/sec): 994.0 MB/s
+Did 3184000 AEAD-AES-256-GCM open (256 bytes) operations in 500017us (6367783.5 ops/sec): 1630.2 MB/s
+Did 2361000 AEAD-AES-256-GCM open (512 bytes) operations in 500091us (4721140.8 ops/sec): 2417.2 MB/s
+Did 1683000 AEAD-AES-256-GCM open (1024 bytes) operations in 500126us (3365152.0 ops/sec): 3445.9 MB/s
+Did 618000 AEAD-AES-256-GCM open (4096 bytes) operations in 500135us (1235666.4 ops/sec): 5061.3 MB/s
+Did 10106000 AEAD-AES-256-GCM-SIV seal init operations in 500038us (20210464.0 ops/sec)
+Did 1567500 AEAD-AES-256-GCM-SIV seal (16 bytes) operations in 500013us (3134918.5 ops/sec): 50.2 MB/s
+Did 1493500 AEAD-AES-256-GCM-SIV seal (32 bytes) operations in 500081us (2986516.2 ops/sec): 95.6 MB/s
+Did 1362500 AEAD-AES-256-GCM-SIV seal (64 bytes) operations in 500073us (2724602.2 ops/sec): 174.4 MB/s
+Did 1132000 AEAD-AES-256-GCM-SIV seal (128 bytes) operations in 500063us (2263714.8 ops/sec): 289.8 MB/s
+Did 825750 AEAD-AES-256-GCM-SIV seal (256 bytes) operations in 500075us (1651252.3 ops/sec): 422.7 MB/s
+Did 549250 AEAD-AES-256-GCM-SIV seal (512 bytes) operations in 500165us (1098137.6 ops/sec): 562.2 MB/s
+Did 329000 AEAD-AES-256-GCM-SIV seal (1024 bytes) operations in 500280us (657631.7 ops/sec): 673.4 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV seal (4096 bytes) operations in 504117us (192415.6 ops/sec): 788.1 MB/s
+Did 10362250 AEAD-AES-256-GCM-SIV open init operations in 500005us (20724292.8 ops/sec)
+Did 1633000 AEAD-AES-256-GCM-SIV open (16 bytes) operations in 500053us (3265653.8 ops/sec): 52.3 MB/s
+Did 1586250 AEAD-AES-256-GCM-SIV open (32 bytes) operations in 500073us (3172036.9 ops/sec): 101.5 MB/s
+Did 1452750 AEAD-AES-256-GCM-SIV open (64 bytes) operations in 500082us (2905023.6 ops/sec): 185.9 MB/s
+Did 1192500 AEAD-AES-256-GCM-SIV open (128 bytes) operations in 500103us (2384508.8 ops/sec): 305.2 MB/s
+Did 870000 AEAD-AES-256-GCM-SIV open (256 bytes) operations in 500302us (1738949.7 ops/sec): 445.2 MB/s
+Did 567000 AEAD-AES-256-GCM-SIV open (512 bytes) operations in 500610us (1132618.2 ops/sec): 579.9 MB/s
+Did 334000 AEAD-AES-256-GCM-SIV open (1024 bytes) operations in 501301us (666266.4 ops/sec): 682.3 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV open (4096 bytes) operations in 502995us (192844.9 ops/sec): 789.9 MB/s
+### rep=8 variant=A
+Did 4896250 AEAD-AES-256-GCM seal init operations in 500014us (9792225.8 ops/sec)
+Did 4832250 AEAD-AES-256-GCM seal (16 bytes) operations in 500018us (9664152.1 ops/sec): 154.6 MB/s
+Did 4770500 AEAD-AES-256-GCM seal (32 bytes) operations in 500023us (9540561.1 ops/sec): 305.3 MB/s
+Did 4584000 AEAD-AES-256-GCM seal (64 bytes) operations in 500009us (9167835.0 ops/sec): 586.7 MB/s
+Did 3959250 AEAD-AES-256-GCM seal (128 bytes) operations in 500032us (7917993.2 ops/sec): 1013.5 MB/s
+Did 3268000 AEAD-AES-256-GCM seal (256 bytes) operations in 500108us (6534588.5 ops/sec): 1672.9 MB/s
+Did 2539500 AEAD-AES-256-GCM seal (512 bytes) operations in 500011us (5078888.3 ops/sec): 2600.4 MB/s
+Did 1756000 AEAD-AES-256-GCM seal (1024 bytes) operations in 500090us (3511368.0 ops/sec): 3595.6 MB/s
+Did 615000 AEAD-AES-256-GCM seal (4096 bytes) operations in 500438us (1228923.5 ops/sec): 5033.7 MB/s
+Did 4888000 AEAD-AES-256-GCM open init operations in 500023us (9775550.3 ops/sec)
+Did 4549500 AEAD-AES-256-GCM open (16 bytes) operations in 500027us (9098508.7 ops/sec): 145.6 MB/s
+Did 4481250 AEAD-AES-256-GCM open (32 bytes) operations in 500003us (8962446.2 ops/sec): 286.8 MB/s
+Did 4405500 AEAD-AES-256-GCM open (64 bytes) operations in 500008us (8810859.0 ops/sec): 563.9 MB/s
+Did 3770250 AEAD-AES-256-GCM open (128 bytes) operations in 500017us (7540243.6 ops/sec): 965.2 MB/s
+Did 3032250 AEAD-AES-256-GCM open (256 bytes) operations in 500022us (6064233.2 ops/sec): 1552.4 MB/s
+Did 2319500 AEAD-AES-256-GCM open (512 bytes) operations in 500045us (4638582.5 ops/sec): 2375.0 MB/s
+Did 1652250 AEAD-AES-256-GCM open (1024 bytes) operations in 500052us (3304156.4 ops/sec): 3383.5 MB/s
+Did 613000 AEAD-AES-256-GCM open (4096 bytes) operations in 500615us (1224493.9 ops/sec): 5015.5 MB/s
+Did 10348000 AEAD-AES-256-GCM-SIV seal init operations in 500024us (20695006.6 ops/sec)
+Did 1593250 AEAD-AES-256-GCM-SIV seal (16 bytes) operations in 500018us (3186385.3 ops/sec): 51.0 MB/s
+Did 1509750 AEAD-AES-256-GCM-SIV seal (32 bytes) operations in 500043us (3019240.3 ops/sec): 96.6 MB/s
+Did 1379000 AEAD-AES-256-GCM-SIV seal (64 bytes) operations in 500366us (2755982.6 ops/sec): 176.4 MB/s
+Did 1141000 AEAD-AES-256-GCM-SIV seal (128 bytes) operations in 500025us (2281885.9 ops/sec): 292.1 MB/s
+Did 836000 AEAD-AES-256-GCM-SIV seal (256 bytes) operations in 500047us (1671842.8 ops/sec): 428.0 MB/s
+Did 552000 AEAD-AES-256-GCM-SIV seal (512 bytes) operations in 500578us (1102725.2 ops/sec): 564.6 MB/s
+Did 329000 AEAD-AES-256-GCM-SIV seal (1024 bytes) operations in 500063us (657917.1 ops/sec): 673.7 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV seal (4096 bytes) operations in 504129us (192411.1 ops/sec): 788.1 MB/s
+Did 10313000 AEAD-AES-256-GCM-SIV open init operations in 500011us (20625546.2 ops/sec)
+Did 1625000 AEAD-AES-256-GCM-SIV open (16 bytes) operations in 500098us (3249363.1 ops/sec): 52.0 MB/s
+Did 1576500 AEAD-AES-256-GCM-SIV open (32 bytes) operations in 500036us (3152773.0 ops/sec): 100.9 MB/s
+Did 1442000 AEAD-AES-256-GCM-SIV open (64 bytes) operations in 500007us (2883959.6 ops/sec): 184.6 MB/s
+Did 1183250 AEAD-AES-256-GCM-SIV open (128 bytes) operations in 500001us (2366495.3 ops/sec): 302.9 MB/s
+Did 861000 AEAD-AES-256-GCM-SIV open (256 bytes) operations in 500306us (1720946.8 ops/sec): 440.6 MB/s
+Did 558000 AEAD-AES-256-GCM-SIV open (512 bytes) operations in 500175us (1115609.5 ops/sec): 571.2 MB/s
+Did 328000 AEAD-AES-256-GCM-SIV open (1024 bytes) operations in 501357us (654224.4 ops/sec): 669.9 MB/s
+Did 95000 AEAD-AES-256-GCM-SIV open (4096 bytes) operations in 502518us (189048.0 ops/sec): 774.3 MB/s
+### rep=8 variant=B
+Did 4948000 AEAD-AES-256-GCM seal init operations in 500009us (9895821.9 ops/sec)
+Did 4447000 AEAD-AES-256-GCM seal (16 bytes) operations in 500022us (8893608.7 ops/sec): 142.3 MB/s
+Did 4423250 AEAD-AES-256-GCM seal (32 bytes) operations in 500020us (8846146.2 ops/sec): 283.1 MB/s
+Did 4298500 AEAD-AES-256-GCM seal (64 bytes) operations in 500011us (8596810.9 ops/sec): 550.2 MB/s
+Did 3982500 AEAD-AES-256-GCM seal (128 bytes) operations in 500006us (7964904.4 ops/sec): 1019.5 MB/s
+Did 3356500 AEAD-AES-256-GCM seal (256 bytes) operations in 500008us (6712892.6 ops/sec): 1718.5 MB/s
+Did 2591000 AEAD-AES-256-GCM seal (512 bytes) operations in 500071us (5181264.3 ops/sec): 2652.8 MB/s
+Did 1776750 AEAD-AES-256-GCM seal (1024 bytes) operations in 500029us (3553293.9 ops/sec): 3638.6 MB/s
+Did 618000 AEAD-AES-256-GCM seal (4096 bytes) operations in 500086us (1235787.4 ops/sec): 5061.8 MB/s
+Did 4951250 AEAD-AES-256-GCM open init operations in 500023us (9902044.5 ops/sec)
+Did 4089500 AEAD-AES-256-GCM open (16 bytes) operations in 500020us (8178672.9 ops/sec): 130.9 MB/s
+Did 4019250 AEAD-AES-256-GCM open (32 bytes) operations in 500028us (8038049.9 ops/sec): 257.2 MB/s
+Did 3921000 AEAD-AES-256-GCM open (64 bytes) operations in 500010us (7841843.2 ops/sec): 501.9 MB/s
+Did 3903250 AEAD-AES-256-GCM open (128 bytes) operations in 500029us (7806047.2 ops/sec): 999.2 MB/s
+Did 3180000 AEAD-AES-256-GCM open (256 bytes) operations in 500021us (6359732.9 ops/sec): 1628.1 MB/s
+Did 2383000 AEAD-AES-256-GCM open (512 bytes) operations in 500160us (4764475.4 ops/sec): 2439.4 MB/s
+Did 1689250 AEAD-AES-256-GCM open (1024 bytes) operations in 500055us (3378128.4 ops/sec): 3459.2 MB/s
+Did 613000 AEAD-AES-256-GCM open (4096 bytes) operations in 500041us (1225899.5 ops/sec): 5021.3 MB/s
+Did 10063500 AEAD-AES-256-GCM-SIV seal init operations in 500010us (20126597.5 ops/sec)
+Did 1593000 AEAD-AES-256-GCM-SIV seal (16 bytes) operations in 500007us (3185955.4 ops/sec): 51.0 MB/s
+Did 1506500 AEAD-AES-256-GCM-SIV seal (32 bytes) operations in 500057us (3012656.6 ops/sec): 96.4 MB/s
+Did 1373000 AEAD-AES-256-GCM-SIV seal (64 bytes) operations in 500050us (2745725.4 ops/sec): 175.7 MB/s
+Did 1133000 AEAD-AES-256-GCM-SIV seal (128 bytes) operations in 500227us (2264971.7 ops/sec): 289.9 MB/s
+Did 825250 AEAD-AES-256-GCM-SIV seal (256 bytes) operations in 500148us (1650011.6 ops/sec): 422.4 MB/s
+Did 544000 AEAD-AES-256-GCM-SIV seal (512 bytes) operations in 500439us (1087045.6 ops/sec): 556.6 MB/s
+Did 323000 AEAD-AES-256-GCM-SIV seal (1024 bytes) operations in 500043us (645944.4 ops/sec): 661.4 MB/s
+Did 95000 AEAD-AES-256-GCM-SIV seal (4096 bytes) operations in 504642us (188252.3 ops/sec): 771.1 MB/s
+Did 10374000 AEAD-AES-256-GCM-SIV open init operations in 500011us (20747543.6 ops/sec)
+Did 1593000 AEAD-AES-256-GCM-SIV open (16 bytes) operations in 500299us (3184095.9 ops/sec): 50.9 MB/s
+Did 1546250 AEAD-AES-256-GCM-SIV open (32 bytes) operations in 500003us (3092481.4 ops/sec): 99.0 MB/s
+Did 1416000 AEAD-AES-256-GCM-SIV open (64 bytes) operations in 500014us (2831920.7 ops/sec): 181.2 MB/s
+Did 1168000 AEAD-AES-256-GCM-SIV open (128 bytes) operations in 500061us (2335715.0 ops/sec): 299.0 MB/s
+Did 857000 AEAD-AES-256-GCM-SIV open (256 bytes) operations in 500028us (1713904.0 ops/sec): 438.8 MB/s
+Did 561000 AEAD-AES-256-GCM-SIV open (512 bytes) operations in 500155us (1121652.3 ops/sec): 574.3 MB/s
+Did 332000 AEAD-AES-256-GCM-SIV open (1024 bytes) operations in 501508us (662003.4 ops/sec): 677.9 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV open (4096 bytes) operations in 504341us (192330.2 ops/sec): 787.8 MB/s
+### rep=8 variant=C
+Did 4887750 AEAD-AES-256-GCM seal init operations in 500020us (9775109.0 ops/sec)
+Did 4303500 AEAD-AES-256-GCM seal (16 bytes) operations in 500009us (8606845.1 ops/sec): 137.7 MB/s
+Did 4284000 AEAD-AES-256-GCM seal (32 bytes) operations in 500015us (8567743.0 ops/sec): 274.2 MB/s
+Did 4165250 AEAD-AES-256-GCM seal (64 bytes) operations in 500024us (8330100.2 ops/sec): 533.1 MB/s
+Did 3865250 AEAD-AES-256-GCM seal (128 bytes) operations in 500012us (7730314.5 ops/sec): 989.5 MB/s
+Did 3270500 AEAD-AES-256-GCM seal (256 bytes) operations in 500031us (6540594.5 ops/sec): 1674.4 MB/s
+Did 2537750 AEAD-AES-256-GCM seal (512 bytes) operations in 500005us (5075449.2 ops/sec): 2598.6 MB/s
+Did 1753000 AEAD-AES-256-GCM seal (1024 bytes) operations in 500010us (3505929.9 ops/sec): 3590.1 MB/s
+Did 615000 AEAD-AES-256-GCM seal (4096 bytes) operations in 500651us (1228400.6 ops/sec): 5031.5 MB/s
+Did 4892750 AEAD-AES-256-GCM open init operations in 500017us (9785167.3 ops/sec)
+Did 4650000 AEAD-AES-256-GCM open (16 bytes) operations in 500081us (9298493.6 ops/sec): 148.8 MB/s
+Did 4598500 AEAD-AES-256-GCM open (32 bytes) operations in 500006us (9196889.6 ops/sec): 294.3 MB/s
+Did 4523000 AEAD-AES-256-GCM open (64 bytes) operations in 500011us (9045801.0 ops/sec): 578.9 MB/s
+Did 3947500 AEAD-AES-256-GCM open (128 bytes) operations in 500029us (7894542.1 ops/sec): 1010.5 MB/s
+Did 3208000 AEAD-AES-256-GCM open (256 bytes) operations in 500035us (6415550.9 ops/sec): 1642.4 MB/s
+Did 2371000 AEAD-AES-256-GCM open (512 bytes) operations in 500032us (4741696.5 ops/sec): 2427.7 MB/s
+Did 1688000 AEAD-AES-256-GCM open (1024 bytes) operations in 500009us (3375939.2 ops/sec): 3457.0 MB/s
+Did 617000 AEAD-AES-256-GCM open (4096 bytes) operations in 500643us (1232415.1 ops/sec): 5048.0 MB/s
+Did 10014250 AEAD-AES-256-GCM-SIV seal init operations in 500007us (20028219.6 ops/sec)
+Did 1593000 AEAD-AES-256-GCM-SIV seal (16 bytes) operations in 500269us (3184286.9 ops/sec): 50.9 MB/s
+Did 1508000 AEAD-AES-256-GCM-SIV seal (32 bytes) operations in 500063us (3015620.0 ops/sec): 96.5 MB/s
+Did 1377000 AEAD-AES-256-GCM-SIV seal (64 bytes) operations in 500329us (2752189.1 ops/sec): 176.1 MB/s
+Did 1139750 AEAD-AES-256-GCM-SIV seal (128 bytes) operations in 500009us (2279459.0 ops/sec): 291.8 MB/s
+Did 833000 AEAD-AES-256-GCM-SIV seal (256 bytes) operations in 500110us (1665633.6 ops/sec): 426.4 MB/s
+Did 552000 AEAD-AES-256-GCM-SIV seal (512 bytes) operations in 500179us (1103604.9 ops/sec): 565.0 MB/s
+Did 330000 AEAD-AES-256-GCM-SIV seal (1024 bytes) operations in 501171us (658457.9 ops/sec): 674.3 MB/s
+Did 97000 AEAD-AES-256-GCM-SIV seal (4096 bytes) operations in 503526us (192641.5 ops/sec): 789.1 MB/s
+Did 10181250 AEAD-AES-256-GCM-SIV open init operations in 500003us (20362377.8 ops/sec)
+Did 1625250 AEAD-AES-256-GCM-SIV open (16 bytes) operations in 500018us (3250383.0 ops/sec): 52.0 MB/s
+Did 1577750 AEAD-AES-256-GCM-SIV open (32 bytes) operations in 500064us (3155096.1 ops/sec): 101.0 MB/s
+Did 1447000 AEAD-AES-256-GCM-SIV open (64 bytes) operations in 500071us (2893589.1 ops/sec): 185.2 MB/s
+Did 1183250 AEAD-AES-256-GCM-SIV open (128 bytes) operations in 500036us (2366329.6 ops/sec): 302.9 MB/s
+Did 860000 AEAD-AES-256-GCM-SIV open (256 bytes) operations in 500127us (1719563.2 ops/sec): 440.2 MB/s
+Did 558000 AEAD-AES-256-GCM-SIV open (512 bytes) operations in 500355us (1115208.2 ops/sec): 571.0 MB/s
+Did 328000 AEAD-AES-256-GCM-SIV open (1024 bytes) operations in 500813us (654935.1 ops/sec): 670.7 MB/s
+Did 95000 AEAD-AES-256-GCM-SIV open (4096 bytes) operations in 502775us (188951.3 ops/sec): 773.9 MB/s

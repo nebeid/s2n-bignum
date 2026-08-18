@@ -1,0 +1,76 @@
+=== ROUND2: base AA drain0 drain4 ppload48
+### p1
+SELFCHECK FAIL nblk=8 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=8 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=16 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=16 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=24 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=24 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=32 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=32 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=64 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=64 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=256 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=256 variant prep: out=0 xi=1 ivec=0
+bytes  blks  |     base |       AA |     expA |     prep |     both ||      AA%    expA%    prep%    both%
+128    8     |   30.102 |   30.112 |   22.600 |   26.929 |   30.096 ||   +0.03  -24.92  -10.54   -0.02
+       med   |   30.340 |   30.288 |   23.070 |   27.455 |   30.507
+256    16    |   52.326 |   52.411 |   45.167 |   49.520 |   56.620 ||   +0.16  -13.68   -5.36   +8.21
+       med   |   52.804 |   52.938 |   45.641 |   49.965 |   57.162
+512    32    |   95.152 |   95.150 |   87.647 |   92.198 |   98.656 ||   -0.00   -7.89   -3.10   +3.68
+       med   |   95.888 |   95.935 |   88.807 |   92.924 |   99.780
+1024   64    |  181.145 |  180.629 |  172.545 |  177.840 |  183.882 ||   -0.29   -4.75   -1.82   +1.51
+       med   |  182.171 |  182.373 |  174.804 |  179.575 |  185.875
+4096   256   |  693.674 |  692.762 |  684.651 |  690.164 |  698.149 ||   -0.13   -1.30   -0.51   +0.65
+       med   |  699.052 |  698.734 |  691.952 |  696.697 |  703.268
+### p2
+SELFCHECK FAIL nblk=8 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=8 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=16 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=16 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=24 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=24 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=32 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=32 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=64 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=64 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=256 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=256 variant prep: out=0 xi=1 ivec=0
+bytes  blks  |     base |       AA |     expA |     prep |     both ||      AA%    expA%    prep%    both%
+128    8     |   30.110 |   30.108 |   22.558 |   26.926 |   30.123 ||   -0.01  -25.08  -10.57   +0.05
+       med   |   30.443 |   30.419 |   23.064 |   27.833 |   30.856
+256    16    |   52.323 |   52.413 |   44.930 |   49.500 |   56.628 ||   +0.17  -14.13   -5.39   +8.23
+       med   |   52.834 |   52.940 |   45.623 |   49.960 |   57.198
+512    32    |   95.010 |   95.215 |   87.732 |   91.978 |   99.069 ||   +0.22   -7.66   -3.19   +4.27
+       med   |   95.909 |   95.933 |   88.701 |   92.903 |   99.830
+1024   64    |  180.998 |  180.630 |  172.147 |  177.766 |  183.724 ||   -0.20   -4.89   -1.79   +1.51
+       med   |  182.167 |  182.703 |  174.785 |  178.916 |  186.143
+4096   256   |  694.529 |  694.136 |  686.111 |  690.109 |  698.889 ||   -0.06   -1.21   -0.64   +0.63
+       med   |  698.999 |  698.375 |  692.087 |  696.363 |  703.069
+=== ROUND3: base AA ppload24 ppload72 ppload96
+### p1
+SELFCHECK OK (18 sizes x 5 variants, out/Xi/ivec byte-identical)
+bytes  blks  |     base |       AA |     expA |     prep |     both ||      AA%    expA%    prep%    both%
+128    8     |   30.112 |   30.111 |   30.104 |   30.114 |   30.116 ||   -0.00   -0.03   +0.01   +0.01
+       med   |   30.360 |   30.293 |   30.334 |   30.381 |   30.445
+256    16    |   52.385 |   52.396 |   54.361 |   59.490 |   62.539 ||   +0.02   +3.77  +13.56  +19.38
+       med   |   52.709 |   52.870 |   54.750 |   59.957 |   63.073
+512    32    |   95.347 |   95.002 |   96.736 |  101.675 |  104.541 ||   -0.36   +1.46   +6.64   +9.64
+       med   |   95.996 |   95.935 |   97.427 |  102.504 |  105.446
+1024   64    |  180.887 |  180.803 |  182.252 |  187.048 |  189.719 ||   -0.05   +0.75   +3.41   +4.88
+       med   |  182.273 |  182.502 |  183.973 |  188.745 |  191.716
+4096   256   |  696.871 |  694.588 |  695.671 |  701.047 |  703.919 ||   -0.33   -0.17   +0.60   +1.01
+       med   |  699.114 |  698.855 |  701.355 |  704.397 |  708.852
+### p2
+SELFCHECK OK (18 sizes x 5 variants, out/Xi/ivec byte-identical)
+bytes  blks  |     base |       AA |     expA |     prep |     both ||      AA%    expA%    prep%    both%
+128    8     |   30.110 |   30.103 |   30.107 |   30.120 |   30.115 ||   -0.02   -0.01   +0.03   +0.02
+       med   |   30.351 |   30.293 |   30.341 |   30.363 |   30.452
+256    16    |   52.179 |   52.346 |   53.615 |   59.424 |   62.536 ||   +0.32   +2.75  +13.88  +19.85
+       med   |   52.777 |   52.916 |   54.756 |   60.003 |   63.035
+512    32    |   95.426 |   95.166 |   96.815 |  101.576 |  104.722 ||   -0.27   +1.46   +6.44   +9.74
+       med   |   95.920 |   96.015 |   97.412 |  102.522 |  105.602
+1024   64    |  180.589 |  180.687 |  181.692 |  187.244 |  189.120 ||   +0.05   +0.61   +3.68   +4.72
+       med   |  182.145 |  182.667 |  183.983 |  188.992 |  191.827
+4096   256   |  694.336 |  693.433 |  696.045 |  700.587 |  701.504 ||   -0.13   +0.25   +0.90   +1.03
+       med   |  699.009 |  698.647 |  701.181 |  704.745 |  709.024

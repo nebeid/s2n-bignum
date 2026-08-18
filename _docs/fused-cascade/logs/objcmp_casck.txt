@@ -1,0 +1,7 @@
+obj/base.o 1242 instructions, obj/casck.o 1709 instructions
+first divergence at baseline instruction 14 (base: ld1 {v0.16b}, [x16] | variant: cmp x9, #0x80)
+2 instructions inserted; then 1226 more baseline instructions identical
+baseline tail left unmatched at this point: 2 instruction(s): ['mov w0, #0x0', 'ret ']
+  -> found verbatim at variant instruction 1707 (relocated, identical)
+appended after the baseline stream: 465 instruction(s)
+VERDICT: nblk>8 content UNCHANGED

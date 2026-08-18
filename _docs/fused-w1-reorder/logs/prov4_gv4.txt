@@ -1,0 +1,63 @@
+=== .text ===
+e1       5980
+e2       5980
+e3       5980
+e4       5980
+e5       5980
+e6       5980
+e7       5960
+e8       5988
+=== md5 ===
+55737311aaaf6ade9f5cf03c1815b5e1  obj/e1.o
+0ec7b4ab43f34338236a0f7882d55baa  obj/e2.o
+b15baacba0957ab4adc351f574bf0950  obj/e3.o
+e63d05e8c290965cb7b16cf1d05774bd  obj/e4.o
+eda61810f37146f156229a62579b7334  obj/e5.o
+0a8d6ea8f5a5c0d590b05f9a4da5d355  obj/e6.o
+6b28e2a13ba272ae14344de269301f91  obj/e7.o
+9866dcfdd96b8d0ccef8cb54c614a7cc  obj/e8.o
+=== slots / aese / adjacency ===
+---- e1
+adjacency: 0 violation(s)
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- e3
+adjacency: 0 violation(s)
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- e7
+adjacency: 0 violation(s)
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     0     122    0     128        32.00     56    56     27
+---- e8
+adjacency: 0 violation(s)
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+=== nblk>8 unchanged ===
+e1       VERDICT: nblk>8 content UNCHANGED
+e2       VERDICT: nblk>8 content UNCHANGED
+e3       VERDICT: nblk>8 content UNCHANGED
+e4       VERDICT: nblk>8 content UNCHANGED
+e5       VERDICT: nblk>8 content UNCHANGED
+e6       VERDICT: nblk>8 content UNCHANGED
+e7       VERDICT: nblk>8 content UNCHANGED
+e8       VERDICT: nblk>8 content UNCHANGED
+=== KAT ===
+e1       === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+e2       === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+e3       === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+e4       === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+e5       === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+e6       === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+e7       === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+e8       === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+=== byte-compare, all 256 lengths ===
+SELFCHECK OK (256 whole-block lengths 1..256 blk x 9 variants; out/Xi/ivec/ret byte-identical, nothing written past 16*nblk)

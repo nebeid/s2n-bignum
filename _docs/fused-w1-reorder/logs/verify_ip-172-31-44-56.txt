@@ -1,0 +1,262 @@
+############ 1. .text size and 80-byte frame
+base   .text=4968   push80=1 pop80=1  src sp-adjust=0  objdump sp add/sub=0
+s4h    .text=5980   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+w1     .text=5980   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+ka     .text=5980   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+kb     .text=5980   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+kc     .text=5980   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+kd     .text=5980   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+Ka     .text=5980   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+Kb     .text=5980   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+Kc     .text=5980   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+Kd     .text=5980   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+gs30   .text=5980   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+gs50   .text=5980   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+cl2    .text=5980   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+cl3    .text=5980   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+cl4    .text=5980   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+cthd   .text=5980   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+ptre   .text=5988   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+f4     .text=5976   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+f4i    .text=5968   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+f4iE   .text=5976   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+f4iH   .text=5968   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+lbr    .text=5996   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+lrev   .text=5996   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+
+############ 2. dispatch actually emitted (at the entry anchor)
+---- w1
+	cmp	x9, #64				//[W1] nblk <= 4 ?
+	b.le	.L256_dec_mxh_small
+---- f4i
+	cmp	x9, #64				//[W1] nblk <= 4 ?
+	b.le	.L256_dec_w1q_small
+---- lrev
+	cmp	x9, #64				//[W1] nblk <= 4 ?
+	b.le	.L256_dec_w1u_small
+---- taken branches inside the region on each entry path
+w1     n=1: 2 taken, sections g1 | n=2: 2 taken, sections g2->g1 | n=3: 3 taken, sections g3->g2->g1 | n=4: 3 taken, sections g4->g3->g2->g1
+f4     n=1: 3 taken, sections g1 | n=2: 3 taken, sections g2->g1 | n=3: 4 taken, sections g3->g2->g1 | n=4: 0 taken, sections g4->g3->g2->g1
+f4i    n=1: 3 taken, sections g1 | n=2: 3 taken, sections g2->g1 | n=3: 4 taken, sections g3->g2->g1 | n=4: 0 taken, sections g4->g3->g2->g1
+lbr    n=1: 3 taken, sections g1 | n=2: 4 taken, sections g2->g1 | n=3: 6 taken, sections g3->g2->g1 | n=4: 7 taken, sections g4->g3->g2->g1
+lrev   n=1: 3 taken, sections g1 | n=2: 4 taken, sections g2->g1 | n=3: 6 taken, sections g3->g2->g1 | n=4: 7 taken, sections g4->g3->g2->g1
+ptre   n=1: 2 taken, sections g1 | n=2: 2 taken, sections g2->g1 | n=3: 3 taken, sections g3->g2->g1 | n=4: 3 taken, sections g4->g3->g2->g1
+
+############ 3. nblk>8 fall-through: normalised objdump vs baseline
+s4h    VERDICT: nblk>8 content UNCHANGED
+w1     VERDICT: nblk>8 content UNCHANGED
+ka     VERDICT: nblk>8 content UNCHANGED
+kb     VERDICT: nblk>8 content UNCHANGED
+kc     VERDICT: nblk>8 content UNCHANGED
+kd     VERDICT: nblk>8 content UNCHANGED
+Ka     VERDICT: nblk>8 content UNCHANGED
+Kb     VERDICT: nblk>8 content UNCHANGED
+Kc     VERDICT: nblk>8 content UNCHANGED
+Kd     VERDICT: nblk>8 content UNCHANGED
+gs30   VERDICT: nblk>8 content UNCHANGED
+gs50   VERDICT: nblk>8 content UNCHANGED
+cl2    VERDICT: nblk>8 content UNCHANGED
+cl3    VERDICT: nblk>8 content UNCHANGED
+cl4    VERDICT: nblk>8 content UNCHANGED
+cthd   VERDICT: nblk>8 content UNCHANGED
+ptre   VERDICT: nblk>8 content UNCHANGED
+f4     VERDICT: nblk>8 content UNCHANGED
+f4i    VERDICT: nblk>8 content UNCHANGED
+f4iE   VERDICT: nblk>8 content UNCHANGED
+f4iH   VERDICT: nblk>8 content UNCHANGED
+lbr    VERDICT: nblk>8 content UNCHANGED
+lrev   VERDICT: nblk>8 content UNCHANGED
+
+############ 4. adjacency + per-nblk slots / aese (must be 14n)
+---- s4h (label prefix mxh)
+adjacency: 0 violation(s)
+entry set (nblk with an entry label): [1, 2, 3, 4]
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- w1 (label prefix mxh)
+adjacency: 0 violation(s)
+entry set (nblk with an entry label): [1, 2, 3, 4]
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- ka (label prefix w1a)
+adjacency: 0 violation(s)
+entry set (nblk with an entry label): [1, 2, 3, 4]
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- kb (label prefix w1b)
+adjacency: 0 violation(s)
+entry set (nblk with an entry label): [1, 2, 3, 4]
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- kc (label prefix w1c)
+adjacency: 0 violation(s)
+entry set (nblk with an entry label): [1, 2, 3, 4]
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- kd (label prefix w1d)
+adjacency: 0 violation(s)
+entry set (nblk with an entry label): [1, 2, 3, 4]
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- Ka (label prefix w1e)
+adjacency: 0 violation(s)
+entry set (nblk with an entry label): [1, 2, 3, 4]
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- Kb (label prefix w1f)
+adjacency: 0 violation(s)
+entry set (nblk with an entry label): [1, 2, 3, 4]
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- Kc (label prefix w1g)
+adjacency: 0 violation(s)
+entry set (nblk with an entry label): [1, 2, 3, 4]
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- Kd (label prefix w1h)
+adjacency: 0 violation(s)
+entry set (nblk with an entry label): [1, 2, 3, 4]
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- gs30 (label prefix w1i)
+adjacency: 0 violation(s)
+entry set (nblk with an entry label): [1, 2, 3, 4]
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- gs50 (label prefix w1j)
+adjacency: 0 violation(s)
+entry set (nblk with an entry label): [1, 2, 3, 4]
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- cl2 (label prefix w1k)
+adjacency: 0 violation(s)
+entry set (nblk with an entry label): [1, 2, 3, 4]
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- cl3 (label prefix w1l)
+adjacency: 0 violation(s)
+entry set (nblk with an entry label): [1, 2, 3, 4]
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- cl4 (label prefix w1m)
+adjacency: 0 violation(s)
+entry set (nblk with an entry label): [1, 2, 3, 4]
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- cthd (label prefix w1n)
+adjacency: 0 violation(s)
+entry set (nblk with an entry label): [1, 2, 3, 4]
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- ptre (label prefix w1o)
+adjacency: 0 violation(s)
+entry set (nblk with an entry label): [1, 2, 3, 4]
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- f4 (label prefix w1p)
+adjacency: 0 violation(s)
+entry set (nblk with an entry label): [1, 2, 3, 4]
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- f4i (label prefix w1q)
+adjacency: 0 violation(s)
+entry set (nblk with an entry label): [1, 2, 3, 4]
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     0     122    0     128        32.00     56    56     27
+---- f4iE (label prefix w1r)
+adjacency: 0 violation(s)
+entry set (nblk with an entry label): [1, 2, 3, 4]
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     0     122    0     128        32.00     56    56     27
+---- f4iH (label prefix w1s)
+adjacency: 0 violation(s)
+entry set (nblk with an entry label): [1, 2, 3, 4]
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     0     122    0     128        32.00     56    56     27
+---- lbr (label prefix w1t)
+adjacency: 0 violation(s)
+entry set (nblk with an entry label): [1, 2, 3, 4]
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- lrev (label prefix w1u)
+adjacency: 0 violation(s)
+entry set (nblk with an entry label): [1, 2, 3, 4]
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+
+############ 5. in-process byte-compare, all 256 whole-block lengths
+SELFCHECK OK (256 whole-block lengths 1..256 blk x 12 variants; out/Xi/ivec/ret byte-identical, nothing written past 16*nblk)
+SELFCHECK OK (256 whole-block lengths 1..256 blk x 12 variants; out/Xi/ivec/ret byte-identical, nothing written past 16*nblk)
+SELFCHECK OK (256 whole-block lengths 1..256 blk x 6 variants; out/Xi/ivec/ret byte-identical, nothing written past 16*nblk)
+
+############ 6. KAT (differential, genuine relink) per variant
+base   === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+s4h    === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+w1     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+ka     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+kb     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+kc     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+kd     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+Ka     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+Kb     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+Kc     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+Kd     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+gs30   === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+gs50   === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+cl2    === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+cl3    === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+cl4    === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+cthd   === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+ptre   === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+f4     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+f4i    === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+f4iE   === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+f4iH   === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+lbr    === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+lrev   === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 

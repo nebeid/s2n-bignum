@@ -1,0 +1,78 @@
+==== d5 : brk #0 liveness at each section entry ====
+./probe_w1.sh: line 48: 11644 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_w1 $n plain > /dev/null 2>&1
+  brk@g4 trapped at nblk: . . . 4 . . . . . . .
+         expected      : . . . 4 . . . . . . .
+./probe_w1.sh: line 48: 11672 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_w1 $n plain > /dev/null 2>&1
+./probe_w1.sh: line 48: 11678 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_w1 $n plain > /dev/null 2>&1
+  brk@g3 trapped at nblk: . . 3 4 . . . . . . .
+         expected      : . . 3 4 . . . . . . .
+./probe_w1.sh: line 48: 11704 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_w1 $n plain > /dev/null 2>&1
+./probe_w1.sh: line 48: 11710 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_w1 $n plain > /dev/null 2>&1
+./probe_w1.sh: line 48: 11718 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_w1 $n plain > /dev/null 2>&1
+  brk@g2 trapped at nblk: . 2 3 4 . . . . . . .
+         expected      : . 2 3 4 . . . . . . .
+./probe_w1.sh: line 48: 11743 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_w1 $n plain > /dev/null 2>&1
+./probe_w1.sh: line 48: 11749 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_w1 $n plain > /dev/null 2>&1
+./probe_w1.sh: line 48: 11755 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_w1 $n plain > /dev/null 2>&1
+./probe_w1.sh: line 48: 11761 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_w1 $n plain > /dev/null 2>&1
+  brk@g1 trapped at nblk: 1 2 3 4 . . . . . . .
+         expected      : 1 2 3 4 . . . . . . .
+==== d5 : section-product and seed zap probes ====
+  zsec1: fails at nblk={1,2,3,4}   expected {1,2,3,4}
+  zsec2: fails at nblk={2,3,4}   expected {2,3,4}
+  zsec3: fails at nblk={3,4}   expected {3,4}
+  zsec4: fails at nblk={4}   expected {4}
+  zap1:  fails at nblk={1}   expected {1}
+  zap2:  fails at nblk={2}   expected {2}
+  zap3:  fails at nblk={3}   expected {3}
+  zap4:  fails at nblk={4}   expected {4}
+  zapall: fails at nblk={1,2,3,4}   expected {1,2,3,4}
+==== c3 : brk #0 liveness at each section entry ====
+./probe_w1.sh: line 48: 12003 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_w1 $n plain > /dev/null 2>&1
+  brk@g4 trapped at nblk: . . . 4 . . . . . . .
+         expected      : . . . 4 . . . . . . .
+./probe_w1.sh: line 48: 12030 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_w1 $n plain > /dev/null 2>&1
+./probe_w1.sh: line 48: 12036 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_w1 $n plain > /dev/null 2>&1
+  brk@g3 trapped at nblk: . . 3 4 . . . . . . .
+         expected      : . . 3 4 . . . . . . .
+./probe_w1.sh: line 48: 12062 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_w1 $n plain > /dev/null 2>&1
+./probe_w1.sh: line 48: 12068 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_w1 $n plain > /dev/null 2>&1
+./probe_w1.sh: line 48: 12074 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_w1 $n plain > /dev/null 2>&1
+  brk@g2 trapped at nblk: . 2 3 4 . . . . . . .
+         expected      : . 2 3 4 . . . . . . .
+./probe_w1.sh: line 48: 12099 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_w1 $n plain > /dev/null 2>&1
+./probe_w1.sh: line 48: 12105 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_w1 $n plain > /dev/null 2>&1
+./probe_w1.sh: line 48: 12111 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_w1 $n plain > /dev/null 2>&1
+./probe_w1.sh: line 48: 12117 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_w1 $n plain > /dev/null 2>&1
+  brk@g1 trapped at nblk: 1 2 3 4 . . . . . . .
+         expected      : 1 2 3 4 . . . . . . .
+==== c3 : section-product and seed zap probes ====
+  zsec1: fails at nblk={1,2,3,4}   expected {1,2,3,4}
+  zsec2: fails at nblk={2,3,4}   expected {2,3,4}
+  zsec3: fails at nblk={3,4}   expected {3,4}
+  zsec4: fails at nblk={4}   expected {4}
+  zap1:  fails at nblk={1}   expected {1}
+  zap2:  fails at nblk={2}   expected {2}
+  zap3:  fails at nblk={3}   expected {3}
+  zap4:  fails at nblk={4}   expected {4}
+  zapall: fails at nblk={1,2,3,4}   expected {1,2,3,4}
+
+==== guard-page memory safety (any out-of-range access = SIGSEGV) ====
+  base   guard    survived nblk: 12345678
+  base   guardlo  survived nblk: 12345678
+  s4h    guard    survived nblk: 12345678
+  s4h    guardlo  survived nblk: 12345678
+  w1     guard    survived nblk: 12345678
+  w1     guardlo  survived nblk: 12345678
+  f4i    guard    survived nblk: 12345678
+  f4i    guardlo  survived nblk: 12345678
+  ptre   guard    survived nblk: 12345678
+  ptre   guardlo  survived nblk: 12345678
+  c3     guard    survived nblk: 12345678
+  c3     guardlo  survived nblk: 12345678
+  c5     guard    survived nblk: 12345678
+  c5     guardlo  survived nblk: 12345678
+  d5     guard    survived nblk: 12345678
+  d5     guardlo  survived nblk: 12345678
+  d4     guard    survived nblk: 12345678
+  d4     guardlo  survived nblk: 12345678

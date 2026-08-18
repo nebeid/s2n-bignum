@@ -1,0 +1,8 @@
+base .text=4968
+tuned .text=12376
+casc .text=7060
+casck .text=6836
+cw1 .text=7060
+cw2 .text=7816
+cw4 .text=9336
+cw8 .text=12364

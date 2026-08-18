@@ -1,0 +1,58 @@
+==== FAMILY 1: truncated eight-body ====
+C=2 zap1: fails at nblk={1}   expected {1}
+C=2 zap2: fails at nblk={2}   expected {2}
+C=2 zapALL: fails at nblk={1,2}   expected {1..2}
+C=3 zap1: fails at nblk={1}   expected {1}
+C=3 zap2: fails at nblk={2}   expected {2}
+C=3 zap3: fails at nblk={3}   expected {3}
+C=3 zapALL: fails at nblk={1,2,3}   expected {1..3}
+C=4 zap1: fails at nblk={1}   expected {1}
+C=4 zap2: fails at nblk={2}   expected {2}
+C=4 zap3: fails at nblk={3}   expected {3}
+C=4 zap4: fails at nblk={4}   expected {4}
+C=4 zapALL: fails at nblk={1,2,3,4}   expected {1..4}
+C=5 zap1: fails at nblk={1}   expected {1}
+C=5 zap2: fails at nblk={2}   expected {2}
+C=5 zap3: fails at nblk={3}   expected {3}
+C=5 zap4: fails at nblk={4}   expected {4}
+C=5 zap5: fails at nblk={5}   expected {5}
+C=5 zapALL: fails at nblk={1,2,3,4,5}   expected {1..5}
+C=6 zap1: fails at nblk={1}   expected {1}
+C=6 zap2: fails at nblk={2}   expected {2}
+C=6 zap3: fails at nblk={3}   expected {3}
+C=6 zap4: fails at nblk={4}   expected {4}
+C=6 zap5: fails at nblk={5}   expected {5}
+C=6 zap6: fails at nblk={6}   expected {6}
+C=6 zapALL: fails at nblk={1,2,3,4,5,6}   expected {1..6}
+C=7 zap1: fails at nblk={1}   expected {1}
+C=7 zap2: fails at nblk={2}   expected {2}
+C=7 zap3: fails at nblk={3}   expected {3}
+C=7 zap4: fails at nblk={4}   expected {4}
+C=7 zap5: fails at nblk={5}   expected {5}
+C=7 zap6: fails at nblk={6}   expected {6}
+C=7 zap7: fails at nblk={7}   expected {7}
+C=7 zapALL: fails at nblk={1,2,3,4,5,6,7}   expected {1..7}
+C=8 zap1: fails at nblk={1}   expected {1}
+C=8 zap2: fails at nblk={2}   expected {2}
+C=8 zap3: fails at nblk={3}   expected {3}
+C=8 zap4: fails at nblk={4}   expected {4}
+C=8 zap5: fails at nblk={5}   expected {5}
+C=8 zap6: fails at nblk={6}   expected {6}
+C=8 zap7: fails at nblk={7}   expected {7}
+C=8 zap8: fails at nblk={8}   expected {8}
+C=8 zapALL: fails at nblk={1,2,3,4,5,6,7,8}   expected {1..8}
+==== FAMILY 2: W=4 cascade, nblk<=7 ====
+cw4t stub-zap1: fails at nblk={1}   expected {1}
+cw4t stub-zap2: fails at nblk={2}   expected {2}
+cw4t stub-zap3: fails at nblk={3}   expected {3}
+cw4t stub-zap4: fails at nblk={4}   expected {4}
+cw4t stub-zap5: fails at nblk={5}   expected {5}
+cw4t stub-zap6: fails at nblk={6}   expected {6}
+cw4t stub-zap7: fails at nblk={7}   expected {7}
+cw4t sec-zap H^1: fails at nblk={1,2,3,4,5,6,7}   expected {1..7}
+cw4t sec-zap H^2: fails at nblk={2,3,4,5,6,7}   expected {2..7}
+cw4t sec-zap H^3: fails at nblk={3,4,5,6,7}   expected {3..7}
+cw4t sec-zap H^4: fails at nblk={4,5,6,7}   expected {4..7}
+cw4t sec-zap H^5: fails at nblk={5,6,7}   expected {5..7}
+cw4t sec-zap H^6: fails at nblk={6,7}   expected {6..7}
+cw4t sec-zap H^7: fails at nblk={7}   expected {7..7}

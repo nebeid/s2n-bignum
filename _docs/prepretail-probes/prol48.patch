@@ -1,0 +1,235 @@
+--- /Volumes/workplace/git-code/s2n-bignum-kiro/arm/aes-gcm/aesv8_gcm_8x_dec_256_wb.S	2026-08-14 16:23:57
++++ var/prol48.S	2026-08-14 16:15:00
+@@ -179,184 +179,232 @@
+ 	aesmc	v2.16b, v2.16b			//AES block 2 - round 4
+ 	aese	v0.16b, v27.16b
+ 	aesmc	v0.16b, v0.16b			//AES block 0 - round 4
++	pmull	v8.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ 	aese	v4.16b, v27.16b
+ 	aesmc	v4.16b, v4.16b			//AES block 4 - round 4
++	pmull	v9.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	aese	v1.16b, v27.16b
+ 	aesmc	v1.16b, v1.16b			//AES block 1 - round 4
+ 	aese	v5.16b, v27.16b
+ 	aesmc	v5.16b, v5.16b			//AES block 5 - round 4
++	pmull	v10.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ 	aese	v0.16b, v28.16b
+ 	aesmc	v0.16b, v0.16b			//AES block 0 - round 5
+ 	aese	v6.16b, v28.16b
+ 	aesmc	v6.16b, v6.16b			//AES block 6 - round 5
++	pmull	v11.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ 	ldp	q26, q27, [x11, #96]				//load rk6, rk7
++	pmull	v12.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	aese	v4.16b, v28.16b
+ 	aesmc	v4.16b, v4.16b			//AES block 4 - round 5
+ 	aese	v7.16b, v28.16b
+ 	aesmc	v7.16b, v7.16b			//AES block 7 - round 5
++	pmull	v13.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ 	aese	v5.16b, v28.16b
+ 	aesmc	v5.16b, v5.16b			//AES block 5 - round 5
+ 
+ 	aese	v2.16b, v28.16b
+ 	aesmc	v2.16b, v2.16b			//AES block 2 - round 5
++	pmull	v14.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	aese	v3.16b, v28.16b
+ 	aesmc	v3.16b, v3.16b			//AES block 3 - round 5
++	pmull	v15.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ 	aese	v1.16b, v28.16b
+ 	aesmc	v1.16b, v1.16b			//AES block 1 - round 5
+ 
+ 	aese	v4.16b, v26.16b
+ 	aesmc	v4.16b, v4.16b			//AES block 4 - round 6
++	pmull	v16.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	aese	v3.16b, v26.16b
+ 	aesmc	v3.16b, v3.16b			//AES block 3 - round 6
+ 	aese	v7.16b, v26.16b
+ 	aesmc	v7.16b, v7.16b			//AES block 7 - round 6
++	pmull	v17.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ 	aese	v6.16b, v26.16b
+ 	aesmc	v6.16b, v6.16b			//AES block 6 - round 6
+ 	aese	v0.16b, v26.16b
+ 	aesmc	v0.16b, v0.16b			//AES block 0 - round 6
++	pmull	v18.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	aese	v5.16b, v26.16b
+ 	aesmc	v5.16b, v5.16b			//AES block 5 - round 6
++	pmull	v20.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ 	aese	v2.16b, v26.16b
+ 	aesmc	v2.16b, v2.16b			//AES block 2 - round 6
+ 	aese	v1.16b, v26.16b
+ 	aesmc	v1.16b, v1.16b			//AES block 1 - round 6
++	pmull	v21.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	ldp	q28, q26, [x11, #128]				//load rk8, rk9
+ 
+ 	aese	v5.16b, v27.16b
+ 	aesmc	v5.16b, v5.16b			//AES block 5 - round 7
++	pmull	v22.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	aese	v0.16b, v27.16b
+ 	aesmc	v0.16b, v0.16b			//AES block 0 - round 7
++	pmull	v23.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ 	aese	v3.16b, v27.16b
+ 	aesmc	v3.16b, v3.16b			//AES block 3 - round 7
+ 	aese	v2.16b, v27.16b
+ 	aesmc	v2.16b, v2.16b			//AES block 2 - round 7
++	pmull	v24.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	aese	v7.16b, v27.16b
+ 	aesmc	v7.16b, v7.16b			//AES block 7 - round 7
+ 
+ 	aese	v4.16b, v27.16b
+ 	aesmc	v4.16b, v4.16b			//AES block 4 - round 7
++	pmull	v25.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	aese	v1.16b, v27.16b
+ 	aesmc	v1.16b, v1.16b			//AES block 1 - round 7
+ 	aese	v6.16b, v27.16b
+ 	aesmc	v6.16b, v6.16b			//AES block 6 - round 7
++	pmull	v8.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ 	and	x5, x5, #0xffffffffffffff80 //number of bytes to be processed in main loop (at least 1 byte must be handled by tail)
++	pmull	v9.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	aese	v7.16b, v28.16b
+ 	aesmc	v7.16b, v7.16b			//AES block 7 - round 8
+ 	aese	v5.16b, v28.16b
+ 	aesmc	v5.16b, v5.16b			//AES block 5 - round 8
++	pmull	v10.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ 	aese	v0.16b, v28.16b
+ 	aesmc	v0.16b, v0.16b			//AES block 0 - round 8
+ 	aese	v1.16b, v28.16b
+ 	aesmc	v1.16b, v1.16b			//AES block 1 - round 8
++	pmull	v11.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	aese	v2.16b, v28.16b
+ 	aesmc	v2.16b, v2.16b			//AES block 2 - round 8
++	pmull	v12.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ 	aese	v4.16b, v28.16b
+ 	aesmc	v4.16b, v4.16b			//AES block 4 - round 8
+ 	aese	v3.16b, v28.16b
+ 	aesmc	v3.16b, v3.16b			//AES block 3 - round 8
++	pmull	v13.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	aese	v6.16b, v28.16b
+ 	aesmc	v6.16b, v6.16b			//AES block 6 - round 8
+ 
+ 	aese	v2.16b, v26.16b
+ 	aesmc	v2.16b, v2.16b			//AES block 2 - round 9
++	pmull	v14.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ 	ld1	{ v19.16b}, [x3]
+ 	ext	v19.16b, v19.16b, v19.16b, #8
++	pmull	v15.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	rev64	v19.16b, v19.16b
++	pmull	v16.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	ldp	q27, q28, [x11, #160]				//load rk10, rk11
+ 	add	x4, x0, x1, lsr #3 //end_input_ptr
++	pmull	v17.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	add	x5, x5, x0
+ 
+ 	aese	v3.16b, v26.16b
+ 	aesmc	v3.16b, v3.16b			//AES block 3 - round 9
++	pmull	v18.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	aese	v6.16b, v26.16b
+ 	aesmc	v6.16b, v6.16b			//AES block 6 - round 9
++	pmull	v20.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ 	aese	v4.16b, v26.16b
+ 	aesmc	v4.16b, v4.16b			//AES block 4 - round 9
+ 	aese	v5.16b, v26.16b
+ 	aesmc	v5.16b, v5.16b			//AES block 5 - round 9
++	pmull	v21.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ 	aese	v7.16b, v26.16b
+ 	aesmc	v7.16b, v7.16b			//AES block 7 - round 9
+ 
+ 	aese	v0.16b, v26.16b
+ 	aesmc	v0.16b, v0.16b			//AES block 0 - round 9
++	pmull	v22.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	aese	v1.16b, v26.16b
+ 	aesmc	v1.16b, v1.16b			//AES block 1 - round 9
++	pmull	v23.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ 	aese	v4.16b, v27.16b
+ 	aesmc	v4.16b, v4.16b			//AES block 4 - round 10
+ 	aese	v7.16b, v27.16b
+ 	aesmc	v7.16b, v7.16b			//AES block 7 - round 10
++	pmull	v24.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	aese	v5.16b, v27.16b
+ 	aesmc	v5.16b, v5.16b			//AES block 5 - round 10
+ 
+ 	aese	v1.16b, v27.16b
+ 	aesmc	v1.16b, v1.16b			//AES block 1 - round 10
++	pmull	v25.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	aese	v2.16b, v27.16b
+ 	aesmc	v2.16b, v2.16b			//AES block 2 - round 10
+ 	aese	v0.16b, v27.16b
+ 	aesmc	v0.16b, v0.16b			//AES block 0 - round 10
++	pmull	v8.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ 	aese	v6.16b, v27.16b
+ 	aesmc	v6.16b, v6.16b			//AES block 6 - round 10
++	pmull	v9.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	aese	v3.16b, v27.16b
+ 	aesmc	v3.16b, v3.16b			//AES block 3 - round 10
+ 	ldp	q26, q27, [x11, #192]				//load rk12, rk13
++	pmull	v10.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ 	aese	v0.16b, v28.16b
+ 	aesmc	v0.16b, v0.16b			//AES block 0 - round 11
+ 	add	v30.4s, v30.4s, v31.4s //CTR block 7
++	pmull	v11.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ 	aese	v7.16b, v28.16b
+ 	aesmc	v7.16b, v7.16b			//AES block 7 - round 11
++	pmull	v12.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	aese	v3.16b, v28.16b
+ 	aesmc	v3.16b, v3.16b			//AES block 3 - round 11
+ 	aese	v1.16b, v28.16b
+ 	aesmc	v1.16b, v1.16b			//AES block 1 - round 11
++	pmull	v13.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ 	aese	v5.16b, v28.16b
+ 	aesmc	v5.16b, v5.16b			//AES block 5 - round 11
+ 	aese	v4.16b, v28.16b
+ 	aesmc	v4.16b, v4.16b			//AES block 4 - round 11
++	pmull	v14.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	aese	v2.16b, v28.16b
+ 	aesmc	v2.16b, v2.16b			//AES block 2 - round 11
+ 
+ 	aese	v6.16b, v28.16b
+ 	aesmc	v6.16b, v6.16b			//AES block 6 - round 11
++	pmull	v15.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	ldr	q28, [x11, #224]					//load rk14
++	pmull	v16.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ 	aese	v1.16b, v26.16b
+ 	aesmc	v1.16b, v1.16b			//AES block 1 - round 12
+ 	aese	v4.16b, v26.16b
+ 	aesmc	v4.16b, v4.16b			//AES block 4 - round 12
++	pmull	v17.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	aese	v5.16b, v26.16b
+ 	aesmc	v5.16b, v5.16b			//AES block 5 - round 12
+ 
+ 	cmp	x0, x5				//check if we have <= 8 blocks
++	pmull	v18.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	aese	v3.16b, v26.16b
+ 	aesmc	v3.16b, v3.16b			//AES block 3 - round 12
++	pmull	v20.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	aese	v2.16b, v26.16b
+ 	aesmc	v2.16b, v2.16b			//AES block 2 - round 12
+ 
+ 	aese	v6.16b, v26.16b
+ 	aesmc	v6.16b, v6.16b			//AES block 6 - round 12
++	pmull	v21.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	aese	v0.16b, v26.16b
+ 	aesmc	v0.16b, v0.16b			//AES block 0 - round 12
+ 	aese	v7.16b, v26.16b
+ 	aesmc	v7.16b, v7.16b			//AES block 7 - round 12
++	pmull	v22.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ 	aese	v5.16b, v27.16b						//AES block 5 - round 13
+ 	aese	v1.16b, v27.16b						//AES block 1 - round 13

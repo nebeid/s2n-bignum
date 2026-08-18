@@ -1,0 +1,53 @@
+### KAT: cost-only probes must be 35/35 (they write only dead regs)
+-- mixpp
+=== SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) ===
+KAT GATE: PASS
+-- mixpr
+=== SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) ===
+KAT GATE: PASS
+-- ppload96
+=== SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) ===
+KAT GATE: PASS
+### KAT: drain0 must fail EXACTLY on nblk%8==0 (proves the probe is on a live path)
+  nblk=  8  FAIL: Xi differs
+  nblk= 16  FAIL: Xi differs
+  nblk= 24  FAIL: Xi differs
+  nblk= 32  FAIL: Xi differs
+  nblk= 40  FAIL: Xi differs
+  nblk= 48  FAIL: Xi differs
+  nblk= 64  FAIL: Xi differs
+  nblk=128  FAIL: Xi differs
+  nblk=200  FAIL: Xi differs
+  nblk=256  FAIL: Xi differs
+=== SUMMARY: 25 passed, 10 failed (11 of the passing cases exercised the main-loop BODY, nblk>=17) ===
+KAT GATE: FAIL
+=== R6 PLACEMENT: base AA fusepp_front fusepp_mid fusepp_back
+SELFCHECK FAIL nblk=8 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=8 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=8 variant both: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=16 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=16 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=16 variant both: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=24 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=24 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=24 variant both: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=32 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=32 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=32 variant both: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=64 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=64 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=64 variant both: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=256 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=256 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=256 variant both: out=0 xi=1 ivec=0
+bytes  blks  |     base |       AA |     expA |     prep |     both ||      AA%    expA%    prep%    both%
+128    8     |   25.528 |   25.561 |   19.289 |   19.550 |   19.535 ||   +0.13  -24.44  -23.42  -23.48
+       med   |   25.776 |   25.878 |   19.619 |   19.623 |   19.918
+256    16    |   45.432 |   45.357 |   46.633 |   45.573 |   45.005 ||   -0.16   +2.64   +0.31   -0.94
+       med   |   45.701 |   45.990 |   47.294 |   45.990 |   45.415
+512    32    |   84.375 |   84.295 |   84.736 |   84.350 |   83.950 ||   -0.09   +0.43   -0.03   -0.50
+       med   |   84.582 |   84.578 |   85.030 |   84.668 |   84.668
+1024   64    |  161.851 |  161.937 |  162.383 |  161.772 |  161.500 ||   +0.05   +0.33   -0.05   -0.22
+       med   |  163.234 |  162.618 |  163.258 |  162.868 |  162.710
+4096   256   |  628.626 |  628.737 |  628.697 |  628.299 |  628.480 ||   +0.02   +0.01   -0.05   -0.02
+       med   |  630.310 |  630.082 |  630.544 |  629.711 |  630.689

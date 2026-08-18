@@ -1,0 +1,18 @@
+==== entry-stub probes (must fail EXACTLY nblk == N) ====
+zap1: fails at nblk={1}   expected {1}
+zap2: fails at nblk={2}   expected {2}
+zap3: fails at nblk={3}   expected {3}
+zap4: fails at nblk={4}   expected {4}
+zap5: fails at nblk={5}   expected {5}
+zap6: fails at nblk={6}   expected {6}
+zap7: fails at nblk={7}   expected {7}
+zap8: fails at nblk={8}   expected {8}
+==== section probes (must fail EXACTLY nblk >= J) ====
+zsec1: fails at nblk=1..8 (8 lengths)   expected 1..8 (8 lengths, nblk>8 uses the untouched path)
+zsec2: fails at nblk=2..8 (7 lengths)   expected 2..8 (7 lengths, nblk>8 uses the untouched path)
+zsec3: fails at nblk=3..8 (6 lengths)   expected 3..8 (6 lengths, nblk>8 uses the untouched path)
+zsec4: fails at nblk=4..8 (5 lengths)   expected 4..8 (5 lengths, nblk>8 uses the untouched path)
+zsec5: fails at nblk=5..8 (4 lengths)   expected 5..8 (4 lengths, nblk>8 uses the untouched path)
+zsec6: fails at nblk=6..8 (3 lengths)   expected 6..8 (3 lengths, nblk>8 uses the untouched path)
+zsec7: fails at nblk=7..8 (2 lengths)   expected 7..8 (2 lengths, nblk>8 uses the untouched path)
+zsec8: fails at nblk=8..8 (1 lengths)   expected 8..8 (1 lengths, nblk>8 uses the untouched path)

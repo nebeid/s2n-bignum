@@ -1,0 +1,307 @@
+--- src/w1.S	2026-08-17 15:25:20.586647770 +0000
++++ src/d5.S	2026-08-17 15:46:24.000888181 +0000
+@@ -56,7 +56,7 @@
+ 	add	x10, sp, #64
+ 
+ 	cmp	x9, #64				//[W1] nblk <= 4 ?
+-	b.le	.L256_dec_XX_small
++	b.le	.L256_dec_XX_small
+ 
+ 	ld1	{ v0.16b}, [x16]					//CTR block 0
+ 
+@@ -1719,7 +1719,7 @@
+ 	b	.L256_dec_epilogue
+ 
+ 
+-.L256_dec_XX_small:	//[CASCW] nblk <= 8: fall-through cascade
++.L256_dec_XX_small:	//[CASCW] nblk <= 8: fall-through cascade
+ 	ld1	{ v30.16b}, [x16]				//CTR block 0 (raw)
+ 	ld1	{ v19.16b}, [x3]				//load Xi
+ 	mov	x15, #0x100000000			//counter increment
+@@ -1738,16 +1738,16 @@
+ 	ldp	q13, q14, [x11, #192]			//rk12, rk13
+ 	ldr	q15, [x11, #224]			//rk14
+ 	cmp	x9, #32
+-	b.gt	.L256_dec_XX_h1
++	b.gt	.L256_dec_XX_h1
+ 	cmp	x9, #16
+-	b.eq	.L256_dec_XX_stub_1
+-	b	.L256_dec_XX_stub_2
+-.L256_dec_XX_h1:
++	b.eq	.L256_dec_XX_stub_1
++	b	.L256_dec_XX_stub_2
++.L256_dec_XX_h1:
+ 	cmp	x9, #48
+-	b.eq	.L256_dec_XX_stub_3
+-	b	.L256_dec_XX_stub_4
++	b.eq	.L256_dec_XX_stub_3
++	b	.L256_dec_XX_stub_4
+ 
+-.L256_dec_XX_stub_4:	//[CASCW] entry for nblk=4: seed acc = Xi' * H^4
++.L256_dec_XX_stub_4:	//[CASCW] entry for nblk=4: seed acc = Xi' * H^4
+ 	ldr	q24, [x6, #80]				//h4l | h4h
+ 	ldr	d25, [x6, #72]				//h4k (64-bit)
+ 	ext	v21.16b, v16.16b, v16.16b, #8		//Xi' mid
+@@ -1755,9 +1755,9 @@
+ 	pmull2	v17.1q, v16.2d, v24.2d			//Xi' high
+ 	pmull	v19.1q, v16.1d, v24.1d			//Xi' low
+ 	pmull	v18.1q, v21.1d, v25.1d			//Xi' mid
+-	b	.L256_dec_XX_g4
++	b	.L256_dec_XX_g4
+ 
+-.L256_dec_XX_stub_3:	//[CASCW] entry for nblk=3: seed acc = Xi' * H^3
++.L256_dec_XX_stub_3:	//[CASCW] entry for nblk=3: seed acc = Xi' * H^3
+ 	ldr	q24, [x6, #48]				//h3l | h3h
+ 	ldr	d25, [x6, #64]				//h3k (64-bit)
+ 	ext	v21.16b, v16.16b, v16.16b, #8		//Xi' mid
+@@ -1765,9 +1765,9 @@
+ 	pmull2	v17.1q, v16.2d, v24.2d			//Xi' high
+ 	pmull	v19.1q, v16.1d, v24.1d			//Xi' low
+ 	pmull	v18.1q, v21.1d, v25.1d			//Xi' mid
+-	b	.L256_dec_XX_g3
++	b	.L256_dec_XX_g3
+ 
+-.L256_dec_XX_stub_2:	//[CASCW] entry for nblk=2: seed acc = Xi' * H^2
++.L256_dec_XX_stub_2:	//[CASCW] entry for nblk=2: seed acc = Xi' * H^2
+ 	ldr	q24, [x6, #32]				//h2l | h2h
+ 	ldr	d25, [x6, #24]				//h2k (64-bit)
+ 	ext	v21.16b, v16.16b, v16.16b, #8		//Xi' mid
+@@ -1775,9 +1775,9 @@
+ 	pmull2	v17.1q, v16.2d, v24.2d			//Xi' high
+ 	pmull	v19.1q, v16.1d, v24.1d			//Xi' low
+ 	pmull	v18.1q, v21.1d, v25.1d			//Xi' mid
+-	b	.L256_dec_XX_g2
++	b	.L256_dec_XX_g2
+ 
+-.L256_dec_XX_stub_1:	//[CASCW] entry for nblk=1: seed acc = Xi' * H^1
++.L256_dec_XX_stub_1:	//[CASCW] entry for nblk=1: seed acc = Xi' * H^1
+ 	ldr	q24, [x6, #0]				//h1l | h1h
+ 	ldr	d25, [x6, #16]				//h1k (64-bit)
+ 	ext	v21.16b, v16.16b, v16.16b, #8		//Xi' mid
+@@ -1785,168 +1785,168 @@
+ 	pmull2	v17.1q, v16.2d, v24.2d			//Xi' high
+ 	pmull	v19.1q, v16.1d, v24.1d			//Xi' low
+ 	pmull	v18.1q, v21.1d, v25.1d			//Xi' mid
+-	b	.L256_dec_XX_g1
++	b	.L256_dec_XX_g1
+ 
+-.L256_dec_XX_g4:	//[W1] 1 block, H^4
++.L256_dec_XX_g4:	//[W1] 1 block, H^4
++	ldr	q26, [x0], #16				//ciphertext 0
+ 	rev32	v0.16b, v29.16b			//CTR block 0
+ 	add	v29.4s, v29.4s, v31.4s
+ 	aese	v0.16b, v1.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 0
+-	ldr	q26, [x0], #16				//ciphertext 0
++	ldr	q24, [x6, #80]				//h4l | h4h
++	ldr	d25, [x6, #72]				//h4k (64-bit)
++	rev64	v20.16b, v26.16b				//GHASH H^4 block
++	ext	v21.16b, v20.16b, v20.16b, #8		//H^4 mid
+ 	aese	v0.16b, v2.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 1
+-	ldr	q24, [x6, #80]				//h4l | h4h
+ 	aese	v0.16b, v3.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 2
+-	ldr	d25, [x6, #72]				//h4k (64-bit)
+ 	aese	v0.16b, v4.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 3
+-	rev64	v20.16b, v26.16b				//GHASH H^4 block
+ 	aese	v0.16b, v5.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 4
+-	ext	v21.16b, v20.16b, v20.16b, #8		//H^4 mid
++	eor	v21.8b, v21.8b, v20.8b			//H^4 mid
++	pmull2	v22.1q, v20.2d, v24.2d			//H^4 high
++	pmull	v23.1q, v20.1d, v24.1d			//H^4 low
++	pmull	v30.1q, v21.1d, v25.1d			//H^4 mid
+ 	aese	v0.16b, v6.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 5
+-	eor	v21.8b, v21.8b, v20.8b			//H^4 mid
+ 	aese	v0.16b, v7.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 6
+ 	aese	v0.16b, v8.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 7
+-	pmull2	v22.1q, v20.2d, v24.2d			//H^4 high
+ 	aese	v0.16b, v9.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 8
+-	pmull	v23.1q, v20.1d, v24.1d			//H^4 low
+ 	aese	v0.16b, v10.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 9
+-	pmull	v30.1q, v21.1d, v25.1d			//H^4 mid
++	eor	v17.16b, v17.16b, v22.16b			//fold high
++	eor	v19.16b, v19.16b, v23.16b			//fold low
++	eor	v18.16b, v18.16b, v30.16b			//fold mid
+ 	aese	v0.16b, v11.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 10
+-	eor	v17.16b, v17.16b, v22.16b			//fold high
+ 	aese	v0.16b, v12.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 11
+-	eor	v19.16b, v19.16b, v23.16b			//fold low
+ 	aese	v0.16b, v13.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 12
+-	eor	v18.16b, v18.16b, v30.16b			//fold mid
+ 	aese	v0.16b, v14.16b				//blk 0 - round 13
+ .inst	0xce003f40	//eor3 v0.16b, v26.16b, v0.16b, v15.16b	//H^4 block - result
+ 	str	q0, [x2], #16
+ 
+-.L256_dec_XX_g3:	//[W1] 1 block, H^3
++.L256_dec_XX_g3:	//[W1] 1 block, H^3
++	ldr	q26, [x0], #16				//ciphertext 0
+ 	rev32	v0.16b, v29.16b			//CTR block 0
+ 	add	v29.4s, v29.4s, v31.4s
+ 	aese	v0.16b, v1.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 0
+-	ldr	q26, [x0], #16				//ciphertext 0
++	ldr	q24, [x6, #48]				//h3l | h3h
++	ldr	d25, [x6, #64]				//h3k (64-bit)
++	rev64	v20.16b, v26.16b				//GHASH H^3 block
++	ext	v21.16b, v20.16b, v20.16b, #8		//H^3 mid
+ 	aese	v0.16b, v2.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 1
+-	ldr	q24, [x6, #48]				//h3l | h3h
+ 	aese	v0.16b, v3.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 2
+-	ldr	d25, [x6, #64]				//h3k (64-bit)
+ 	aese	v0.16b, v4.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 3
+-	rev64	v20.16b, v26.16b				//GHASH H^3 block
+ 	aese	v0.16b, v5.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 4
+-	ext	v21.16b, v20.16b, v20.16b, #8		//H^3 mid
++	eor	v21.8b, v21.8b, v20.8b			//H^3 mid
++	pmull2	v22.1q, v20.2d, v24.2d			//H^3 high
++	pmull	v23.1q, v20.1d, v24.1d			//H^3 low
++	pmull	v30.1q, v21.1d, v25.1d			//H^3 mid
+ 	aese	v0.16b, v6.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 5
+-	eor	v21.8b, v21.8b, v20.8b			//H^3 mid
+ 	aese	v0.16b, v7.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 6
+ 	aese	v0.16b, v8.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 7
+-	pmull2	v22.1q, v20.2d, v24.2d			//H^3 high
+ 	aese	v0.16b, v9.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 8
+-	pmull	v23.1q, v20.1d, v24.1d			//H^3 low
+ 	aese	v0.16b, v10.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 9
+-	pmull	v30.1q, v21.1d, v25.1d			//H^3 mid
++	eor	v17.16b, v17.16b, v22.16b			//fold high
++	eor	v19.16b, v19.16b, v23.16b			//fold low
++	eor	v18.16b, v18.16b, v30.16b			//fold mid
+ 	aese	v0.16b, v11.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 10
+-	eor	v17.16b, v17.16b, v22.16b			//fold high
+ 	aese	v0.16b, v12.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 11
+-	eor	v19.16b, v19.16b, v23.16b			//fold low
+ 	aese	v0.16b, v13.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 12
+-	eor	v18.16b, v18.16b, v30.16b			//fold mid
+ 	aese	v0.16b, v14.16b				//blk 0 - round 13
+ .inst	0xce003f40	//eor3 v0.16b, v26.16b, v0.16b, v15.16b	//H^3 block - result
+ 	str	q0, [x2], #16
+ 
+-.L256_dec_XX_g2:	//[W1] 1 block, H^2
++.L256_dec_XX_g2:	//[W1] 1 block, H^2
++	ldr	q26, [x0], #16				//ciphertext 0
+ 	rev32	v0.16b, v29.16b			//CTR block 0
+ 	add	v29.4s, v29.4s, v31.4s
+ 	aese	v0.16b, v1.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 0
+-	ldr	q26, [x0], #16				//ciphertext 0
++	ldr	q24, [x6, #32]				//h2l | h2h
++	ldr	d25, [x6, #24]				//h2k (64-bit)
++	rev64	v20.16b, v26.16b				//GHASH H^2 block
++	ext	v21.16b, v20.16b, v20.16b, #8		//H^2 mid
+ 	aese	v0.16b, v2.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 1
+-	ldr	q24, [x6, #32]				//h2l | h2h
+ 	aese	v0.16b, v3.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 2
+-	ldr	d25, [x6, #24]				//h2k (64-bit)
+ 	aese	v0.16b, v4.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 3
+-	rev64	v20.16b, v26.16b				//GHASH H^2 block
+ 	aese	v0.16b, v5.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 4
+-	ext	v21.16b, v20.16b, v20.16b, #8		//H^2 mid
++	eor	v21.8b, v21.8b, v20.8b			//H^2 mid
++	pmull2	v22.1q, v20.2d, v24.2d			//H^2 high
++	pmull	v23.1q, v20.1d, v24.1d			//H^2 low
++	pmull	v30.1q, v21.1d, v25.1d			//H^2 mid
+ 	aese	v0.16b, v6.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 5
+-	eor	v21.8b, v21.8b, v20.8b			//H^2 mid
+ 	aese	v0.16b, v7.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 6
+ 	aese	v0.16b, v8.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 7
+-	pmull2	v22.1q, v20.2d, v24.2d			//H^2 high
+ 	aese	v0.16b, v9.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 8
+-	pmull	v23.1q, v20.1d, v24.1d			//H^2 low
+ 	aese	v0.16b, v10.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 9
+-	pmull	v30.1q, v21.1d, v25.1d			//H^2 mid
++	eor	v17.16b, v17.16b, v22.16b			//fold high
++	eor	v19.16b, v19.16b, v23.16b			//fold low
++	eor	v18.16b, v18.16b, v30.16b			//fold mid
+ 	aese	v0.16b, v11.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 10
+-	eor	v17.16b, v17.16b, v22.16b			//fold high
+ 	aese	v0.16b, v12.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 11
+-	eor	v19.16b, v19.16b, v23.16b			//fold low
+ 	aese	v0.16b, v13.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 12
+-	eor	v18.16b, v18.16b, v30.16b			//fold mid
+ 	aese	v0.16b, v14.16b				//blk 0 - round 13
+ .inst	0xce003f40	//eor3 v0.16b, v26.16b, v0.16b, v15.16b	//H^2 block - result
+ 	str	q0, [x2], #16
+ 
+-.L256_dec_XX_g1:	//[W1] 1 block, H^1
++.L256_dec_XX_g1:	//[W1] 1 block, H^1
++	ldr	q26, [x0], #16				//ciphertext 0
+ 	rev32	v0.16b, v29.16b			//CTR block 0
+ 	add	v29.4s, v29.4s, v31.4s
+ 	aese	v0.16b, v1.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 0
+-	ldr	q26, [x0], #16				//ciphertext 0
+ 	ldr	q24, [x6, #0]				//h1l | h1h
+ 	ldr	d25, [x6, #16]				//h1k (64-bit)
+-	aese	v0.16b, v2.16b
+-	aesmc	v0.16b, v0.16b			//blk 0 - round 1
+ 	rev64	v20.16b, v26.16b				//GHASH H^1 block
+ 	ext	v21.16b, v20.16b, v20.16b, #8		//H^1 mid
+-	aese	v0.16b, v3.16b
+-	aesmc	v0.16b, v0.16b			//blk 0 - round 2
++	aese	v0.16b, v2.16b
++	aesmc	v0.16b, v0.16b			//blk 0 - round 1
+ 	eor	v21.8b, v21.8b, v20.8b			//H^1 mid
+ 	pmull2	v22.1q, v20.2d, v24.2d			//H^1 high
+ 	pmull	v23.1q, v20.1d, v24.1d			//H^1 low
++	pmull	v30.1q, v21.1d, v25.1d			//H^1 mid
++	aese	v0.16b, v3.16b
++	aesmc	v0.16b, v0.16b			//blk 0 - round 2
+ 	aese	v0.16b, v4.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 3
+-	pmull	v30.1q, v21.1d, v25.1d			//H^1 mid
+ 	eor	v17.16b, v17.16b, v22.16b			//fold high
+-	aese	v0.16b, v5.16b
+-	aesmc	v0.16b, v0.16b			//blk 0 - round 4
+ 	eor	v19.16b, v19.16b, v23.16b			//fold low
+ 	eor	v18.16b, v18.16b, v30.16b			//fold mid
++	aese	v0.16b, v5.16b
++	aesmc	v0.16b, v0.16b			//blk 0 - round 4
+ 	aese	v0.16b, v6.16b
+ 	aesmc	v0.16b, v0.16b			//blk 0 - round 5
+ 	ldr	d16, [x10]				//MODULO - load modulo constant
+@@ -1983,7 +1983,7 @@
+ .inst	0xce003f40	//eor3 v0.16b, v26.16b, v0.16b, v15.16b	//H^1 block - result
+ 	str	q0, [x2], #16
+ 
+-.L256_dec_XX_done:	//[CASCW] epilogue
++.L256_dec_XX_done:	//[CASCW] epilogue
+ 	mov	x0, x9
+ 	ldp	d10, d11, [sp, #16]
+ 	ldp	d12, d13, [sp, #32]

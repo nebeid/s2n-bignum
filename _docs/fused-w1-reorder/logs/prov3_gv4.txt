@@ -1,0 +1,88 @@
+=== .text ===
+cl5      5980
+cl6      5980
+cl12     5980
+d1       5980
+d2       5980
+d3       5980
+d4       5980
+d5       5980
+pre1     5980
+pre2     5980
+pre3     5980
+pre4     5980
+pre5     5960
+pre6     5988
+=== md5 ===
+3028b3c7a03dc631fd9e5604a15c020a  obj/cl5.o
+02ff735cdfc6f1c0c9fe86505d17655c  obj/cl6.o
+0193c60571081f6476c2cbf0511e1c98  obj/cl12.o
+bf129bad4708b4dc643290adbd50e3b7  obj/d1.o
+d2d55b6c6a093fffdefe1d6ef1a5b4e1  obj/d2.o
+fd5f6a07d9dc5bfbc8913825d19680e1  obj/d3.o
+43e185faa0224604515cbcd21da739a6  obj/d4.o
+7a0162dc59873a98c35a3691e3e3531f  obj/d5.o
+a3ab155715d48e8ec590692dd71881ee  obj/pre1.o
+7f2f949bbc41a24f8e6f950281c3ebe3  obj/pre2.o
+0dd9b4d0ca30f9944bf44a727ca58fb1  obj/pre3.o
+96c772bff8a56d3b14c59f72b39f9cc0  obj/pre4.o
+68d204291efd1a89e45259d48e487eb9  obj/pre5.o
+78af568f33592193eef28610ed4fba94  obj/pre6.o
+=== slots / aese / adjacency ===
+---- cl12
+adjacency: 0 violation(s)
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- d1
+adjacency: 0 violation(s)
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- pre2
+adjacency: 0 violation(s)
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- pre5
+adjacency: 0 violation(s)
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     0     122    0     128        32.00     56    56     27
+=== nblk>8 unchanged ===
+cl5      VERDICT: nblk>8 content UNCHANGED
+cl6      VERDICT: nblk>8 content UNCHANGED
+cl12     VERDICT: nblk>8 content UNCHANGED
+d1       VERDICT: nblk>8 content UNCHANGED
+d2       VERDICT: nblk>8 content UNCHANGED
+d3       VERDICT: nblk>8 content UNCHANGED
+d4       VERDICT: nblk>8 content UNCHANGED
+d5       VERDICT: nblk>8 content UNCHANGED
+pre1     VERDICT: nblk>8 content UNCHANGED
+pre2     VERDICT: nblk>8 content UNCHANGED
+pre3     VERDICT: nblk>8 content UNCHANGED
+pre4     VERDICT: nblk>8 content UNCHANGED
+pre5     VERDICT: nblk>8 content UNCHANGED
+pre6     VERDICT: nblk>8 content UNCHANGED
+=== KAT ===
+cl5      === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+cl6      === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+cl12     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+d1       === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+d2       === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+d3       === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+d4       === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+d5       === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+pre1     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+pre2     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+pre3     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+pre4     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+pre5     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+pre6     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+=== byte-compare, all 256 lengths ===
+SELFCHECK OK (256 whole-block lengths 1..256 blk x 12 variants; out/Xi/ivec/ret byte-identical, nothing written past 16*nblk)
+SELFCHECK OK (256 whole-block lengths 1..256 blk x 4 variants; out/Xi/ivec/ret byte-identical, nothing written past 16*nblk)

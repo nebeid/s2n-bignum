@@ -1,0 +1,1182 @@
+--- src/base.S	2026-08-15 11:16:13.000000000 +0000
++++ src/t6.S	2026-08-16 19:21:28.748379097 +0000
+@@ -55,6 +55,9 @@
+ 	stp	x5, xzr, [sp, #64]
+ 	add	x10, sp, #64
+ 
++	cmp	x9, #96				//[FUSE] nblk <= 6 ?
++	b.le	.L256_dec_fused_small
++
+ 	ld1	{ v0.16b}, [x16]					//CTR block 0
+ 
+ 	mov	x15, #0x100000000			//set up counter increment
+@@ -1715,6 +1718,1169 @@
+ 
+ 	b	.L256_dec_epilogue
+ 
++
++.L256_dec_fused_small:	//[FUSE] nblk <= 6: dispatch on byte_len (x9)
++	cmp	x9, #48
++	b.gt	.L256_dec_fs_h1
++	cmp	x9, #32
++	b.gt	.L256_dec_fs_h2
++	cmp	x9, #16
++	b.eq	.L256_dec_fused_1
++	b	.L256_dec_fused_2
++.L256_dec_fs_h2:
++	b	.L256_dec_fused_3
++.L256_dec_fs_h1:
++	cmp	x9, #80
++	b.gt	.L256_dec_fs_h3
++	cmp	x9, #64
++	b.eq	.L256_dec_fused_4
++	b	.L256_dec_fused_5
++.L256_dec_fs_h3:
++	b	.L256_dec_fused_6
++
++.L256_dec_fused_1:	//[FUSE] fused straight-line path, exactly 1 block
++	//[FUSE] AES(1 blk) and GHASH(1 blk) interleaved; GHASH front-loaded into
++	//[FUSE] AES units 0..5 of 14, MODULO + ct reload over units 6..13.
++	ld1	{ v0.16b}, [x16]				//CTR block 0
++	mov	x15, #0x100000000			//counter increment
++	movi	v31.16b, #0x0
++	mov	v31.d[1], x15				//+1
++	rev32	v29.16b, v0.16b				//reversed counter base
++	add	v30.4s, v29.4s, v31.4s			//final counter = base + 1
++	ldp	q26, q27, [x11, #0]			//rk0, rk1
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 0
++	ld1	{ v19.16b}, [x3]				//load Xi
++	ext	v19.16b, v19.16b, v19.16b, #8
++	rev64	v19.16b, v19.16b
++	ldp	q28, q26, [x11, #32]			//rk2, rk3
++	aese	v0.16b, v27.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 1
++	ext	v16.16b, v19.16b, v19.16b, #8		//partial-tag feed
++	ldr	q9, [x0, #0]				//GHASH blk0 ciphertext
++	aese	v0.16b, v28.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 2
++	ldr	q24, [x6, #0]				//h1l | h1h
++	ldr	d25, [x6, #16]				//h1k (64-bit)
++	ldp	q27, q28, [x11, #64]			//rk4, rk5
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 3
++	rev64	v8.16b, v9.16b				//GHASH blk0 (H^1)
++	eor	v8.16b, v8.16b, v16.16b			//feed in tag
++	ext	v10.16b, v8.16b, v8.16b, #8		//blk0 mid
++	aese	v0.16b, v27.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 4
++	eor	v10.8b, v10.8b, v8.8b			//blk0 mid
++	pmull2	v17.1q, v8.2d, v24.2d			//blk0 high
++	ldp	q26, q27, [x11, #96]			//rk6, rk7
++	aese	v0.16b, v28.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 5
++	pmull	v19.1q, v8.1d, v24.1d			//blk0 low
++	pmull	v18.1q, v10.1d, v25.1d			//blk0 mid
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 6
++	ldr	d16, [x10]				//MODULO - load modulo constant
++	pmull	v21.1q, v17.1d, v16.1d			//MODULO - top 64b align with mid
++	eor	v20.16b, v17.16b, v19.16b		//MODULO - karatsuba tidy up
++	ldp	q28, q26, [x11, #128]			//rk8, rk9
++	aese	v0.16b, v27.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 7
++	ext	v17.16b, v17.16b, v17.16b, #8		//MODULO - other top alignment
++	eor	v18.16b, v18.16b, v20.16b		//MODULO - karatsuba tidy up
++	aese	v0.16b, v28.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 8
++	eor	v21.16b, v17.16b, v21.16b		//MODULO - fold into mid
++	eor	v18.16b, v18.16b, v21.16b		//MODULO - fold into mid
++	ldp	q27, q28, [x11, #160]			//rk10, rk11
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 9
++	pmull	v17.1q, v18.1d, v16.1d			//MODULO - mid 64b align with low
++	ext	v18.16b, v18.16b, v18.16b, #8		//MODULO - other mid alignment
++	aese	v0.16b, v27.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 10
++	eor	v19.16b, v19.16b, v17.16b		//MODULO - fold into low
++	eor	v19.16b, v19.16b, v18.16b		//MODULO - fold into low
++	ldp	q26, q27, [x11, #192]			//rk12, rk13
++	aese	v0.16b, v28.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 11
++	ext	v19.16b, v19.16b, v19.16b, #8
++	rev64	v19.16b, v19.16b
++	ldr	q28, [x11, #224]			//rk14
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 12
++	st1	{ v19.16b }, [x3]				//store the tag
++	rev32	v30.16b, v30.16b
++	aese	v0.16b, v27.16b				//AES block 0 - round 13
++	str	q30, [x16]				//store the updated counter
++	ldr	q8, [x0], #16				//reload ct 0
++.inst	0xce007100	//eor3 v0.16b, v8.16b, v0.16b, v28.16b	//AES block 0 - result
++	str	q0, [x2], #16
++	mov	x0, x9
++	ldp	d10, d11, [sp, #16]
++	ldp	d12, d13, [sp, #32]
++	ldp	d14, d15, [sp, #48]
++	ldp	d8, d9, [sp], #80
++	ret
++
++.L256_dec_fused_2:	//[FUSE] fused straight-line path, exactly 2 blocks
++	//[FUSE] AES(2 blk) and GHASH(2 blk) interleaved; GHASH front-loaded into
++	//[FUSE] AES units 0..7 of 28, MODULO + ct reload over units 8..27.
++	ld1	{ v0.16b}, [x16]				//CTR block 0
++	mov	x15, #0x100000000			//counter increment
++	movi	v31.16b, #0x0
++	mov	v31.d[1], x15				//+1
++	rev32	v29.16b, v0.16b				//reversed counter base
++	add	v20.4s, v31.4s, v31.4s			//+2 increment
++	add	v8.4s, v29.4s, v31.4s			//CTR block 1
++	rev32	v1.16b, v8.16b				//CTR block 1
++	add	v30.4s, v29.4s, v20.4s			//final counter = base + 2
++	ldp	q26, q27, [x11, #0]			//rk0, rk1
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 0
++	ld1	{ v19.16b}, [x3]				//load Xi
++	ext	v19.16b, v19.16b, v19.16b, #8
++	rev64	v19.16b, v19.16b
++	ext	v16.16b, v19.16b, v19.16b, #8		//partial-tag feed
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 0
++	ldr	q9, [x0, #0]				//GHASH blk0 ciphertext
++	ldr	q24, [x6, #32]				//h2l | h2h
++	ldr	d25, [x6, #24]				//h2k (64-bit)
++	ldp	q28, q26, [x11, #32]			//rk2, rk3
++	aese	v0.16b, v27.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 1
++	rev64	v8.16b, v9.16b				//GHASH blk0 (H^2)
++	eor	v8.16b, v8.16b, v16.16b			//feed in tag
++	ext	v10.16b, v8.16b, v8.16b, #8		//blk0 mid
++	aese	v1.16b, v27.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 1
++	eor	v10.8b, v10.8b, v8.8b			//blk0 mid
++	pmull2	v17.1q, v8.2d, v24.2d			//blk0 high
++	pmull	v19.1q, v8.1d, v24.1d			//blk0 low
++	aese	v0.16b, v28.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 2
++	pmull	v18.1q, v10.1d, v25.1d			//blk0 mid
++	ldr	q9, [x0, #16]				//GHASH blk1 ciphertext
++	ldr	q24, [x6, #0]				//h1l | h1h
++	ldr	d25, [x6, #16]				//h1k (64-bit)
++	aese	v1.16b, v28.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 2
++	rev64	v8.16b, v9.16b				//GHASH blk1 (H^1)
++	ext	v10.16b, v8.16b, v8.16b, #8		//blk1 mid
++	eor	v10.8b, v10.8b, v8.8b			//blk1 mid
++	ldp	q27, q28, [x11, #64]			//rk4, rk5
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 3
++	pmull2	v11.1q, v8.2d, v24.2d			//blk1 high
++	pmull	v12.1q, v8.1d, v24.1d			//blk1 low
++	pmull	v13.1q, v10.1d, v25.1d			//blk1 mid
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 3
++	eor	v17.16b, v17.16b, v11.16b			//fold high
++	eor	v19.16b, v19.16b, v12.16b			//fold low
++	eor	v18.16b, v18.16b, v13.16b			//fold mid
++	aese	v0.16b, v27.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 4
++	ldr	d16, [x10]				//MODULO - load modulo constant
++	aese	v1.16b, v27.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 4
++	pmull	v21.1q, v17.1d, v16.1d			//MODULO - top 64b align with mid
++	ldp	q26, q27, [x11, #96]			//rk6, rk7
++	aese	v0.16b, v28.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 5
++	eor	v20.16b, v17.16b, v19.16b		//MODULO - karatsuba tidy up
++	aese	v1.16b, v28.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 5
++	ext	v17.16b, v17.16b, v17.16b, #8		//MODULO - other top alignment
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 6
++	eor	v18.16b, v18.16b, v20.16b		//MODULO - karatsuba tidy up
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 6
++	eor	v21.16b, v17.16b, v21.16b		//MODULO - fold into mid
++	ldp	q28, q26, [x11, #128]			//rk8, rk9
++	aese	v0.16b, v27.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 7
++	aese	v1.16b, v27.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 7
++	eor	v18.16b, v18.16b, v21.16b		//MODULO - fold into mid
++	aese	v0.16b, v28.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 8
++	pmull	v17.1q, v18.1d, v16.1d			//MODULO - mid 64b align with low
++	aese	v1.16b, v28.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 8
++	ext	v18.16b, v18.16b, v18.16b, #8		//MODULO - other mid alignment
++	ldp	q27, q28, [x11, #160]			//rk10, rk11
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 9
++	eor	v19.16b, v19.16b, v17.16b		//MODULO - fold into low
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 9
++	eor	v19.16b, v19.16b, v18.16b		//MODULO - fold into low
++	aese	v0.16b, v27.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 10
++	ext	v19.16b, v19.16b, v19.16b, #8
++	aese	v1.16b, v27.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 10
++	ldp	q26, q27, [x11, #192]			//rk12, rk13
++	aese	v0.16b, v28.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 11
++	rev64	v19.16b, v19.16b
++	aese	v1.16b, v28.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 11
++	st1	{ v19.16b }, [x3]				//store the tag
++	ldr	q28, [x11, #224]			//rk14
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 12
++	rev32	v30.16b, v30.16b
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 12
++	str	q30, [x16]				//store the updated counter
++	aese	v0.16b, v27.16b				//AES block 0 - round 13
++	ldp	q8, q9, [x0], #32			//reload ct 0,1
++	aese	v1.16b, v27.16b				//AES block 1 - round 13
++.inst	0xce007100	//eor3 v0.16b, v8.16b, v0.16b, v28.16b	//AES block 0 - result
++.inst	0xce017121	//eor3 v1.16b, v9.16b, v1.16b, v28.16b	//AES block 1 - result
++	stp	q0, q1, [x2], #32
++	mov	x0, x9
++	ldp	d10, d11, [sp, #16]
++	ldp	d12, d13, [sp, #32]
++	ldp	d14, d15, [sp, #48]
++	ldp	d8, d9, [sp], #80
++	ret
++
++.L256_dec_fused_3:	//[FUSE] fused straight-line path, exactly 3 blocks
++	//[FUSE] AES(3 blk) and GHASH(3 blk) interleaved; GHASH front-loaded into
++	//[FUSE] AES units 0..18 of 42, MODULO + ct reload over units 19..41.
++	ld1	{ v0.16b}, [x16]				//CTR block 0
++	mov	x15, #0x100000000			//counter increment
++	movi	v31.16b, #0x0
++	mov	v31.d[1], x15				//+1
++	rev32	v29.16b, v0.16b				//reversed counter base
++	add	v20.4s, v31.4s, v31.4s			//+2 increment
++	add	v21.4s, v20.4s, v31.4s			//+3 increment
++	add	v8.4s, v29.4s, v31.4s			//CTR block 1
++	add	v9.4s, v29.4s, v20.4s			//CTR block 2
++	rev32	v1.16b, v8.16b				//CTR block 1
++	rev32	v2.16b, v9.16b				//CTR block 2
++	add	v30.4s, v29.4s, v21.4s			//final counter = base + 3
++	ldp	q26, q27, [x11, #0]			//rk0, rk1
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 0
++	ld1	{ v19.16b}, [x3]				//load Xi
++	ext	v19.16b, v19.16b, v19.16b, #8
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 0
++	rev64	v19.16b, v19.16b
++	ext	v16.16b, v19.16b, v19.16b, #8		//partial-tag feed
++	aese	v2.16b, v26.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 0
++	ldr	q9, [x0, #0]				//GHASH blk0 ciphertext
++	ldr	q24, [x6, #48]				//h3l | h3h
++	ldp	q28, q26, [x11, #32]			//rk2, rk3
++	aese	v0.16b, v27.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 1
++	ldr	d25, [x6, #64]				//h3k (64-bit)
++	rev64	v8.16b, v9.16b				//GHASH blk0 (H^3)
++	aese	v1.16b, v27.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 1
++	eor	v8.16b, v8.16b, v16.16b			//feed in tag
++	ext	v10.16b, v8.16b, v8.16b, #8		//blk0 mid
++	aese	v2.16b, v27.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 1
++	eor	v10.8b, v10.8b, v8.8b			//blk0 mid
++	pmull2	v17.1q, v8.2d, v24.2d			//blk0 high
++	aese	v0.16b, v28.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 2
++	pmull	v19.1q, v8.1d, v24.1d			//blk0 low
++	aese	v1.16b, v28.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 2
++	pmull	v18.1q, v10.1d, v25.1d			//blk0 mid
++	ldr	q9, [x0, #16]				//GHASH blk1 ciphertext
++	aese	v2.16b, v28.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 2
++	ldr	q24, [x6, #32]				//h2l | h2h
++	ldr	d25, [x6, #24]				//h2k (64-bit)
++	ldp	q27, q28, [x11, #64]			//rk4, rk5
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 3
++	rev64	v8.16b, v9.16b				//GHASH blk1 (H^2)
++	ext	v10.16b, v8.16b, v8.16b, #8		//blk1 mid
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 3
++	eor	v10.8b, v10.8b, v8.8b			//blk1 mid
++	pmull2	v11.1q, v8.2d, v24.2d			//blk1 high
++	aese	v2.16b, v26.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 3
++	pmull	v12.1q, v8.1d, v24.1d			//blk1 low
++	pmull	v13.1q, v10.1d, v25.1d			//blk1 mid
++	aese	v0.16b, v27.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 4
++	ldr	q9, [x0, #32]				//GHASH blk2 ciphertext
++	aese	v1.16b, v27.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 4
++	ldr	q24, [x6, #0]				//h1l | h1h
++	ldr	d25, [x6, #16]				//h1k (64-bit)
++	aese	v2.16b, v27.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 4
++	rev64	v8.16b, v9.16b				//GHASH blk2 (H^1)
++	ext	v10.16b, v8.16b, v8.16b, #8		//blk2 mid
++	ldp	q26, q27, [x11, #96]			//rk6, rk7
++	aese	v0.16b, v28.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 5
++	eor	v10.8b, v10.8b, v8.8b			//blk2 mid
++	pmull2	v14.1q, v8.2d, v24.2d			//blk2 high
++	aese	v1.16b, v28.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 5
++	pmull	v15.1q, v8.1d, v24.1d			//blk2 low
++	pmull	v20.1q, v10.1d, v25.1d			//blk2 mid
++	aese	v2.16b, v28.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 5
++.inst	0xce0b3a31	//eor3 v17.16b, v17.16b, v11.16b, v14.16b	//fold high
++.inst	0xce0c3e73	//eor3 v19.16b, v19.16b, v12.16b, v15.16b	//fold low
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 6
++.inst	0xce0d5252	//eor3 v18.16b, v18.16b, v13.16b, v20.16b	//fold mid
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 6
++	ldr	d16, [x10]				//MODULO - load modulo constant
++	aese	v2.16b, v26.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 6
++	pmull	v21.1q, v17.1d, v16.1d			//MODULO - top 64b align with mid
++	ldp	q28, q26, [x11, #128]			//rk8, rk9
++	aese	v0.16b, v27.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 7
++	eor	v20.16b, v17.16b, v19.16b		//MODULO - karatsuba tidy up
++	aese	v1.16b, v27.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 7
++	ext	v17.16b, v17.16b, v17.16b, #8		//MODULO - other top alignment
++	aese	v2.16b, v27.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 7
++	aese	v0.16b, v28.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 8
++	eor	v18.16b, v18.16b, v20.16b		//MODULO - karatsuba tidy up
++	aese	v1.16b, v28.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 8
++	eor	v21.16b, v17.16b, v21.16b		//MODULO - fold into mid
++	aese	v2.16b, v28.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 8
++	eor	v18.16b, v18.16b, v21.16b		//MODULO - fold into mid
++	ldp	q27, q28, [x11, #160]			//rk10, rk11
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 9
++	pmull	v17.1q, v18.1d, v16.1d			//MODULO - mid 64b align with low
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 9
++	aese	v2.16b, v26.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 9
++	ext	v18.16b, v18.16b, v18.16b, #8		//MODULO - other mid alignment
++	aese	v0.16b, v27.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 10
++	eor	v19.16b, v19.16b, v17.16b		//MODULO - fold into low
++	aese	v1.16b, v27.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 10
++	eor	v19.16b, v19.16b, v18.16b		//MODULO - fold into low
++	aese	v2.16b, v27.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 10
++	ldp	q26, q27, [x11, #192]			//rk12, rk13
++	aese	v0.16b, v28.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 11
++	ext	v19.16b, v19.16b, v19.16b, #8
++	aese	v1.16b, v28.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 11
++	rev64	v19.16b, v19.16b
++	aese	v2.16b, v28.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 11
++	st1	{ v19.16b }, [x3]				//store the tag
++	ldr	q28, [x11, #224]			//rk14
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 12
++	rev32	v30.16b, v30.16b
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 12
++	aese	v2.16b, v26.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 12
++	str	q30, [x16]				//store the updated counter
++	aese	v0.16b, v27.16b				//AES block 0 - round 13
++	ldp	q8, q9, [x0], #32			//reload ct 0,1
++	aese	v1.16b, v27.16b				//AES block 1 - round 13
++	ldr	q10, [x0], #16				//reload ct 2
++	aese	v2.16b, v27.16b				//AES block 2 - round 13
++.inst	0xce007100	//eor3 v0.16b, v8.16b, v0.16b, v28.16b	//AES block 0 - result
++.inst	0xce017121	//eor3 v1.16b, v9.16b, v1.16b, v28.16b	//AES block 1 - result
++.inst	0xce027142	//eor3 v2.16b, v10.16b, v2.16b, v28.16b	//AES block 2 - result
++	stp	q0, q1, [x2], #32
++	str	q2, [x2], #16
++	mov	x0, x9
++	ldp	d10, d11, [sp, #16]
++	ldp	d12, d13, [sp, #32]
++	ldp	d14, d15, [sp, #48]
++	ldp	d8, d9, [sp], #80
++	ret
++
++.L256_dec_fused_4:	//[FUSE] fused straight-line path, exactly 4 blocks
++	//[FUSE] AES(4 blk) and GHASH(4 blk) interleaved; GHASH front-loaded into
++	//[FUSE] AES units 0..16 of 56, MODULO + ct reload over units 17..55.
++	ld1	{ v0.16b}, [x16]				//CTR block 0
++	mov	x15, #0x100000000			//counter increment
++	movi	v31.16b, #0x0
++	mov	v31.d[1], x15				//+1
++	rev32	v29.16b, v0.16b				//reversed counter base
++	add	v20.4s, v31.4s, v31.4s			//+2 increment
++	add	v21.4s, v20.4s, v31.4s			//+3 increment
++	add	v22.4s, v20.4s, v20.4s			//+4 increment
++	add	v8.4s, v29.4s, v31.4s			//CTR block 1
++	add	v9.4s, v29.4s, v20.4s			//CTR block 2
++	add	v10.4s, v29.4s, v21.4s			//CTR block 3
++	rev32	v1.16b, v8.16b				//CTR block 1
++	rev32	v2.16b, v9.16b				//CTR block 2
++	rev32	v3.16b, v10.16b				//CTR block 3
++	add	v30.4s, v29.4s, v22.4s			//final counter = base + 4
++	ldp	q26, q27, [x11, #0]			//rk0, rk1
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 0
++	ld1	{ v19.16b}, [x3]				//load Xi
++	ext	v19.16b, v19.16b, v19.16b, #8
++	rev64	v19.16b, v19.16b
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 0
++	ext	v16.16b, v19.16b, v19.16b, #8		//partial-tag feed
++	ldr	q9, [x0, #0]				//GHASH blk0 ciphertext
++	ldr	q24, [x6, #80]				//h4l | h4h
++	aese	v2.16b, v26.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 0
++	ldr	d25, [x6, #72]				//h4k (64-bit)
++	rev64	v8.16b, v9.16b				//GHASH blk0 (H^4)
++	eor	v8.16b, v8.16b, v16.16b			//feed in tag
++	aese	v3.16b, v26.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 0
++	ext	v10.16b, v8.16b, v8.16b, #8		//blk0 mid
++	eor	v10.8b, v10.8b, v8.8b			//blk0 mid
++	pmull2	v17.1q, v8.2d, v24.2d			//blk0 high
++	ldp	q28, q26, [x11, #32]			//rk2, rk3
++	aese	v0.16b, v27.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 1
++	pmull	v19.1q, v8.1d, v24.1d			//blk0 low
++	pmull	v18.1q, v10.1d, v25.1d			//blk0 mid
++	aese	v1.16b, v27.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 1
++	ldr	q9, [x0, #16]				//GHASH blk1 ciphertext
++	ldr	q24, [x6, #48]				//h3l | h3h
++	ldr	d25, [x6, #64]				//h3k (64-bit)
++	aese	v2.16b, v27.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 1
++	rev64	v8.16b, v9.16b				//GHASH blk1 (H^3)
++	ext	v10.16b, v8.16b, v8.16b, #8		//blk1 mid
++	eor	v10.8b, v10.8b, v8.8b			//blk1 mid
++	aese	v3.16b, v27.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 1
++	pmull2	v11.1q, v8.2d, v24.2d			//blk1 high
++	pmull	v12.1q, v8.1d, v24.1d			//blk1 low
++	pmull	v13.1q, v10.1d, v25.1d			//blk1 mid
++	aese	v0.16b, v28.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 2
++	ldr	q9, [x0, #32]				//GHASH blk2 ciphertext
++	ldr	q24, [x6, #32]				//h2l | h2h
++	aese	v1.16b, v28.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 2
++	ldr	d25, [x6, #24]				//h2k (64-bit)
++	rev64	v8.16b, v9.16b				//GHASH blk2 (H^2)
++	ext	v10.16b, v8.16b, v8.16b, #8		//blk2 mid
++	aese	v2.16b, v28.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 2
++	eor	v10.8b, v10.8b, v8.8b			//blk2 mid
++	pmull2	v14.1q, v8.2d, v24.2d			//blk2 high
++	pmull	v15.1q, v8.1d, v24.1d			//blk2 low
++	aese	v3.16b, v28.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 2
++	pmull	v20.1q, v10.1d, v25.1d			//blk2 mid
++.inst	0xce0b3a31	//eor3 v17.16b, v17.16b, v11.16b, v14.16b	//fold high
++.inst	0xce0c3e73	//eor3 v19.16b, v19.16b, v12.16b, v15.16b	//fold low
++	ldp	q27, q28, [x11, #64]			//rk4, rk5
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 3
++.inst	0xce0d5252	//eor3 v18.16b, v18.16b, v13.16b, v20.16b	//fold mid
++	ldr	q9, [x0, #48]				//GHASH blk3 ciphertext
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 3
++	ldr	q24, [x6, #0]				//h1l | h1h
++	ldr	d25, [x6, #16]				//h1k (64-bit)
++	rev64	v8.16b, v9.16b				//GHASH blk3 (H^1)
++	aese	v2.16b, v26.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 3
++	ext	v10.16b, v8.16b, v8.16b, #8		//blk3 mid
++	eor	v10.8b, v10.8b, v8.8b			//blk3 mid
++	pmull2	v11.1q, v8.2d, v24.2d			//blk3 high
++	aese	v3.16b, v26.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 3
++	pmull	v12.1q, v8.1d, v24.1d			//blk3 low
++	pmull	v13.1q, v10.1d, v25.1d			//blk3 mid
++	eor	v17.16b, v17.16b, v11.16b			//fold high
++	aese	v0.16b, v27.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 4
++	eor	v19.16b, v19.16b, v12.16b			//fold low
++	eor	v18.16b, v18.16b, v13.16b			//fold mid
++	aese	v1.16b, v27.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 4
++	ldr	d16, [x10]				//MODULO - load modulo constant
++	aese	v2.16b, v27.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 4
++	aese	v3.16b, v27.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 4
++	pmull	v21.1q, v17.1d, v16.1d			//MODULO - top 64b align with mid
++	ldp	q26, q27, [x11, #96]			//rk6, rk7
++	aese	v0.16b, v28.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 5
++	aese	v1.16b, v28.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 5
++	eor	v20.16b, v17.16b, v19.16b		//MODULO - karatsuba tidy up
++	aese	v2.16b, v28.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 5
++	aese	v3.16b, v28.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 5
++	ext	v17.16b, v17.16b, v17.16b, #8		//MODULO - other top alignment
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 6
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 6
++	eor	v18.16b, v18.16b, v20.16b		//MODULO - karatsuba tidy up
++	aese	v2.16b, v26.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 6
++	aese	v3.16b, v26.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 6
++	eor	v21.16b, v17.16b, v21.16b		//MODULO - fold into mid
++	ldp	q28, q26, [x11, #128]			//rk8, rk9
++	aese	v0.16b, v27.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 7
++	aese	v1.16b, v27.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 7
++	aese	v2.16b, v27.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 7
++	eor	v18.16b, v18.16b, v21.16b		//MODULO - fold into mid
++	aese	v3.16b, v27.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 7
++	aese	v0.16b, v28.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 8
++	pmull	v17.1q, v18.1d, v16.1d			//MODULO - mid 64b align with low
++	aese	v1.16b, v28.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 8
++	aese	v2.16b, v28.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 8
++	ext	v18.16b, v18.16b, v18.16b, #8		//MODULO - other mid alignment
++	aese	v3.16b, v28.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 8
++	ldp	q27, q28, [x11, #160]			//rk10, rk11
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 9
++	eor	v19.16b, v19.16b, v17.16b		//MODULO - fold into low
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 9
++	aese	v2.16b, v26.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 9
++	eor	v19.16b, v19.16b, v18.16b		//MODULO - fold into low
++	aese	v3.16b, v26.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 9
++	aese	v0.16b, v27.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 10
++	ext	v19.16b, v19.16b, v19.16b, #8
++	aese	v1.16b, v27.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 10
++	aese	v2.16b, v27.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 10
++	aese	v3.16b, v27.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 10
++	rev64	v19.16b, v19.16b
++	ldp	q26, q27, [x11, #192]			//rk12, rk13
++	aese	v0.16b, v28.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 11
++	aese	v1.16b, v28.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 11
++	st1	{ v19.16b }, [x3]				//store the tag
++	aese	v2.16b, v28.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 11
++	aese	v3.16b, v28.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 11
++	rev32	v30.16b, v30.16b
++	ldr	q28, [x11, #224]			//rk14
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 12
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 12
++	str	q30, [x16]				//store the updated counter
++	aese	v2.16b, v26.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 12
++	aese	v3.16b, v26.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 12
++	ldp	q8, q9, [x0], #32			//reload ct 0,1
++	aese	v0.16b, v27.16b				//AES block 0 - round 13
++	aese	v1.16b, v27.16b				//AES block 1 - round 13
++	ldp	q10, q11, [x0], #32			//reload ct 2,3
++	aese	v2.16b, v27.16b				//AES block 2 - round 13
++	aese	v3.16b, v27.16b				//AES block 3 - round 13
++.inst	0xce007100	//eor3 v0.16b, v8.16b, v0.16b, v28.16b	//AES block 0 - result
++.inst	0xce017121	//eor3 v1.16b, v9.16b, v1.16b, v28.16b	//AES block 1 - result
++.inst	0xce027142	//eor3 v2.16b, v10.16b, v2.16b, v28.16b	//AES block 2 - result
++.inst	0xce037163	//eor3 v3.16b, v11.16b, v3.16b, v28.16b	//AES block 3 - result
++	stp	q0, q1, [x2], #32
++	stp	q2, q3, [x2], #32
++	mov	x0, x9
++	ldp	d10, d11, [sp, #16]
++	ldp	d12, d13, [sp, #32]
++	ldp	d14, d15, [sp, #48]
++	ldp	d8, d9, [sp], #80
++	ret
++
++.L256_dec_fused_5:	//[FUSE] fused straight-line path, exactly 5 blocks
++	//[FUSE] AES(5 blk) and GHASH(5 blk) interleaved; GHASH front-loaded into
++	//[FUSE] AES units 0..31 of 70, MODULO + ct reload over units 32..69.
++	ld1	{ v0.16b}, [x16]				//CTR block 0
++	mov	x15, #0x100000000			//counter increment
++	movi	v31.16b, #0x0
++	mov	v31.d[1], x15				//+1
++	rev32	v29.16b, v0.16b				//reversed counter base
++	add	v20.4s, v31.4s, v31.4s			//+2 increment
++	add	v21.4s, v20.4s, v31.4s			//+3 increment
++	add	v22.4s, v20.4s, v20.4s			//+4 increment
++	add	v23.4s, v22.4s, v31.4s			//+5 increment
++	add	v8.4s, v29.4s, v31.4s			//CTR block 1
++	add	v9.4s, v29.4s, v20.4s			//CTR block 2
++	add	v10.4s, v29.4s, v21.4s			//CTR block 3
++	add	v11.4s, v29.4s, v22.4s			//CTR block 4
++	rev32	v1.16b, v8.16b				//CTR block 1
++	rev32	v2.16b, v9.16b				//CTR block 2
++	rev32	v3.16b, v10.16b				//CTR block 3
++	rev32	v4.16b, v11.16b				//CTR block 4
++	add	v30.4s, v29.4s, v23.4s			//final counter = base + 5
++	ldp	q26, q27, [x11, #0]			//rk0, rk1
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 0
++	ld1	{ v19.16b}, [x3]				//load Xi
++	ext	v19.16b, v19.16b, v19.16b, #8
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 0
++	rev64	v19.16b, v19.16b
++	ext	v16.16b, v19.16b, v19.16b, #8		//partial-tag feed
++	aese	v2.16b, v26.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 0
++	ldr	q9, [x0, #0]				//GHASH blk0 ciphertext
++	ldr	q24, [x6, #96]				//h5l | h5h
++	aese	v3.16b, v26.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 0
++	ldr	d25, [x6, #112]				//h5k (64-bit)
++	aese	v4.16b, v26.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 0
++	rev64	v8.16b, v9.16b				//GHASH blk0 (H^5)
++	eor	v8.16b, v8.16b, v16.16b			//feed in tag
++	ldp	q28, q26, [x11, #32]			//rk2, rk3
++	aese	v0.16b, v27.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 1
++	ext	v10.16b, v8.16b, v8.16b, #8		//blk0 mid
++	eor	v10.8b, v10.8b, v8.8b			//blk0 mid
++	aese	v1.16b, v27.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 1
++	pmull2	v17.1q, v8.2d, v24.2d			//blk0 high
++	pmull	v19.1q, v8.1d, v24.1d			//blk0 low
++	aese	v2.16b, v27.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 1
++	pmull	v18.1q, v10.1d, v25.1d			//blk0 mid
++	aese	v3.16b, v27.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 1
++	ldr	q9, [x0, #16]				//GHASH blk1 ciphertext
++	ldr	q24, [x6, #80]				//h4l | h4h
++	aese	v4.16b, v27.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 1
++	ldr	d25, [x6, #72]				//h4k (64-bit)
++	rev64	v8.16b, v9.16b				//GHASH blk1 (H^4)
++	aese	v0.16b, v28.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 2
++	ext	v10.16b, v8.16b, v8.16b, #8		//blk1 mid
++	eor	v10.8b, v10.8b, v8.8b			//blk1 mid
++	aese	v1.16b, v28.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 2
++	pmull2	v11.1q, v8.2d, v24.2d			//blk1 high
++	aese	v2.16b, v28.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 2
++	pmull	v12.1q, v8.1d, v24.1d			//blk1 low
++	pmull	v13.1q, v10.1d, v25.1d			//blk1 mid
++	aese	v3.16b, v28.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 2
++	ldr	q9, [x0, #32]				//GHASH blk2 ciphertext
++	ldr	q24, [x6, #48]				//h3l | h3h
++	aese	v4.16b, v28.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 2
++	ldr	d25, [x6, #64]				//h3k (64-bit)
++	rev64	v8.16b, v9.16b				//GHASH blk2 (H^3)
++	ldp	q27, q28, [x11, #64]			//rk4, rk5
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 3
++	ext	v10.16b, v8.16b, v8.16b, #8		//blk2 mid
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 3
++	eor	v10.8b, v10.8b, v8.8b			//blk2 mid
++	pmull2	v14.1q, v8.2d, v24.2d			//blk2 high
++	aese	v2.16b, v26.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 3
++	pmull	v15.1q, v8.1d, v24.1d			//blk2 low
++	pmull	v20.1q, v10.1d, v25.1d			//blk2 mid
++	aese	v3.16b, v26.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 3
++.inst	0xce0b3a31	//eor3 v17.16b, v17.16b, v11.16b, v14.16b	//fold high
++.inst	0xce0c3e73	//eor3 v19.16b, v19.16b, v12.16b, v15.16b	//fold low
++	aese	v4.16b, v26.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 3
++.inst	0xce0d5252	//eor3 v18.16b, v18.16b, v13.16b, v20.16b	//fold mid
++	aese	v0.16b, v27.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 4
++	ldr	q9, [x0, #48]				//GHASH blk3 ciphertext
++	ldr	q24, [x6, #32]				//h2l | h2h
++	aese	v1.16b, v27.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 4
++	ldr	d25, [x6, #24]				//h2k (64-bit)
++	rev64	v8.16b, v9.16b				//GHASH blk3 (H^2)
++	aese	v2.16b, v27.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 4
++	ext	v10.16b, v8.16b, v8.16b, #8		//blk3 mid
++	eor	v10.8b, v10.8b, v8.8b			//blk3 mid
++	aese	v3.16b, v27.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 4
++	pmull2	v11.1q, v8.2d, v24.2d			//blk3 high
++	aese	v4.16b, v27.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 4
++	pmull	v12.1q, v8.1d, v24.1d			//blk3 low
++	pmull	v13.1q, v10.1d, v25.1d			//blk3 mid
++	ldp	q26, q27, [x11, #96]			//rk6, rk7
++	aese	v0.16b, v28.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 5
++	ldr	q9, [x0, #64]				//GHASH blk4 ciphertext
++	ldr	q24, [x6, #0]				//h1l | h1h
++	aese	v1.16b, v28.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 5
++	ldr	d25, [x6, #16]				//h1k (64-bit)
++	rev64	v8.16b, v9.16b				//GHASH blk4 (H^1)
++	aese	v2.16b, v28.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 5
++	ext	v10.16b, v8.16b, v8.16b, #8		//blk4 mid
++	aese	v3.16b, v28.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 5
++	eor	v10.8b, v10.8b, v8.8b			//blk4 mid
++	pmull2	v14.1q, v8.2d, v24.2d			//blk4 high
++	aese	v4.16b, v28.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 5
++	pmull	v15.1q, v8.1d, v24.1d			//blk4 low
++	pmull	v20.1q, v10.1d, v25.1d			//blk4 mid
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 6
++.inst	0xce0b3a31	//eor3 v17.16b, v17.16b, v11.16b, v14.16b	//fold high
++.inst	0xce0c3e73	//eor3 v19.16b, v19.16b, v12.16b, v15.16b	//fold low
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 6
++.inst	0xce0d5252	//eor3 v18.16b, v18.16b, v13.16b, v20.16b	//fold mid
++	aese	v2.16b, v26.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 6
++	ldr	d16, [x10]				//MODULO - load modulo constant
++	aese	v3.16b, v26.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 6
++	aese	v4.16b, v26.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 6
++	pmull	v21.1q, v17.1d, v16.1d			//MODULO - top 64b align with mid
++	ldp	q28, q26, [x11, #128]			//rk8, rk9
++	aese	v0.16b, v27.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 7
++	aese	v1.16b, v27.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 7
++	eor	v20.16b, v17.16b, v19.16b		//MODULO - karatsuba tidy up
++	aese	v2.16b, v27.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 7
++	aese	v3.16b, v27.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 7
++	ext	v17.16b, v17.16b, v17.16b, #8		//MODULO - other top alignment
++	aese	v4.16b, v27.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 7
++	aese	v0.16b, v28.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 8
++	eor	v18.16b, v18.16b, v20.16b		//MODULO - karatsuba tidy up
++	aese	v1.16b, v28.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 8
++	aese	v2.16b, v28.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 8
++	eor	v21.16b, v17.16b, v21.16b		//MODULO - fold into mid
++	aese	v3.16b, v28.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 8
++	aese	v4.16b, v28.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 8
++	eor	v18.16b, v18.16b, v21.16b		//MODULO - fold into mid
++	ldp	q27, q28, [x11, #160]			//rk10, rk11
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 9
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 9
++	pmull	v17.1q, v18.1d, v16.1d			//MODULO - mid 64b align with low
++	aese	v2.16b, v26.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 9
++	aese	v3.16b, v26.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 9
++	ext	v18.16b, v18.16b, v18.16b, #8		//MODULO - other mid alignment
++	aese	v4.16b, v26.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 9
++	aese	v0.16b, v27.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 10
++	eor	v19.16b, v19.16b, v17.16b		//MODULO - fold into low
++	aese	v1.16b, v27.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 10
++	aese	v2.16b, v27.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 10
++	eor	v19.16b, v19.16b, v18.16b		//MODULO - fold into low
++	aese	v3.16b, v27.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 10
++	aese	v4.16b, v27.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 10
++	ext	v19.16b, v19.16b, v19.16b, #8
++	ldp	q26, q27, [x11, #192]			//rk12, rk13
++	aese	v0.16b, v28.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 11
++	aese	v1.16b, v28.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 11
++	rev64	v19.16b, v19.16b
++	aese	v2.16b, v28.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 11
++	aese	v3.16b, v28.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 11
++	st1	{ v19.16b }, [x3]				//store the tag
++	aese	v4.16b, v28.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 11
++	ldr	q28, [x11, #224]			//rk14
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 12
++	rev32	v30.16b, v30.16b
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 12
++	aese	v2.16b, v26.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 12
++	str	q30, [x16]				//store the updated counter
++	aese	v3.16b, v26.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 12
++	aese	v4.16b, v26.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 12
++	ldp	q8, q9, [x0], #32			//reload ct 0,1
++	aese	v0.16b, v27.16b				//AES block 0 - round 13
++	aese	v1.16b, v27.16b				//AES block 1 - round 13
++	ldp	q10, q11, [x0], #32			//reload ct 2,3
++	aese	v2.16b, v27.16b				//AES block 2 - round 13
++	aese	v3.16b, v27.16b				//AES block 3 - round 13
++	ldr	q12, [x0], #16				//reload ct 4
++	aese	v4.16b, v27.16b				//AES block 4 - round 13
++.inst	0xce007100	//eor3 v0.16b, v8.16b, v0.16b, v28.16b	//AES block 0 - result
++.inst	0xce017121	//eor3 v1.16b, v9.16b, v1.16b, v28.16b	//AES block 1 - result
++.inst	0xce027142	//eor3 v2.16b, v10.16b, v2.16b, v28.16b	//AES block 2 - result
++.inst	0xce037163	//eor3 v3.16b, v11.16b, v3.16b, v28.16b	//AES block 3 - result
++.inst	0xce047184	//eor3 v4.16b, v12.16b, v4.16b, v28.16b	//AES block 4 - result
++	stp	q0, q1, [x2], #32
++	stp	q2, q3, [x2], #32
++	str	q4, [x2], #16
++	mov	x0, x9
++	ldp	d10, d11, [sp, #16]
++	ldp	d12, d13, [sp, #32]
++	ldp	d14, d15, [sp, #48]
++	ldp	d8, d9, [sp], #80
++	ret
++
++.L256_dec_fused_6:	//[FUSE] fused straight-line path, exactly 6 blocks
++	//[FUSE] AES(6 blk) and GHASH(6 blk) interleaved; GHASH front-loaded into
++	//[FUSE] AES units 0..37 of 84, MODULO + ct reload over units 38..83.
++	ld1	{ v0.16b}, [x16]				//CTR block 0
++	mov	x15, #0x100000000			//counter increment
++	movi	v31.16b, #0x0
++	mov	v31.d[1], x15				//+1
++	rev32	v29.16b, v0.16b				//reversed counter base
++	add	v20.4s, v31.4s, v31.4s			//+2 increment
++	add	v21.4s, v20.4s, v31.4s			//+3 increment
++	add	v22.4s, v20.4s, v20.4s			//+4 increment
++	add	v23.4s, v22.4s, v31.4s			//+5 increment
++	add	v24.4s, v22.4s, v20.4s			//+6 increment
++	add	v8.4s, v29.4s, v31.4s			//CTR block 1
++	add	v9.4s, v29.4s, v20.4s			//CTR block 2
++	add	v10.4s, v29.4s, v21.4s			//CTR block 3
++	add	v11.4s, v29.4s, v22.4s			//CTR block 4
++	add	v12.4s, v29.4s, v23.4s			//CTR block 5
++	rev32	v1.16b, v8.16b				//CTR block 1
++	rev32	v2.16b, v9.16b				//CTR block 2
++	rev32	v3.16b, v10.16b				//CTR block 3
++	rev32	v4.16b, v11.16b				//CTR block 4
++	rev32	v5.16b, v12.16b				//CTR block 5
++	add	v30.4s, v29.4s, v24.4s			//final counter = base + 6
++	ldp	q26, q27, [x11, #0]			//rk0, rk1
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 0
++	ld1	{ v19.16b}, [x3]				//load Xi
++	ext	v19.16b, v19.16b, v19.16b, #8
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 0
++	rev64	v19.16b, v19.16b
++	ext	v16.16b, v19.16b, v19.16b, #8		//partial-tag feed
++	aese	v2.16b, v26.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 0
++	ldr	q9, [x0, #0]				//GHASH blk0 ciphertext
++	ldr	q24, [x6, #128]				//h6l | h6h
++	aese	v3.16b, v26.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 0
++	ldr	d25, [x6, #120]				//h6k (64-bit)
++	rev64	v8.16b, v9.16b				//GHASH blk0 (H^6)
++	aese	v4.16b, v26.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 0
++	eor	v8.16b, v8.16b, v16.16b			//feed in tag
++	aese	v5.16b, v26.16b
++	aesmc	v5.16b, v5.16b			//AES block 5 - round 0
++	ext	v10.16b, v8.16b, v8.16b, #8		//blk0 mid
++	eor	v10.8b, v10.8b, v8.8b			//blk0 mid
++	ldp	q28, q26, [x11, #32]			//rk2, rk3
++	aese	v0.16b, v27.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 1
++	pmull2	v17.1q, v8.2d, v24.2d			//blk0 high
++	pmull	v19.1q, v8.1d, v24.1d			//blk0 low
++	aese	v1.16b, v27.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 1
++	pmull	v18.1q, v10.1d, v25.1d			//blk0 mid
++	ldr	q9, [x0, #16]				//GHASH blk1 ciphertext
++	aese	v2.16b, v27.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 1
++	ldr	q24, [x6, #96]				//h5l | h5h
++	ldr	d25, [x6, #112]				//h5k (64-bit)
++	aese	v3.16b, v27.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 1
++	rev64	v8.16b, v9.16b				//GHASH blk1 (H^5)
++	aese	v4.16b, v27.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 1
++	ext	v10.16b, v8.16b, v8.16b, #8		//blk1 mid
++	eor	v10.8b, v10.8b, v8.8b			//blk1 mid
++	aese	v5.16b, v27.16b
++	aesmc	v5.16b, v5.16b			//AES block 5 - round 1
++	pmull2	v11.1q, v8.2d, v24.2d			//blk1 high
++	pmull	v12.1q, v8.1d, v24.1d			//blk1 low
++	aese	v0.16b, v28.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 2
++	pmull	v13.1q, v10.1d, v25.1d			//blk1 mid
++	ldr	q9, [x0, #32]				//GHASH blk2 ciphertext
++	aese	v1.16b, v28.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 2
++	ldr	q24, [x6, #80]				//h4l | h4h
++	ldr	d25, [x6, #72]				//h4k (64-bit)
++	aese	v2.16b, v28.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 2
++	rev64	v8.16b, v9.16b				//GHASH blk2 (H^4)
++	aese	v3.16b, v28.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 2
++	ext	v10.16b, v8.16b, v8.16b, #8		//blk2 mid
++	eor	v10.8b, v10.8b, v8.8b			//blk2 mid
++	aese	v4.16b, v28.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 2
++	pmull2	v14.1q, v8.2d, v24.2d			//blk2 high
++	pmull	v15.1q, v8.1d, v24.1d			//blk2 low
++	aese	v5.16b, v28.16b
++	aesmc	v5.16b, v5.16b			//AES block 5 - round 2
++	pmull	v20.1q, v10.1d, v25.1d			//blk2 mid
++.inst	0xce0b3a31	//eor3 v17.16b, v17.16b, v11.16b, v14.16b	//fold high
++	ldp	q27, q28, [x11, #64]			//rk4, rk5
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 3
++.inst	0xce0c3e73	//eor3 v19.16b, v19.16b, v12.16b, v15.16b	//fold low
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 3
++.inst	0xce0d5252	//eor3 v18.16b, v18.16b, v13.16b, v20.16b	//fold mid
++	ldr	q9, [x0, #48]				//GHASH blk3 ciphertext
++	aese	v2.16b, v26.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 3
++	ldr	q24, [x6, #48]				//h3l | h3h
++	ldr	d25, [x6, #64]				//h3k (64-bit)
++	aese	v3.16b, v26.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 3
++	rev64	v8.16b, v9.16b				//GHASH blk3 (H^3)
++	ext	v10.16b, v8.16b, v8.16b, #8		//blk3 mid
++	aese	v4.16b, v26.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 3
++	eor	v10.8b, v10.8b, v8.8b			//blk3 mid
++	pmull2	v11.1q, v8.2d, v24.2d			//blk3 high
++	aese	v5.16b, v26.16b
++	aesmc	v5.16b, v5.16b			//AES block 5 - round 3
++	pmull	v12.1q, v8.1d, v24.1d			//blk3 low
++	aese	v0.16b, v27.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 4
++	pmull	v13.1q, v10.1d, v25.1d			//blk3 mid
++	ldr	q9, [x0, #64]				//GHASH blk4 ciphertext
++	aese	v1.16b, v27.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 4
++	ldr	q24, [x6, #32]				//h2l | h2h
++	ldr	d25, [x6, #24]				//h2k (64-bit)
++	aese	v2.16b, v27.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 4
++	rev64	v8.16b, v9.16b				//GHASH blk4 (H^2)
++	ext	v10.16b, v8.16b, v8.16b, #8		//blk4 mid
++	aese	v3.16b, v27.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 4
++	eor	v10.8b, v10.8b, v8.8b			//blk4 mid
++	pmull2	v14.1q, v8.2d, v24.2d			//blk4 high
++	aese	v4.16b, v27.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 4
++	pmull	v15.1q, v8.1d, v24.1d			//blk4 low
++	aese	v5.16b, v27.16b
++	aesmc	v5.16b, v5.16b			//AES block 5 - round 4
++	pmull	v20.1q, v10.1d, v25.1d			//blk4 mid
++.inst	0xce0b3a31	//eor3 v17.16b, v17.16b, v11.16b, v14.16b	//fold high
++	ldp	q26, q27, [x11, #96]			//rk6, rk7
++	aese	v0.16b, v28.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 5
++.inst	0xce0c3e73	//eor3 v19.16b, v19.16b, v12.16b, v15.16b	//fold low
++.inst	0xce0d5252	//eor3 v18.16b, v18.16b, v13.16b, v20.16b	//fold mid
++	aese	v1.16b, v28.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 5
++	ldr	q9, [x0, #80]				//GHASH blk5 ciphertext
++	ldr	q24, [x6, #0]				//h1l | h1h
++	aese	v2.16b, v28.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 5
++	ldr	d25, [x6, #16]				//h1k (64-bit)
++	rev64	v8.16b, v9.16b				//GHASH blk5 (H^1)
++	aese	v3.16b, v28.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 5
++	ext	v10.16b, v8.16b, v8.16b, #8		//blk5 mid
++	aese	v4.16b, v28.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 5
++	eor	v10.8b, v10.8b, v8.8b			//blk5 mid
++	pmull2	v11.1q, v8.2d, v24.2d			//blk5 high
++	aese	v5.16b, v28.16b
++	aesmc	v5.16b, v5.16b			//AES block 5 - round 5
++	pmull	v12.1q, v8.1d, v24.1d			//blk5 low
++	pmull	v13.1q, v10.1d, v25.1d			//blk5 mid
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 6
++	eor	v17.16b, v17.16b, v11.16b			//fold high
++	eor	v19.16b, v19.16b, v12.16b			//fold low
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 6
++	eor	v18.16b, v18.16b, v13.16b			//fold mid
++	aese	v2.16b, v26.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 6
++	ldr	d16, [x10]				//MODULO - load modulo constant
++	aese	v3.16b, v26.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 6
++	aese	v4.16b, v26.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 6
++	pmull	v21.1q, v17.1d, v16.1d			//MODULO - top 64b align with mid
++	aese	v5.16b, v26.16b
++	aesmc	v5.16b, v5.16b			//AES block 5 - round 6
++	ldp	q28, q26, [x11, #128]			//rk8, rk9
++	aese	v0.16b, v27.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 7
++	eor	v20.16b, v17.16b, v19.16b		//MODULO - karatsuba tidy up
++	aese	v1.16b, v27.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 7
++	aese	v2.16b, v27.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 7
++	aese	v3.16b, v27.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 7
++	ext	v17.16b, v17.16b, v17.16b, #8		//MODULO - other top alignment
++	aese	v4.16b, v27.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 7
++	aese	v5.16b, v27.16b
++	aesmc	v5.16b, v5.16b			//AES block 5 - round 7
++	eor	v18.16b, v18.16b, v20.16b		//MODULO - karatsuba tidy up
++	aese	v0.16b, v28.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 8
++	aese	v1.16b, v28.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 8
++	aese	v2.16b, v28.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 8
++	eor	v21.16b, v17.16b, v21.16b		//MODULO - fold into mid
++	aese	v3.16b, v28.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 8
++	aese	v4.16b, v28.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 8
++	eor	v18.16b, v18.16b, v21.16b		//MODULO - fold into mid
++	aese	v5.16b, v28.16b
++	aesmc	v5.16b, v5.16b			//AES block 5 - round 8
++	ldp	q27, q28, [x11, #160]			//rk10, rk11
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 9
++	pmull	v17.1q, v18.1d, v16.1d			//MODULO - mid 64b align with low
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 9
++	aese	v2.16b, v26.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 9
++	aese	v3.16b, v26.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 9
++	ext	v18.16b, v18.16b, v18.16b, #8		//MODULO - other mid alignment
++	aese	v4.16b, v26.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 9
++	aese	v5.16b, v26.16b
++	aesmc	v5.16b, v5.16b			//AES block 5 - round 9
++	eor	v19.16b, v19.16b, v17.16b		//MODULO - fold into low
++	aese	v0.16b, v27.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 10
++	aese	v1.16b, v27.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 10
++	aese	v2.16b, v27.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 10
++	eor	v19.16b, v19.16b, v18.16b		//MODULO - fold into low
++	aese	v3.16b, v27.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 10
++	aese	v4.16b, v27.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 10
++	ext	v19.16b, v19.16b, v19.16b, #8
++	aese	v5.16b, v27.16b
++	aesmc	v5.16b, v5.16b			//AES block 5 - round 10
++	ldp	q26, q27, [x11, #192]			//rk12, rk13
++	aese	v0.16b, v28.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 11
++	aese	v1.16b, v28.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 11
++	rev64	v19.16b, v19.16b
++	aese	v2.16b, v28.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 11
++	aese	v3.16b, v28.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 11
++	st1	{ v19.16b }, [x3]				//store the tag
++	aese	v4.16b, v28.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 11
++	aese	v5.16b, v28.16b
++	aesmc	v5.16b, v5.16b			//AES block 5 - round 11
++	rev32	v30.16b, v30.16b
++	ldr	q28, [x11, #224]			//rk14
++	aese	v0.16b, v26.16b
++	aesmc	v0.16b, v0.16b			//AES block 0 - round 12
++	aese	v1.16b, v26.16b
++	aesmc	v1.16b, v1.16b			//AES block 1 - round 12
++	aese	v2.16b, v26.16b
++	aesmc	v2.16b, v2.16b			//AES block 2 - round 12
++	str	q30, [x16]				//store the updated counter
++	aese	v3.16b, v26.16b
++	aesmc	v3.16b, v3.16b			//AES block 3 - round 12
++	aese	v4.16b, v26.16b
++	aesmc	v4.16b, v4.16b			//AES block 4 - round 12
++	ldp	q8, q9, [x0], #32			//reload ct 0,1
++	aese	v5.16b, v26.16b
++	aesmc	v5.16b, v5.16b			//AES block 5 - round 12
++	aese	v0.16b, v27.16b				//AES block 0 - round 13
++	aese	v1.16b, v27.16b				//AES block 1 - round 13
++	ldp	q10, q11, [x0], #32			//reload ct 2,3
++	aese	v2.16b, v27.16b				//AES block 2 - round 13
++	aese	v3.16b, v27.16b				//AES block 3 - round 13
++	ldp	q12, q13, [x0], #32			//reload ct 4,5
++	aese	v4.16b, v27.16b				//AES block 4 - round 13
++	aese	v5.16b, v27.16b				//AES block 5 - round 13
++.inst	0xce007100	//eor3 v0.16b, v8.16b, v0.16b, v28.16b	//AES block 0 - result
++.inst	0xce017121	//eor3 v1.16b, v9.16b, v1.16b, v28.16b	//AES block 1 - result
++.inst	0xce027142	//eor3 v2.16b, v10.16b, v2.16b, v28.16b	//AES block 2 - result
++.inst	0xce037163	//eor3 v3.16b, v11.16b, v3.16b, v28.16b	//AES block 3 - result
++.inst	0xce047184	//eor3 v4.16b, v12.16b, v4.16b, v28.16b	//AES block 4 - result
++.inst	0xce0571a5	//eor3 v5.16b, v13.16b, v5.16b, v28.16b	//AES block 5 - result
++	stp	q0, q1, [x2], #32
++	stp	q2, q3, [x2], #32
++	stp	q4, q5, [x2], #32
++	mov	x0, x9
++	ldp	d10, d11, [sp, #16]
++	ldp	d12, d13, [sp, #32]
++	ldp	d14, d15, [sp, #48]
++	ldp	d8, d9, [sp], #80
++	ret
++
+ .L256_dec_ret:
+ 	mov	w0, #0x0
+ 	ret

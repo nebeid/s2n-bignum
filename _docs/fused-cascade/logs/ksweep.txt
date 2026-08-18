@@ -1,0 +1,16 @@
+GHASH/MODULO placement sweep for the pure cascade (casck), r8g, 25 reps, ns/call.
+ksec = fraction of a section's 14 AES units over which that section's GHASH is
+spread; k1 = the same for the last section, whose remaining units carry MODULO.
+
+ksec=0.4 k1=0.25 : nblk1/4/8 ns = 12.597 18.233 31.456
+ksec=0.4 k1=0.35 : nblk1/4/8 ns = 12.564 18.256 31.467
+ksec=0.4 k1=0.50 : nblk1/4/8 ns = 12.450 18.324 31.544
+ksec=0.7 k1=0.25 : nblk1/4/8 ns = 12.581 18.290 31.751
+ksec=0.7 k1=0.35 : nblk1/4/8 ns = 12.564 18.288 31.747
+ksec=0.7 k1=0.50 : nblk1/4/8 ns = 12.507 18.362 31.826
+ksec=1.0 k1=0.25 : nblk1/4/8 ns = 12.597 18.323 31.620
+ksec=1.0 k1=0.35 : nblk1/4/8 ns = 12.586 18.326 31.611   <-- shipped in this report
+ksec=1.0 k1=0.50 : nblk1/4/8 ns = 12.507 18.434 31.709
+
+spread over the whole sweep: nblk=1 1.2%, nblk=4 1.1%, nblk=8 1.2%.
+The cascade's shortfall is therefore NOT a scheduling artefact.

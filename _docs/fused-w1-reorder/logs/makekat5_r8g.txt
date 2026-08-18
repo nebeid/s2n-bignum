@@ -1,0 +1,4 @@
+base   make-built .o vs mk.sh .o: SAME   | === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+d5     make-built .o vs mk.sh .o: SAME   | === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+d5r    make-built .o vs mk.sh .o: SAME   | === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+w1r    make-built .o vs mk.sh .o: SAME   | === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 

@@ -1,0 +1,55 @@
+=== R4A: base AA ppload4 ppload8 ppload16
+SELFCHECK OK (18 sizes x 5 variants, out/Xi/ivec byte-identical)
+bytes  blks  |     base |       AA |     expA |     prep |     both ||      AA%    expA%    prep%    both%
+128    8     |   21.464 |   21.460 |   21.464 |   21.465 |   21.462 ||   -0.02   +0.00   +0.00   -0.01
+       med   |   21.486 |   21.482 |   21.484 |   21.483 |   21.483
+256    16    |   38.181 |   38.181 |   38.515 |   38.699 |   39.259 ||   -0.00   +0.87   +1.36   +2.82
+       med   |   38.213 |   38.216 |   38.548 |   38.731 |   39.294
+512    32    |   71.118 |   71.128 |   71.415 |   71.620 |   72.176 ||   +0.01   +0.42   +0.71   +1.49
+       med   |   71.165 |   71.170 |   71.464 |   71.656 |   72.215
+1024   64    |  138.528 |  138.499 |  138.798 |  139.100 |  139.404 ||   -0.02   +0.19   +0.41   +0.63
+       med   |  138.571 |  138.591 |  138.855 |  139.143 |  139.497
+4096   256   |  546.909 |  546.864 |  547.162 |  547.441 |  547.760 ||   -0.01   +0.05   +0.10   +0.16
+       med   |  547.109 |  547.149 |  547.340 |  547.620 |  547.980
+=== R4B: base AA ppload32 pptail32 prol48
+SELFCHECK FAIL nblk=9 variant prep: out=0 xi=0 ivec=1
+SELFCHECK FAIL nblk=10 variant prep: out=0 xi=0 ivec=1
+SELFCHECK FAIL nblk=11 variant prep: out=0 xi=0 ivec=1
+SELFCHECK FAIL nblk=12 variant prep: out=0 xi=0 ivec=1
+SELFCHECK FAIL nblk=13 variant prep: out=0 xi=0 ivec=1
+SELFCHECK FAIL nblk=14 variant prep: out=0 xi=0 ivec=1
+SELFCHECK FAIL nblk=15 variant prep: out=0 xi=0 ivec=1
+SELFCHECK FAIL nblk=17 variant prep: out=0 xi=0 ivec=1
+SELFCHECK FAIL nblk=23 variant prep: out=0 xi=0 ivec=1
+SELFCHECK FAIL nblk=31 variant prep: out=0 xi=0 ivec=1
+SELFCHECK FAIL nblk=33 variant prep: out=0 xi=0 ivec=1
+SELFCHECK FAIL nblk=255 variant prep: out=0 xi=0 ivec=1
+bytes  blks  |     base |       AA |     expA |     prep |     both ||      AA%    expA%    prep%    both%
+128    8     |   21.462 |   21.459 |   21.459 |   21.462 |   24.251 ||   -0.02   -0.02   +0.00  +13.00
+       med   |   21.483 |   21.483 |   21.484 |   21.483 |   24.274
+256    16    |   38.182 |   38.182 |   40.411 |   40.631 |   40.900 ||   +0.00   +5.84   +6.41   +7.12
+       med   |   38.212 |   38.211 |   40.439 |   40.665 |   40.932
+512    32    |   71.115 |   71.130 |   73.099 |   73.625 |   73.951 ||   +0.02   +2.79   +3.53   +3.99
+       med   |   71.164 |   71.170 |   73.239 |   73.656 |   73.993
+1024   64    |  138.530 |  138.499 |  140.315 |  141.226 |  141.281 ||   -0.02   +1.29   +1.95   +1.99
+       med   |  138.562 |  138.589 |  140.430 |  141.315 |  141.422
+4096   256   |  546.890 |  546.913 |  548.736 |  549.217 |  549.545 ||   +0.00   +0.34   +0.43   +0.49
+       med   |  547.119 |  547.161 |  548.917 |  549.623 |  549.845
+=== R4C: base AA prol96 ppload96 drain0
+SELFCHECK FAIL nblk=8 variant both: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=16 variant both: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=24 variant both: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=32 variant both: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=64 variant both: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=256 variant both: out=0 xi=1 ivec=0
+bytes  blks  |     base |       AA |     expA |     prep |     both ||      AA%    expA%    prep%    both%
+128    8     |   21.461 |   21.465 |   27.901 |   21.462 |   16.670 ||   +0.02  +30.01   +0.01  -22.32
+       med   |   21.486 |   21.483 |   27.931 |   21.483 |   16.672
+256    16    |   38.181 |   38.176 |   44.779 |   45.544 |   33.644 ||   -0.01  +17.28  +19.28  -11.88
+       med   |   38.213 |   38.213 |   44.811 |   45.582 |   33.649
+512    32    |   71.125 |   70.793 |   77.622 |   78.273 |   67.582 ||   -0.47   +9.13  +10.05   -4.98
+       med   |   71.163 |   71.167 |   77.670 |   78.324 |   67.585
+1024   64    |  138.513 |  138.525 |  144.485 |  145.412 |  135.463 ||   +0.01   +4.31   +4.98   -2.20
+       med   |  138.585 |  138.608 |  144.584 |  145.456 |  135.474
+4096   256   |  546.928 |  546.878 |  552.871 |  553.720 |  543.802 ||   -0.01   +1.09   +1.24   -0.57
+       med   |  547.143 |  547.136 |  553.065 |  553.979 |  544.018

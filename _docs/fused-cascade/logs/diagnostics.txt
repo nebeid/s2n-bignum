@@ -1,0 +1,30 @@
+Two diagnostic variants used to separate the two causes of the cascade's loss
+(r8g, Neoverse-V2 2.7925 GHz, 40 reps, ns/call, min):
+
+`cascnk` = the naive cascade (`casc`, seven `ldp` round-key reloads per
+one-block section) with those 56 key loads MECHANICALLY DELETED.  Functionally
+wrong on purpose (SELFCHECK fails at every nblk, as expected) and run under
+ALLOW_MISMATCH=1: it is a timing-only lower bound on "cascade with free key
+loads".  It lands within 0.6% of the properly key-hoisted `casck`, which is why
+`casck` is used as the primary cascade everywhere in the report.
+
+ nblk | base   | tuned  | casc   | cascnk | casck
+    1 | 25.372 | 12.320 | 12.557 | 12.444 | 12.546
+    2 | 23.423 | 13.330 | 13.333 | 13.274 | 13.228
+    3 | 24.277 | 13.678 | 16.253 | 14.961 | 15.113
+    4 | 25.127 | 14.870 | 19.824 | 18.161 | 18.353
+    5 | 25.997 | 16.633 | 24.508 | 21.397 | 21.551
+    6 | 26.931 | 18.795 | 28.449 | 24.812 | 25.008
+    7 | 27.462 | 20.862 | 32.335 | 28.123 | 28.281
+    8 | 25.516 | 22.944 | 36.279 | 31.488 | 31.667
+
+`casc3` = the naive cascade with adjacent sections paired so the second of each
+pair folds both blocks' products with three `eor3` instead of two sets of three
+`eor` (12 slots saved at nblk=8).  Worth 1-3%: 35.360 vs 36.234 ns at nblk=8.
+Not carried forward: it does not change the conclusion and complicates the
+entry stubs (odd entry points must zero the unrun first-of-pair products).
+
+`casc2` = width-2 cascade with hoisted keys (gen_casc2.py), .text 7608 B:
+ nblk=1..8 ns on r8g: 12.594 13.296 14.610 17.454 20.900 23.627 26.966 29.767
+It is within 1.5% of the uniform-generator `cw2` (which rotates keys), so the
+width series measured with gen_cascW.py is not distorted by its key handling.

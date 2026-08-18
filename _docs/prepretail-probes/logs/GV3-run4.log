@@ -1,0 +1,55 @@
+=== R4A: base AA ppload4 ppload8 ppload16
+SELFCHECK OK (18 sizes x 5 variants, out/Xi/ivec byte-identical)
+bytes  blks  |     base |       AA |     expA |     prep |     both ||      AA%    expA%    prep%    both%
+128    8     |   30.110 |   30.105 |   30.113 |   30.110 |   30.113 ||   -0.02   +0.01   -0.00   +0.01
+       med   |   30.353 |   30.284 |   30.378 |   30.342 |   30.279
+256    16    |   52.368 |   52.477 |   52.521 |   52.490 |   53.908 ||   +0.21   +0.29   +0.23   +2.94
+       med   |   52.815 |   52.900 |   53.354 |   53.608 |   54.187
+512    32    |   95.421 |   95.218 |   95.404 |   95.063 |   96.343 ||   -0.21   -0.02   -0.38   +0.97
+       med   |   96.005 |   96.070 |   96.109 |   96.344 |   97.049
+1024   64    |  180.710 |  180.208 |  180.423 |  181.062 |  181.340 ||   -0.28   -0.16   +0.19   +0.35
+       med   |  182.355 |  182.471 |  182.314 |  182.786 |  183.679
+4096   256   |  693.926 |  694.377 |  692.155 |  693.592 |  695.639 ||   +0.07   -0.26   -0.05   +0.25
+       med   |  699.505 |  698.881 |  699.169 |  699.351 |  699.270
+=== R4B: base AA ppload32 pptail32 prol48
+SELFCHECK FAIL nblk=9 variant prep: out=0 xi=0 ivec=1
+SELFCHECK FAIL nblk=10 variant prep: out=0 xi=0 ivec=1
+SELFCHECK FAIL nblk=11 variant prep: out=0 xi=0 ivec=1
+SELFCHECK FAIL nblk=12 variant prep: out=0 xi=0 ivec=1
+SELFCHECK FAIL nblk=13 variant prep: out=0 xi=0 ivec=1
+SELFCHECK FAIL nblk=14 variant prep: out=0 xi=0 ivec=1
+SELFCHECK FAIL nblk=15 variant prep: out=0 xi=0 ivec=1
+SELFCHECK FAIL nblk=17 variant prep: out=0 xi=0 ivec=1
+SELFCHECK FAIL nblk=23 variant prep: out=0 xi=0 ivec=1
+SELFCHECK FAIL nblk=31 variant prep: out=0 xi=0 ivec=1
+SELFCHECK FAIL nblk=33 variant prep: out=0 xi=0 ivec=1
+SELFCHECK FAIL nblk=255 variant prep: out=0 xi=0 ivec=1
+bytes  blks  |     base |       AA |     expA |     prep |     both ||      AA%    expA%    prep%    both%
+128    8     |   30.110 |   30.020 |   30.106 |   30.112 |   33.648 ||   -0.30   -0.01   +0.01  +11.75
+       med   |   30.347 |   30.286 |   30.308 |   30.285 |   33.949
+256    16    |   52.335 |   52.392 |   54.291 |   55.055 |   55.937 ||   +0.11   +3.74   +5.20   +6.88
+       med   |   52.829 |   52.864 |   55.570 |   55.289 |   56.492
+512    32    |   95.387 |   95.251 |   97.178 |   97.407 |   98.718 ||   -0.14   +1.88   +2.12   +3.49
+       med   |   95.963 |   95.830 |   98.416 |   98.406 |   99.798
+1024   64    |  181.144 |  180.438 |  182.232 |  183.283 |  183.840 ||   -0.39   +0.60   +1.18   +1.49
+       med   |  182.482 |  182.520 |  184.415 |  184.980 |  186.166
+4096   256   |  693.946 |  693.850 |  697.034 |  696.071 |  697.132 ||   -0.01   +0.45   +0.31   +0.46
+       med   |  699.168 |  698.260 |  701.673 |  700.931 |  703.004
+=== R4C: base AA prol96 ppload96 drain0
+SELFCHECK FAIL nblk=8 variant both: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=16 variant both: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=24 variant both: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=32 variant both: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=64 variant both: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=256 variant both: out=0 xi=1 ivec=0
+bytes  blks  |     base |       AA |     expA |     prep |     both ||      AA%    expA%    prep%    both%
+128    8     |   30.108 |   30.111 |   38.831 |   30.118 |   22.601 ||   +0.01  +28.97   +0.03  -24.93
+       med   |   30.367 |   30.290 |   39.193 |   30.305 |   23.077
+256    16    |   52.356 |   52.391 |   61.164 |   62.070 |   44.964 ||   +0.07  +16.82  +18.55  -14.12
+       med   |   52.795 |   52.879 |   61.713 |   62.996 |   45.667
+512    32    |   95.299 |   95.300 |  104.100 |  104.534 |   87.356 ||   +0.00   +9.24   +9.69   -8.34
+       med   |   95.928 |   95.930 |  104.816 |  105.273 |   88.807
+1024   64    |  180.314 |  180.941 |  189.122 |  189.782 |  171.970 ||   +0.35   +4.89   +5.25   -4.63
+       med   |  182.363 |  182.500 |  191.138 |  191.456 |  175.208
+4096   256   |  694.971 |  694.419 |  703.567 |  703.871 |  687.024 ||   -0.08   +1.24   +1.28   -1.14
+       med   |  699.144 |  698.670 |  708.376 |  707.918 |  692.534

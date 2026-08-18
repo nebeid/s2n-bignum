@@ -1,0 +1,92 @@
+=== .text ===
+k20      5980
+k25      5980
+k30      5980
+k40      5980
+k45      5980
+c1       5980
+c2       5980
+c3       5980
+c4       5980
+c5       5960
+c6       5980
+c7       5980
+c8       5988
+f4ie     5960
+=== md5 ===
+136c913ba85f3cafb8f92fa5f156e04b  obj/k20.o
+9d28ba120547106363855d15bef5fa01  obj/k25.o
+9d28ba120547106363855d15bef5fa01  obj/k30.o
+b32e56508702f9b5bad0101a122fa1a2  obj/k40.o
+b32e56508702f9b5bad0101a122fa1a2  obj/k45.o
+565b6065beffc0672e4c0b540c073829  obj/c1.o
+51200f0b92ad05f2a0ca67edf7de7662  obj/c2.o
+c6293ce79741c6a810a51a001a05daa0  obj/c3.o
+4f6b00c6c5d6a641e6fe5936551fc65a  obj/c4.o
+d16fcf8d9af77dc4944f3c8aeaf7027f  obj/c5.o
+fb6743795f48ac2eab366be6aaea9375  obj/c6.o
+43e185faa0224604515cbcd21da739a6  obj/c7.o
+0f65c3754b6b62daf00e57a272d6bfb5  obj/c8.o
+17a67cb381ad3fe9ed4015969f84bf95  obj/f4ie.o
+=== taken branches inside the region ===
+f4ie   n=1: 2 taken, sections g1 | n=2: 2 taken, sections g2->g1 | n=3: 2 taken, sections g3->g2->g1 | n=4: 0 taken, sections g4->g3->g2->g1
+c5     n=1: 2 taken, sections g1 | n=2: 2 taken, sections g2->g1 | n=3: 2 taken, sections g3->g2->g1 | n=4: 0 taken, sections g4->g3->g2->g1
+c3     n=1: 2 taken, sections g1 | n=2: 2 taken, sections g2->g1 | n=3: 3 taken, sections g3->g2->g1 | n=4: 3 taken, sections g4->g3->g2->g1
+=== slots / aese / adjacency ===
+---- c3
+adjacency: 0 violation(s)
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- c5
+adjacency: 0 violation(s)
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     0     122    0     128        32.00     56    56     27
+---- c8
+adjacency: 0 violation(s)
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+---- k25
+adjacency: 0 violation(s)
+   1     6     5      39    0      50        12.50     14    14     20
+   2     6     5      65    0      76        19.00     28    28     23
+   3     6     5      91    0     102        25.50     42    42     26
+   4     6     5     117    0     128        32.00     56    56     29
+=== nblk>8 unchanged ===
+k20      VERDICT: nblk>8 content UNCHANGED
+k25      VERDICT: nblk>8 content UNCHANGED
+k30      VERDICT: nblk>8 content UNCHANGED
+k40      VERDICT: nblk>8 content UNCHANGED
+k45      VERDICT: nblk>8 content UNCHANGED
+c1       VERDICT: nblk>8 content UNCHANGED
+c2       VERDICT: nblk>8 content UNCHANGED
+c3       VERDICT: nblk>8 content UNCHANGED
+c4       VERDICT: nblk>8 content UNCHANGED
+c5       VERDICT: nblk>8 content UNCHANGED
+c6       VERDICT: nblk>8 content UNCHANGED
+c7       VERDICT: nblk>8 content UNCHANGED
+c8       VERDICT: nblk>8 content UNCHANGED
+f4ie     VERDICT: nblk>8 content UNCHANGED
+=== KAT ===
+k20      === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+k25      === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+k30      === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+k40      === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+k45      === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+c1       === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+c2       === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+c3       === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+c4       === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+c5       === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+c6       === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+c7       === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+c8       === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+f4ie     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+=== byte-compare, all 256 lengths (two 12-slot groups) ===
+SELFCHECK OK (256 whole-block lengths 1..256 blk x 12 variants; out/Xi/ivec/ret byte-identical, nothing written past 16*nblk)
+SELFCHECK OK (256 whole-block lengths 1..256 blk x 4 variants; out/Xi/ivec/ret byte-identical, nothing written past 16*nblk)

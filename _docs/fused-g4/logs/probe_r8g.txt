@@ -1,0 +1,43 @@
+==== g4 : lane-mapping probes ====
+  zlane0:  fails at nblk={4}   expected {4}
+  zlane1:  fails at nblk={3,4}   expected {3,4}
+  zlane2:  fails at nblk={2,3,4}   expected {2,3,4}
+  zlane3:  fails at nblk={1,2,3,4}   expected {1,2,3,4}
+  zapall:  fails at nblk={1,2,3,4}   expected {1,2,3,4}
+==== g4h : lane-mapping probes ====
+  zlane0:  fails at nblk={4}   expected {4}
+  zlane1:  fails at nblk={3,4}   expected {3,4}
+  zlane2:  fails at nblk={2,3,4}   expected {2,3,4}
+  zlane3:  fails at nblk={1,2,3,4}   expected {1,2,3,4}
+  zapall:  fails at nblk={1,2,3,4}   expected {1,2,3,4}
+
+==== brk #0 liveness at the single entry (die = entered) ====
+./probe_g4.sh: line 51: 1819210 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_g4 $n plain > /dev/null 2>&1
+  nblk=1   TRAPPED   expected TRAPPED
+./probe_g4.sh: line 51: 1819217 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_g4 $n plain > /dev/null 2>&1
+  nblk=2   TRAPPED   expected TRAPPED
+./probe_g4.sh: line 51: 1819228 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_g4 $n plain > /dev/null 2>&1
+  nblk=3   TRAPPED   expected TRAPPED
+./probe_g4.sh: line 51: 1819235 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_g4 $n plain > /dev/null 2>&1
+  nblk=4   TRAPPED   expected TRAPPED
+  nblk=5   SURVIVED  expected SURVIVED
+  nblk=6   SURVIVED  expected SURVIVED
+  nblk=7   SURVIVED  expected SURVIVED
+  nblk=8   SURVIVED  expected SURVIVED
+  nblk=9   SURVIVED  expected SURVIVED
+  nblk=16  SURVIVED  expected SURVIVED
+  nblk=64  SURVIVED  expected SURVIVED
+
+==== guard-page memory safety of the clamped lane addresses ====
+  g4     guard    survived nblk: 12345678
+  g4     guardlo  survived nblk: 12345678
+  g4h    guard    survived nblk: 12345678
+  g4h    guardlo  survived nblk: 12345678
+  g4p8   guard    survived nblk: 12345678
+  g4p8   guardlo  survived nblk: 12345678
+  a4     guard    survived nblk: 12345678
+  a4     guardlo  survived nblk: 12345678
+  t4     guard    survived nblk: 12345678
+  t4     guardlo  survived nblk: 12345678
+  base   guard    survived nblk: 12345678
+  base   guardlo  survived nblk: 12345678

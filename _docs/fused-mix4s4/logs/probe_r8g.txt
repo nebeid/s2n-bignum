@@ -1,0 +1,60 @@
+base 4968
+dsp0 4976
+t4 7312
+t4p8 8832
+cw1 7060
+cw4 9336
+m4s4 6828
+m4s4h 6716
+s4 6076
+s4h 5980
+==== m4s4 (widths 4,1,1,1,1, keys rotate) ====
+  zap1:    fails at nblk={1}   expected {1}
+  zap2:    fails at nblk={2}   expected {2}
+  zap3:    fails at nblk={3}   expected {3}
+  zap4:    fails at nblk={4}   expected {4}
+  zap8:    fails at nblk={8}   expected {8}
+  zapALL:  fails at nblk={1,2,3,4,8}   expected {1,2,3,4,8}
+  zsec1:   fails at nblk={1,2,3,4,8}   expected {1,2,3,4,8}
+  zsec2:   fails at nblk={2,3,4,8}   expected {2,3,4,8}
+  zsec3:   fails at nblk={3,4,8}   expected {3,4,8}
+  zsec4:   fails at nblk={4,8}   expected {4,8}
+  zsec8:   fails at nblk={8}   expected {8}
+  zsec5:   fails at nblk={8}   expected {8}
+  zsec6:   fails at nblk={8}   expected {8}
+  zsec7:   fails at nblk={8}   expected {8}
+==== m4s4h (widths 4,1,1,1,1, keys hoist) ====
+  zap1:    fails at nblk={1}   expected {1}
+  zap2:    fails at nblk={2}   expected {2}
+  zap3:    fails at nblk={3}   expected {3}
+  zap4:    fails at nblk={4}   expected {4}
+  zap8:    fails at nblk={8}   expected {8}
+  zapALL:  fails at nblk={1,2,3,4,8}   expected {1,2,3,4,8}
+  zsec1:   fails at nblk={1,2,3,4,8}   expected {1,2,3,4,8}
+  zsec2:   fails at nblk={2,3,4,8}   expected {2,3,4,8}
+  zsec3:   fails at nblk={3,4,8}   expected {3,4,8}
+  zsec4:   fails at nblk={4,8}   expected {4,8}
+  zsec8:   fails at nblk={8}   expected {8}
+  zsec5:   fails at nblk={8}   expected {8}
+  zsec6:   fails at nblk={8}   expected {8}
+  zsec7:   fails at nblk={8}   expected {8}
+==== s4 (widths 1,1,1,1, keys rotate) ====
+  zap1:    fails at nblk={1}   expected {1}
+  zap2:    fails at nblk={2}   expected {2}
+  zap3:    fails at nblk={3}   expected {3}
+  zap4:    fails at nblk={4}   expected {4}
+  zapALL:  fails at nblk={1,2,3,4}   expected {1,2,3,4}
+  zsec1:   fails at nblk={1,2,3,4}   expected {1,2,3,4}
+  zsec2:   fails at nblk={2,3,4}   expected {2,3,4}
+  zsec3:   fails at nblk={3,4}   expected {3,4}
+  zsec4:   fails at nblk={4}   expected {4}
+==== s4h (widths 1,1,1,1, keys hoist) ====
+  zap1:    fails at nblk={1}   expected {1}
+  zap2:    fails at nblk={2}   expected {2}
+  zap3:    fails at nblk={3}   expected {3}
+  zap4:    fails at nblk={4}   expected {4}
+  zapALL:  fails at nblk={1,2,3,4}   expected {1,2,3,4}
+  zsec1:   fails at nblk={1,2,3,4}   expected {1,2,3,4}
+  zsec2:   fails at nblk={2,3,4}   expected {2,3,4}
+  zsec3:   fails at nblk={3,4}   expected {3,4}
+  zsec4:   fails at nblk={4}   expected {4}

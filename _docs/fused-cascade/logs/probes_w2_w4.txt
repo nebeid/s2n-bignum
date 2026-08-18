@@ -1,0 +1,22 @@
+Liveness probes for the width-2 and width-4 cascades (gen_cascW.py --zap /
+--zapsec), r8g.  zapN zeroes entry stub N's Xi'*H^N seed; zsecJ zeroes the
+products of the block that uses H^J wherever that block appears.
+
+==== W=2 stub probes (expect fail EXACTLY nblk==N)
+  zap1 -> {1}     zap2 -> {2}     zap3 -> {3}     zap4 -> {4}
+  zap5 -> {5}     zap6 -> {6}     zap7 -> {7}     zap8 -> {8}
+==== W=2 section probes (expect fail EXACTLY nblk>=J)
+  zsec1 -> {1,2,3,4,5,6,7,8}      zsec5 -> {5,6,7,8}
+  zsec2 -> {2,3,4,5,6,7,8}        zsec6 -> {6,7,8}
+  zsec3 -> {3,4,5,6,7,8}          zsec7 -> {7,8}
+  zsec4 -> {4,5,6,7,8}            zsec8 -> {8}
+==== W=4 stub probes (expect fail EXACTLY nblk==N)
+  zap1 -> {1}     zap2 -> {2}     zap3 -> {3}     zap4 -> {4}
+  zap5 -> {5}     zap6 -> {6}     zap7 -> {7}     zap8 -> {8}
+==== W=4 section probes (expect fail EXACTLY nblk>=J)
+  zsec1 -> {1,2,3,4,5,6,7,8}      zsec5 -> {5,6,7,8}
+  zsec2 -> {2,3,4,5,6,7,8}        zsec6 -> {6,7,8}
+  zsec3 -> {3,4,5,6,7,8}          zsec7 -> {7,8}
+  zsec4 -> {4,5,6,7,8}            zsec8 -> {8}
+All 32 probes exact.  nblk>8 is never affected by any probe, confirming the
+cascade region is unreachable above 8 blocks.

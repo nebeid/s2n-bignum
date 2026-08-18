@@ -1,0 +1,12 @@
+--- src/base.S	2026-08-15 11:16:13.000000000 +0000
++++ src/dsp0.S	2026-08-16 19:24:36.750773522 +0000
+@@ -55,6 +55,9 @@
+ 	stp	x5, xzr, [sp, #64]
+ 	add	x10, sp, #64
+ 
++	cmp	x9, #0				//[FUSE] never taken (x9 >= 16)
++	b.le	.L256_dec_ret
++
+ 	ld1	{ v0.16b}, [x16]					//CTR block 0
+ 
+ 	mov	x15, #0x100000000			//set up counter increment

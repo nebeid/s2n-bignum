@@ -1,0 +1,226 @@
+############ 1. .text size and 80-byte frame
+base   .text=4968   push80=1 pop80=1  src sp-adjust=0  objdump sp add/sub=0
+dsp0   .text=4976   push80=1 pop80=1  src sp-adjust=0  objdump sp add/sub=0
+g4     .text=5948   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+g4i    .text=5948   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+g4h    .text=5964   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+g4p8   .text=7468   push80=1 pop80=3  src sp-adjust=0  objdump sp add/sub=0
+a4     .text=8020   push80=1 pop80=5  src sp-adjust=0  objdump sp add/sub=0
+t4     .text=7312   push80=1 pop80=5  src sp-adjust=0  objdump sp add/sub=0
+t4p8   .text=8832   push80=1 pop80=6  src sp-adjust=0  objdump sp add/sub=0
+m4s4h  .text=6716   push80=1 pop80=2  src sp-adjust=0  objdump sp add/sub=0
+cw4    .text=9336   push80=1 pop80=5  src sp-adjust=0  objdump sp add/sub=0
+
+############ 2. dispatch instructions actually emitted
+---- g4
+	cmp	x9, #64				//[G4] nblk <= 4 ?
+	b.le	.L256_dec_g4_grp
+---- g4h
+	cmp	x9, #64				//[G4] nblk <= 4 ?
+	b.le	.L256_dec_g4h_grp
+---- g4p8
+	cmp	x9, #64				//[G4] nblk <= 4 ?
+	b.le	.L256_dec_g4_grp
+	cmp	x9, #128				//[G4] nblk == 8 ?
+	b.eq	.L256_dec_fused_8
+---- a4
+	cmp	x9, #64				//[A4] nblk <= 4 ?
+	b.le	.L256_dec_fused_small
+---- t4
+	cmp	x9, #64				//[FUSE] nblk <= 4 ?
+	b.le	.L256_dec_fused_small
+---- t4p8
+	cmp	x9, #64				//[FUSE] nblk <= 4 ?
+	b.le	.L256_dec_fused_small
+	cmp	x9, #128				//[FUSE] nblk == 8 ?
+	b.eq	.L256_dec_fused_8
+
+############ 3. nblk>8 fall-through: normalised objdump vs baseline
+---- dsp0
+2 instructions inserted; then 1228 more baseline instructions identical
+baseline tail left unmatched at this point: 0 instruction(s): []
+appended after the baseline stream: 0 instruction(s)
+VERDICT: nblk>8 content UNCHANGED
+---- g4
+baseline tail left unmatched at this point: 2 instruction(s): ['mov w0, #0x0', 'ret ']
+  -> found verbatim at variant instruction 1485 (relocated, identical)
+appended after the baseline stream: 243 instruction(s)
+VERDICT: nblk>8 content UNCHANGED
+---- g4i
+baseline tail left unmatched at this point: 2 instruction(s): ['mov w0, #0x0', 'ret ']
+  -> found verbatim at variant instruction 1485 (relocated, identical)
+appended after the baseline stream: 243 instruction(s)
+VERDICT: nblk>8 content UNCHANGED
+---- g4h
+baseline tail left unmatched at this point: 2 instruction(s): ['mov w0, #0x0', 'ret ']
+  -> found verbatim at variant instruction 1489 (relocated, identical)
+appended after the baseline stream: 247 instruction(s)
+VERDICT: nblk>8 content UNCHANGED
+---- g4p8
+baseline tail left unmatched at this point: 2 instruction(s): ['mov w0, #0x0', 'ret ']
+  -> found verbatim at variant instruction 1865 (relocated, identical)
+appended after the baseline stream: 621 instruction(s)
+VERDICT: nblk>8 content UNCHANGED
+---- a4
+baseline tail left unmatched at this point: 2 instruction(s): ['mov w0, #0x0', 'ret ']
+  -> found verbatim at variant instruction 2003 (relocated, identical)
+appended after the baseline stream: 761 instruction(s)
+VERDICT: nblk>8 content UNCHANGED
+---- t4
+baseline tail left unmatched at this point: 2 instruction(s): ['mov w0, #0x0', 'ret ']
+  -> found verbatim at variant instruction 1826 (relocated, identical)
+appended after the baseline stream: 584 instruction(s)
+VERDICT: nblk>8 content UNCHANGED
+---- t4p8
+baseline tail left unmatched at this point: 2 instruction(s): ['mov w0, #0x0', 'ret ']
+  -> found verbatim at variant instruction 2206 (relocated, identical)
+appended after the baseline stream: 962 instruction(s)
+VERDICT: nblk>8 content UNCHANGED
+---- m4s4h
+baseline tail left unmatched at this point: 2 instruction(s): ['mov w0, #0x0', 'ret ']
+  -> found verbatim at variant instruction 1677 (relocated, identical)
+appended after the baseline stream: 433 instruction(s)
+VERDICT: nblk>8 content UNCHANGED
+---- cw4
+baseline tail left unmatched at this point: 2 instruction(s): ['mov w0, #0x0', 'ret ']
+  -> found verbatim at variant instruction 2332 (relocated, identical)
+appended after the baseline stream: 1090 instruction(s)
+VERDICT: nblk>8 content UNCHANGED
+
+############ 4. adjacency + slots + predication structure
+---- g4 (label prefix g4)
+adjacency: 0 violation(s)
+
+region                           slots    aese   loads
+.L256_dec_g4_grp                   139      56      23
+.L256_dec_g4_done                    0       0       4
+
+g4 region total: 139 slots, floor @4/cyc = 34.75 cycles, aese = 56 (want 56)
+
+ciphertext loads off x0 : [('8', 'x12'), ('9', 'x13'), ('10', 'x14'), ('11', 'x4')]
+plaintext  stores to x2 : [('0', 'x12'), ('1', 'x13'), ('2', 'x14'), ('3', 'x4')]
+post-indexed q loads/stores in the region: 0 (want 0: x0/x2 must not move)
+subs   x3 (want 3)
+csel   x3 (want 3)
+csetm  x6 (want 6)
+dup    x6 (want 6)
+H^4  (Htable +80 ) used 1 time(s)
+H^3  (Htable +48 ) used 1 time(s)
+H^2  (Htable +32 ) used 1 time(s)
+H^1  (Htable +0  ) used 1 time(s)
+tag feeds / Xi' masks at lines [36, 38, 40, 57] ; MODULO constant load at [136]
+frame: push80 x1 pop80 x2 other sp adjust x0
+
+SIMD regs written: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+free: [15]
+
+VERDICT: OK
+---- g4i (label prefix g4i)
+adjacency: 0 violation(s)
+
+region                           slots    aese   loads
+.L256_dec_g4i_grp                  139      56      23
+.L256_dec_g4i_done                   0       0       4
+
+g4 region total: 139 slots, floor @4/cyc = 34.75 cycles, aese = 56 (want 56)
+
+ciphertext loads off x0 : [('8', 'x12'), ('9', 'x13'), ('10', 'x14'), ('11', 'x4')]
+plaintext  stores to x2 : [('0', 'x12'), ('1', 'x13'), ('2', 'x14'), ('3', 'x4')]
+post-indexed q loads/stores in the region: 0 (want 0: x0/x2 must not move)
+subs   x3 (want 3)
+csel   x3 (want 3)
+csetm  x6 (want 6)
+dup    x6 (want 6)
+H^4  (Htable +80 ) used 1 time(s)
+H^3  (Htable +48 ) used 1 time(s)
+H^2  (Htable +32 ) used 1 time(s)
+H^1  (Htable +0  ) used 1 time(s)
+tag feeds / Xi' masks at lines [46, 67, 93, 120] ; MODULO constant load at [136]
+frame: push80 x1 pop80 x2 other sp adjust x0
+
+SIMD regs written: [0, 1, 2, 3, 8, 9, 10, 11, 12, 14, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+free: [4, 5, 6, 7, 13, 15]
+
+VERDICT: OK
+---- g4h (label prefix g4h)
+adjacency: 0 violation(s)
+
+region                           slots    aese   loads
+.L256_dec_g4h_grp                  139      56      27
+.L256_dec_g4h_done                   0       0       4
+
+g4 region total: 139 slots, floor @4/cyc = 34.75 cycles, aese = 56 (want 56)
+
+ciphertext loads off x0 : [('30', 'x12'), ('30', 'x13'), ('30', 'x14'), ('30', 'x4'), ('1', 'x12'), ('2', 'x13'), ('3', 'x14'), ('4', 'x4')]
+plaintext  stores to x2 : [('1', 'x12'), ('2', 'x13'), ('3', 'x14'), ('4', 'x4')]
+post-indexed q loads/stores in the region: 0 (want 0: x0/x2 must not move)
+subs   x3 (want 3)
+csel   x3 (want 3)
+csetm  x6 (want 6)
+dup    x6 (want 6)
+H^4  (Htable +80 ) used 1 time(s)
+H^3  (Htable +48 ) used 1 time(s)
+H^2  (Htable +32 ) used 1 time(s)
+H^1  (Htable +0  ) used 1 time(s)
+tag feeds / Xi' masks at lines [52, 71, 98, 125] ; MODULO constant load at [141]
+frame: push80 x1 pop80 x2 other sp adjust x0
+
+SIMD regs written: [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+free: [6]
+
+VERDICT: OK
+---- g4p8 (label prefix g4)
+adjacency: 0 violation(s)
+
+region                           slots    aese   loads
+.L256_dec_g4_grp                   139      56      23
+.L256_dec_g4_done                    0       0       4
+.L256_dec_fused_8                  222     112      43
+
+g4 region total: 139 slots, floor @4/cyc = 34.75 cycles, aese = 56 (want 56)
+
+ciphertext loads off x0 : [('8', 'x12'), ('9', 'x13'), ('10', 'x14'), ('11', 'x4')]
+plaintext  stores to x2 : [('0', 'x12'), ('1', 'x13'), ('2', 'x14'), ('3', 'x4')]
+post-indexed q loads/stores in the region: 0 (want 0: x0/x2 must not move)
+subs   x3 (want 3)
+csel   x3 (want 3)
+csetm  x6 (want 6)
+dup    x6 (want 6)
+H^4  (Htable +80 ) used 1 time(s)
+H^3  (Htable +48 ) used 1 time(s)
+H^2  (Htable +32 ) used 1 time(s)
+H^1  (Htable +0  ) used 1 time(s)
+tag feeds / Xi' masks at lines [36, 38, 40, 57] ; MODULO constant load at [136]
+frame: push80 x1 pop80 x3 other sp adjust x0
+
+SIMD regs written: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+free: []
+
+VERDICT: OK
+---- a4 (separate bodies; aese must be 56 in EVERY body: 4 blocks always)
+adjacency: 0 violation(s)
+body                      pairs   lone  pmull othALU   slots  regs written / free
+.L256_dec_fused_1            52      4      5     33      94  ilv_used=21 free=11 [4, 5, 6, 7, 11, 13, 15, 22, 23, 29, 31]
+.L256_dec_fused_2            52      4      8     40     104  ilv_used=23 free=9 [4, 5, 6, 7, 15, 22, 23, 29, 31]
+.L256_dec_fused_3            52      4     11     44     111  ilv_used=24 free=8 [4, 5, 6, 7, 22, 23, 29, 31]
+.L256_dec_fused_4            52      4     14     52     122  ilv_used=24 free=8 [4, 5, 6, 7, 22, 23, 29, 31]
+t4     adjacency: 0 violation(s)
+t4p8   adjacency: 0 violation(s)
+m4s4h  adjacency: 0 violation(s)
+cw4    adjacency: 0 violation(s)
+
+############ 5. in-process byte-compare + no write past 16*nblk (12 slots)
+SELFCHECK OK (256 whole-block lengths 1..256 blk x 12 variants; out/Xi/ivec/ret byte-identical, nothing written past 16*nblk)
+
+############ 6. KAT (differential, genuine relink) per variant
+base   === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+dsp0   === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+g4     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+g4i    === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+g4h    === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+g4p8   === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+a4     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+t4     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+t4p8   === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+m4s4h  === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+cw4    === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 

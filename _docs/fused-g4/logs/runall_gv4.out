@@ -1,0 +1,55 @@
+### CLOCK
+clock_GHz 2.7917
+### VERIFY
+
+############ 5. in-process byte-compare + no write past 16*nblk (12 slots)
+SELFCHECK OK (256 whole-block lengths 1..256 blk x 12 variants; out/Xi/ivec/ret byte-identical, nothing written past 16*nblk)
+
+############ 6. KAT (differential, genuine relink) per variant
+base   === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+dsp0   === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+g4     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+g4i    === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+g4h    === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+g4p8   === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+a4     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+t4     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+t4p8   === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+m4s4h  === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+cw4    === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+### PROBES
+==== brk #0 liveness at the single entry (die = entered) ====
+./probe_g4.sh: line 51:  2959 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_g4 $n plain > /dev/null 2>&1
+  nblk=1   TRAPPED   expected TRAPPED
+./probe_g4.sh: line 51:  2967 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_g4 $n plain > /dev/null 2>&1
+  nblk=2   TRAPPED   expected TRAPPED
+./probe_g4.sh: line 51:  2974 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_g4 $n plain > /dev/null 2>&1
+  nblk=3   TRAPPED   expected TRAPPED
+./probe_g4.sh: line 51:  2981 Trace/breakpoint trap   (core dumped) taskset -c "$CORE" ./brkprobe_g4 $n plain > /dev/null 2>&1
+  nblk=4   TRAPPED   expected TRAPPED
+  nblk=5   SURVIVED  expected SURVIVED
+  nblk=6   SURVIVED  expected SURVIVED
+  nblk=7   SURVIVED  expected SURVIVED
+  nblk=8   SURVIVED  expected SURVIVED
+  nblk=9   SURVIVED  expected SURVIVED
+  nblk=16  SURVIVED  expected SURVIVED
+  nblk=64  SURVIVED  expected SURVIVED
+
+==== guard-page memory safety of the clamped lane addresses ====
+  g4     guard    survived nblk: 12345678
+  g4     guardlo  survived nblk: 12345678
+  g4h    guard    survived nblk: 12345678
+  g4h    guardlo  survived nblk: 12345678
+  g4p8   guard    survived nblk: 12345678
+  g4p8   guardlo  survived nblk: 12345678
+  a4     guard    survived nblk: 12345678
+  a4     guardlo  survived nblk: 12345678
+  t4     guard    survived nblk: 12345678
+  t4     guardlo  survived nblk: 12345678
+  base   guard    survived nblk: 12345678
+  base   guardlo  survived nblk: 12345678
+### PER-LENGTH
+### DECOMPOSE
+### MIXES
+### MIX CTRLS
+### DONE gv4

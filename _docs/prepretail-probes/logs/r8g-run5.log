@@ -1,0 +1,66 @@
+=== R5A COST-ONLY (selfcheck MUST pass): base AA mixpp mixpr drain0
+SELFCHECK FAIL nblk=8 variant both: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=16 variant both: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=24 variant both: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=32 variant both: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=64 variant both: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=256 variant both: out=0 xi=1 ivec=0
+bytes  blks  |     base |       AA |     expA |     prep |     both ||      AA%    expA%    prep%    both%
+128    8     |   25.521 |   25.556 |   25.387 |   30.186 |   19.544 ||   +0.14   -0.52  +18.28  -23.42
+       med   |   25.746 |   25.910 |   25.753 |   30.378 |   19.608
+256    16    |   45.441 |   45.361 |   51.602 |   50.139 |   39.447 ||   -0.18  +13.56  +10.34  -13.19
+       med   |   45.790 |   45.948 |   51.890 |   50.576 |   40.015
+512    32    |   84.363 |   84.362 |   89.891 |   89.156 |   78.361 ||   -0.00   +6.55   +5.68   -7.11
+       med   |   85.174 |   84.753 |   90.182 |   89.843 |   79.075
+1024   64    |  161.934 |  161.928 |  167.480 |  166.708 |  155.742 ||   -0.00   +3.43   +2.95   -3.82
+       med   |  163.204 |  162.933 |  168.591 |  167.670 |  157.341
+4096   256   |  627.225 |  628.841 |  634.342 |  633.586 |  622.637 ||   +0.26   +1.13   +1.01   -0.73
+       med   |  630.470 |  630.299 |  635.830 |  634.908 |  625.433
+=== R5B NET EMULATION: base AA fusepp fusepr expA
+SELFCHECK FAIL nblk=8 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=8 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=16 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=16 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=24 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=24 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=32 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=32 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=64 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=64 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=256 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=256 variant prep: out=0 xi=1 ivec=0
+bytes  blks  |     base |       AA |     expA |     prep |     both ||      AA%    expA%    prep%    both%
+128    8     |   25.528 |   25.595 |   19.518 |   23.682 |   23.005 ||   +0.26  -23.54   -7.23   -9.88
+       med   |   25.762 |   25.843 |   19.624 |   24.238 |   23.020
+256    16    |   45.448 |   45.364 |   45.212 |   43.938 |   45.342 ||   -0.18   -0.52   -3.32   -0.23
+       med   |   45.809 |   45.803 |   45.766 |   44.526 |   45.685
+512    32    |   84.369 |   84.357 |   83.869 |   82.746 |   84.343 ||   -0.01   -0.59   -1.92   -0.03
+       med   |   85.359 |   84.618 |   84.218 |   83.636 |   85.330
+1024   64    |  161.924 |  161.578 |  161.285 |  160.177 |  161.663 ||   -0.21   -0.40   -1.08   -0.16
+       med   |  163.480 |  162.917 |  162.433 |  161.418 |  162.815
+4096   256   |  628.776 |  628.616 |  627.938 |  627.395 |  628.673 ||   -0.03   -0.13   -0.22   -0.02
+       med   |  630.588 |  630.102 |  629.775 |  628.928 |  629.975
+=== R5C NET + T*H^8 CORRECTION: base AA fusepp_corr fusepr_corr expA
+SELFCHECK FAIL nblk=8 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=8 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=16 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=16 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=24 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=24 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=32 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=32 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=64 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=64 variant prep: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=256 variant expA: out=0 xi=1 ivec=0
+SELFCHECK FAIL nblk=256 variant prep: out=0 xi=1 ivec=0
+bytes  blks  |     base |       AA |     expA |     prep |     both ||      AA%    expA%    prep%    both%
+128    8     |   25.519 |   25.595 |   19.528 |   24.359 |   23.006 ||   +0.30  -23.48   -4.55   -9.85
+       med   |   25.698 |   26.047 |   19.763 |   24.968 |   23.018
+256    16    |   45.444 |   45.354 |   46.217 |   44.368 |   45.336 ||   -0.20   +1.70   -2.37   -0.24
+       med   |   45.773 |   45.992 |   46.764 |   45.075 |   45.785
+512    32    |   84.386 |   83.969 |   84.036 |   83.693 |   84.379 ||   -0.49   -0.41   -0.82   -0.01
+       med   |   85.321 |   84.611 |   84.657 |   84.312 |   85.335
+1024   64    |  161.939 |  161.938 |  161.583 |  160.731 |  161.951 ||   -0.00   -0.22   -0.75   +0.01
+       med   |  163.210 |  162.941 |  162.486 |  161.910 |  162.930
+4096   256   |  628.306 |  628.777 |  628.462 |  627.736 |  628.841 ||   +0.07   +0.02   -0.09   +0.09
+       med   |  630.276 |  630.139 |  630.114 |  629.567 |  630.284

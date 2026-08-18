@@ -1,0 +1,66 @@
+--- /Volumes/workplace/git-code/s2n-bignum-kiro/arm/aes-gcm/aesv8_gcm_8x_dec_256_wb.S	2026-08-14 16:23:57
++++ var/ppload8.S	2026-08-14 16:15:00
+@@ -833,6 +833,7 @@
+ 
+ .L256_dec_prepretail:	//PREPRETAIL
+ 	ldp	q26, q27, [x11, #0]					//load rk0, rk1
++	pmull	v5.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	rev32	v5.16b, v30.16b				//CTR block 8k+13
+ 	add	v30.4s, v30.4s, v31.4s		//CTR block 8k+13
+ 
+@@ -872,6 +873,7 @@
+ 	aesmc	v4.16b, v4.16b			//AES block 8k+12 - round 1
+ 	aese	v7.16b, v26.16b
+ 	aesmc	v7.16b, v7.16b			//AES block 8k+15 - round 0
++	pmull	v17.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	aese	v2.16b, v26.16b
+ 	aesmc	v2.16b, v2.16b			//AES block 8k+10 - round 0
+ 
+@@ -922,6 +924,7 @@
+ 	aese	v5.16b, v26.16b
+ 	aesmc	v5.16b, v5.16b			//AES block 8k+13 - round 3
+ 	rev64	v14.16b, v14.16b						//GHASH block 8k+6
++	pmull	v29.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ 	aese	v0.16b, v26.16b
+ 	aesmc	v0.16b, v0.16b			//AES block 8k+8 - round 3
+@@ -964,6 +967,7 @@
+ 	aesmc	v5.16b, v5.16b			//AES block 8k+13 - round 4
+ 	aese	v0.16b, v27.16b
+ 	aesmc	v0.16b, v0.16b			//AES block 8k+8 - round 4
++	pmull	v16.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ .inst	0xce165273	//eor3 v19.16b, v19.16b, v22.16b, v20.16b			//GHASH block 8k+2, 8k+3 - low
+ 	ldr	q20, [x6]				//load h1l | h1h
+@@ -1011,6 +1015,7 @@
+ 	ldr	q23, [x6, #48]				//load h3l | h3h
+ 	ldr	q25, [x6, #80]				//load h4l | h4h
+ 	rev64	v15.16b, v15.16b						//GHASH block 8k+7
++	pmull	v16.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	rev64	v13.16b, v13.16b						//GHASH block 8k+5
+ 
+ .inst	0xce157652	//eor3 v18.16b, v18.16b, v21.16b, v29.16b			//GHASH block 8k+2, 8k+3 - mid
+@@ -1054,6 +1059,7 @@
+ 	pmull	v22.1q, v14.1d, v22.1d				//GHASH block 8k+6 - low
+ 	aese	v5.16b, v27.16b
+ 	aesmc	v5.16b, v5.16b			//AES block 8k+13 - round 7
++	pmull	v29.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ 	aese	v1.16b, v27.16b
+ 	aesmc	v1.16b, v1.16b			//AES block 8k+9 - round 7
+@@ -1107,6 +1113,7 @@
+ 	aese	v2.16b, v28.16b
+ 	aesmc	v2.16b, v2.16b			//AES block 8k+10 - round 8
+ 	pmull	v24.1q, v12.1d, v24.1d				//GHASH block 8k+5 - mid
++	pmull	v28.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 	pmull2	v12.1q, v15.2d, v20.2d				//GHASH block 8k+7 - high
+ 
+ 	pmull2	v13.1q, v14.2d, v21.2d				//GHASH block 8k+6 - mid
+@@ -1151,6 +1158,7 @@
+ 	aese	v1.16b, v27.16b
+ 	aesmc	v1.16b, v1.16b			//AES block 8k+9 - round 10
+ 	ldp	q26, q27, [x11, #192]				//load rk12, rk13
++	pmull	v15.1q, v30.1d, v31.1d		// [PROBE dummy]
+ 
+ 	ext	v21.16b, v17.16b, v17.16b, #8				//MODULO - other top alignment
+ 

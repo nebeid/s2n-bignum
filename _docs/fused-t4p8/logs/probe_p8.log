@@ -1,0 +1,14 @@
+==== t4p8  (bodies {1,2,3,4,8}, dispatch order 'small') ====
+  zap1:   fails at nblk={1}   expected {1}
+  zap2:   fails at nblk={2}   expected {2}
+  zap3:   fails at nblk={3}   expected {3}
+  zap4:   fails at nblk={4}   expected {4}
+  zap8:   fails at nblk={8}   expected {8}
+  zapALL: fails at nblk={1,2,3,4,8}   expected {1,2,3,4,8}
+==== t4p8b  (bodies {1,2,3,4,8}, dispatch order 'big') ====
+  zap1:   fails at nblk={1}   expected {1}
+  zap2:   fails at nblk={2}   expected {2}
+  zap3:   fails at nblk={3}   expected {3}
+  zap4:   fails at nblk={4}   expected {4}
+  zap8:   fails at nblk={8}   expected {8}
+  zapALL: fails at nblk={1,2,3,4,8}   expected {1,2,3,4,8}

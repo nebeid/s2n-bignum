@@ -1,0 +1,27 @@
+### CLOCK
+clock_GHz 2.5914
+### VERIFY
+############ 3. aese/aesmc adjacency
+t4     adjacency: 0 violation(s)
+t5     adjacency: 0 violation(s)
+t7     adjacency: 0 violation(s)
+t8     adjacency: 0 violation(s)
+t4p8   adjacency: 0 violation(s)
+t4p8b  adjacency: 0 violation(s)
+
+############ 4. in-process byte-compare (all 256 whole-block lengths, 12 slots)
+SELFCHECK OK (256 whole-block lengths 1..256 blk x 12 variants; out/Xi/ivec/ret byte-identical)
+
+############ 5. KAT (differential, genuine relink) per variant
+base   === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+dsp0   === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+t4     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+t5     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+t7     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+t8     === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+t4p8   === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+t4p8b  === SUMMARY: 35 passed, 0 failed (19 of the passing cases exercised the main-loop BODY, nblk>=17) === KAT GATE: PASS 
+### MIXES (priority 1)
+### PER-LENGTH
+### MIX CONTROLS
+### DONE gv3

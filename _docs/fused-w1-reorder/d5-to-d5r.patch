@@ -1,0 +1,26 @@
+--- src/d5x.S	2026-08-17 16:58:30.198992697 +0000
++++ src/d5r.S	2026-08-17 16:59:06.530276370 +0000
+@@ -1512,6 +1512,7 @@
+ 	ext	v19.16b, v19.16b, v19.16b, #8
+ 	rev64	v19.16b, v19.16b
+ 	st1	{ v19.16b }, [x3]
++.L256_dec_frame_restore:	//[W1] the ONE frame restore; the fused region rejoins here
+ 	mov	x0, x9
+ 
+ 	ldp	d10, d11, [sp, #16]
+@@ -1983,13 +1984,8 @@
+ .inst	0xce003f40	//eor3 v0.16b, v26.16b, v0.16b, v15.16b	//H^1 block - result
+ 	str	q0, [x2], #16
+ 
+-.L256_dec_w5r_done:	//[CASCW] epilogue
+-	mov	x0, x9
+-	ldp	d10, d11, [sp, #16]
+-	ldp	d12, d13, [sp, #32]
+-	ldp	d14, d15, [sp, #48]
+-	ldp	d8, d9, [sp], #80
+-	ret
++.L256_dec_w5r_done:	//[W1] rejoin the one epilogue: single `ret` for nblk >= 1
++	b	.L256_dec_frame_restore
+ 
+ .L256_dec_ret:
+ 	mov	w0, #0x0
