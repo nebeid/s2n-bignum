@@ -1,0 +1,457 @@
+loadt "/tmp/s122/wb_v33_diag.ml";;
+#quit;;
+val FOLD_LO : thm =
+  |- [32mword_xor[0m
+     ([32mword_pmul[0m ([32mword_subword[0m ([32mword_reversefields[0m 8 cph) (64,64))
+     ([32mword_subword[0m h (0,64)))
+     ([32mword_pmul[0m ([32mword_reversefields[0m 8 ([32mword_subword[0m xi (0,64)))
+     ([32mword_subword[0m h (0,64))) =
+     [32mword_pmul[0m ([32mword_subword[0m h (0,64))
+     ([32mword_xor[0m ([32mword_reversefields[0m 8 ([32mword_subword[0m xi (0,64)))
+     ([32mword_reversefields[0m 8 ([32mword_subword[0m cph (0,64))))
+val FOLD_HI : thm =
+  |- [32mword_xor[0m
+     ([32mword_pmul[0m ([32mword_subword[0m ([32mword_reversefields[0m 8 cph) (0,64))
+     ([32mword_subword[0m h (64,64)))
+     ([32mword_pmul[0m ([32mword_reversefields[0m 8 ([32mword_subword[0m xi (64,64)))
+     ([32mword_subword[0m h (64,64))) =
+     [32mword_pmul[0m ([32mword_subword[0m h (64,64))
+     ([32mword_xor[0m ([32mword_reversefields[0m 8 ([32mword_subword[0m xi (64,64)))
+     ([32mword_reversefields[0m 8 ([32mword_subword[0m cph (64,64))))
+val FOLD_LO_N : thm =
+  |- [32mword_xor[0m
+     ([32mword_pmul[0m ([32mword_reversefields[0m 8 ([32mword_subword[0m cph (0,64)))
+     ([32mword_subword[0m h (0,64)))
+     ([32mword_pmul[0m ([32mword_reversefields[0m 8 ([32mword_subword[0m xi (0,64)))
+     ([32mword_subword[0m h (0,64))) =
+     [32mword_pmul[0m ([32mword_subword[0m h (0,64))
+     ([32mword_xor[0m ([32mword_reversefields[0m 8 ([32mword_subword[0m xi (0,64)))
+     ([32mword_reversefields[0m 8 ([32mword_subword[0m cph (0,64))))
+val FOLD_HI_N : thm =
+  |- [32mword_xor[0m
+     ([32mword_pmul[0m ([32mword_reversefields[0m 8 ([32mword_subword[0m cph (64,64)))
+     ([32mword_subword[0m h (64,64)))
+     ([32mword_pmul[0m ([32mword_reversefields[0m 8 ([32mword_subword[0m xi (64,64)))
+     ([32mword_subword[0m h (64,64))) =
+     [32mword_pmul[0m ([32mword_subword[0m h (64,64))
+     ([32mword_xor[0m ([32mword_reversefields[0m 8 ([32mword_subword[0m xi (64,64)))
+     ([32mword_reversefields[0m 8 ([32mword_subword[0m cph (64,64))))
+val FOLD_MID : thm =
+  |- [32mword_xor[0m
+     ([32mword_pmul[0m
+      ([32mword_subword[0m
+       ([32mword_xor[0m
+        ([32mword_subword[0m
+         ([32mword_join[0m ([32mword_reversefields[0m 8 cph) ([32mword_reversefields[0m 8 cph))
+        (64,128))
+       ([32mword_reversefields[0m 8 cph))
+      (0,64))
+     ([32mword_xor[0m ([32mword_subword[0m h (0,64)) ([32mword_subword[0m h (64,64))))
+     ([32mword_pmul[0m
+      ([32mword_subword[0m
+       ([32mword_xor[0m
+        ([32mword_subword[0m
+         ([32mword_join[0m
+          ([32mword_join[0m ([32mword_reversefields[0m 8 ([32mword_subword[0m xi (0,64)))
+          ([32mword_reversefields[0m 8 ([32mword_subword[0m xi (64,64))))
+         ([32mword_join[0m ([32mword_reversefields[0m 8 ([32mword_subword[0m xi (0,64)))
+         ([32mword_reversefields[0m 8 ([32mword_subword[0m xi (64,64)))))
+        (64,128))
+       ([32mword_join[0m ([32mword_reversefields[0m 8 ([32mword_subword[0m xi (0,64)))
+       ([32mword_reversefields[0m 8 ([32mword_subword[0m xi (64,64)))))
+      (0,64))
+     ([32mword_xor[0m ([32mword_subword[0m h (0,64)) ([32mword_subword[0m h (64,64)))) =
+     [32mword_pmul[0m ([32mword_xor[0m ([32mword_subword[0m h (64,64)) ([32mword_subword[0m h (0,64)))
+     ([32mword_xor[0m
+      ([32mword_xor[0m ([32mword_reversefields[0m 8 ([32mword_subword[0m xi (64,64)))
+      ([32mword_reversefields[0m 8 ([32mword_subword[0m cph (64,64))))
+     ([32mword_xor[0m ([32mword_reversefields[0m 8 ([32mword_subword[0m xi (0,64)))
+     ([32mword_reversefields[0m 8 ([32mword_subword[0m cph (0,64)))))
+val FOLD_MID2 : thm =
+  |- [32mword_xor[0m
+     ([32mword_pmul[0m
+      ([32mword_xor[0m
+       ([32mword_subword[0m
+        ([32mword_subword[0m
+         ([32mword_join[0m ([32mword_reversefields[0m 8 cph) ([32mword_reversefields[0m 8 cph))
+        (64,128))
+       (0,64))
+      ([32mword_reversefields[0m 8 ([32mword_subword[0m cph (64,64))))
+     ([32mword_xor[0m ([32mword_subword[0m h (0,64)) ([32mword_subword[0m h (64,64))))
+     ([32mword_pmul[0m
+      ([32mword_xor[0m
+       ([32mword_subword[0m
+        ([32mword_subword[0m
+         ([32mword_join[0m
+          ([32mword_join[0m ([32mword_reversefields[0m 8 ([32mword_subword[0m xi (0,64)))
+          ([32mword_reversefields[0m 8 ([32mword_subword[0m xi (64,64))))
+         ([32mword_join[0m ([32mword_reversefields[0m 8 ([32mword_subword[0m xi (0,64)))
+         ([32mword_reversefields[0m 8 ([32mword_subword[0m xi (64,64)))))
+        (64,128))
+       (0,64))
+      ([32mword_reversefields[0m 8 ([32mword_subword[0m xi (64,64))))
+     ([32mword_xor[0m ([32mword_subword[0m h (0,64)) ([32mword_subword[0m h (64,64)))) =
+     [32mword_pmul[0m ([32mword_xor[0m ([32mword_subword[0m h (64,64)) ([32mword_subword[0m h (0,64)))
+     ([32mword_xor[0m
+      ([32mword_xor[0m ([32mword_reversefields[0m 8 ([32mword_subword[0m xi (64,64)))
+      ([32mword_reversefields[0m 8 ([32mword_subword[0m cph (64,64))))
+     ([32mword_xor[0m ([32mword_reversefields[0m 8 ([32mword_subword[0m xi (0,64)))
+     ([32mword_reversefields[0m 8 ([32mword_subword[0m cph (0,64)))))
+val BRIDGE_CLOSE_FULL_TAC : tactic = <fun>
+val DISCARD_OLDSTATE_KEEPGHALL_TAC : string -> tactic = <fun>
+val ARM_STEPS_FOLD_KEEPGHALL_TAC :
+  thm * thm option array -> int list -> tactic = <fun>
+Stepping to state s1
+CPU time (user): 0.032953
+Stepping to state s2
+CPU time (user): 0.033494
+Stepping to state s3
+CPU time (user): 0.034293
+Stepping to state s4
+CPU time (user): 0.04249
+Stepping to state s5
+CPU time (user): 0.371757
+Stepping to state s6
+CPU time (user): 0.046522
+Stepping to state s7
+CPU time (user): 0.114507
+Stepping to state s8
+CPU time (user): 0.062189
+Stepping to state s9
+CPU time (user): 0.077861
+Stepping to state s10
+CPU time (user): 0.078959
+Stepping to state s11
+CPU time (user): 0.05512
+Stepping to state s12
+CPU time (user): 0.059218
+Stepping to state s13
+CPU time (user): 0.052505
+Stepping to state s14
+CPU time (user): 1.756043
+Stepping to state s15
+CPU time (user): 0.101547
+Stepping to state s16
+CPU time (user): 1.276092
+Stepping to state s17
+CPU time (user): 0.510361
+Stepping to state s18
+CPU time (user): 0.244727
+Stepping to state s19
+CPU time (user): 0.245535
+Stepping to state s20
+CPU time (user): 0.251179
+Stepping to state s21
+CPU time (user): 0.253086
+Stepping to state s22
+CPU time (user): 0.2811
+Stepping to state s23
+CPU time (user): 0.289836
+Stepping to state s24
+CPU time (user): 0.294882
+Stepping to state s25
+CPU time (user): 0.266799
+Stepping to state s26
+CPU time (user): 0.272748
+Stepping to state s27
+CPU time (user): 0.210731
+Stepping to state s28
+CPU time (user): 0.267593
+Stepping to state s29
+CPU time (user): 0.208956
+Stepping to state s30
+CPU time (user): 0.241674
+Stepping to state s31
+CPU time (user): 0.251836
+Stepping to state s32
+CPU time (user): 2.582735
+Stepping to state s33
+CPU time (user): 3.866018
+Stepping to state s34
+Stepping to state s35
+Stepping to state s36
+Stepping to state s37
+Stepping to state s38
+Stepping to state s39
+Stepping to state s40
+Stepping to state s41
+Stepping to state s42
+Stepping to state s43
+Stepping to state s44
+Stepping to state s45
+Stepping to state s46
+Stepping to state s47
+Stepping to state s48
+Stepping to state s49
+Stepping to state s50
+Stepping to state s51
+Stepping to state s52
+Stepping to state s53
+Stepping to state s54
+Stepping to state s55
+Stepping to state s56
+Stepping to state s57
+Stepping to state s58
+Stepping to state s59
+Stepping to state s60
+Stepping to state s61
+Stepping to state s62
+Stepping to state s63
+Stepping to state s64
+Stepping to state s65
+Stepping to state s66
+Stepping to state s67
+Stepping to state s68
+Stepping to state s69
+Stepping to state s70
+Stepping to state s71
+Stepping to state s72
+Stepping to state s73
+Stepping to state s74
+Stepping to state s75
+Stepping to state s76
+Stepping to state s77
+Stepping to state s78
+Stepping to state s79
+Stepping to state s80
+Stepping to state s81
+Stepping to state s82
+Stepping to state s83
+Stepping to state s84
+Stepping to state s85
+Stepping to state s86
+Stepping to state s87
+Stepping to state s88
+Stepping to state s89
+Stepping to state s90
+Stepping to state s91
+Stepping to state s92
+Stepping to state s93
+Stepping to state s94
+Stepping to state s95
+Stepping to state s96
+Stepping to state s97
+STORE97 []: read (memory :> bytes128 xi_p) s97 = word_bytereverse gval
+STORE97 []: read (memory :> bytes64 (word_add stackpointer (word 64))) s97 =
+word 13979173243358019584
+STORE97 []: read (memory :> bytes64 (word_add stackpointer (word 72))) s97 = word 0
+STORE97 []: read (memory :> bytes128 in_p) s97 = cph
+STORE97 []: read (memory :> bytes128 key_p) s97 = k0
+STORE97 []: read (memory :> bytes128 (word_add key_p (word 16))) s97 = k1
+STORE97 []: read (memory :> bytes128 (word_add key_p (word 32))) s97 = k2
+STORE97 []: read (memory :> bytes128 (word_add key_p (word 48))) s97 = k3
+STORE97 []: read (memory :> bytes128 (word_add key_p (word 64))) s97 = k4
+STORE97 []: read (memory :> bytes128 (word_add key_p (word 80))) s97 = k5
+STORE97 []: read (memory :> bytes128 (word_add key_p (word 96))) s97 = k6
+STORE97 []: read (memory :> bytes128 (word_add key_p (word 112))) s97 = k7
+STORE97 []: read (memory :> bytes128 (word_add key_p (word 128))) s97 = k8
+STORE97 []: read (memory :> bytes128 (word_add key_p (word 144))) s97 = k9
+STORE97 []: read (memory :> bytes128 (word_add key_p (word 160))) s97 = k10
+STORE97 []: read (memory :> bytes128 (word_add key_p (word 176))) s97 = k11
+STORE97 []: read (memory :> bytes128 (word_add key_p (word 192))) s97 = k12
+STORE97 []: read (memory :> bytes128 (word_add key_p (word 208))) s97 = k13
+STORE97 []: read (memory :> bytes128 (word_add key_p (word 224))) s97 = k14
+STORE97 []: read (memory :> bytes128 htbl_p) s97 = h
+STORE97 []: read (memory :> bytes128 (word_add htbl_p (word 16))) s97 = hk
+STORE97 []: read (memory :> bytes64 (word_add htbl_p (word 16))) s97 =
+word_subword hk (0,64)
+STORE97 []: read (memory :> bytes64 (word_add (word_add htbl_p (word 16)) (word 8))) s97 =
+word_subword hk (64,64)
+STORE97 []: read (memory :> bytes128 ivec_p) s97 =
+word_join
+(word_join
+ (word_join
+  (word_join
+   (word_subword
+    (word_add
+     (word_join
+      (word_join (word_subword ctr0 (96,8)) (word_subword ctr0 (104,8)))
+     (word_join (word_subword ctr0 (112,8)) (word_subword ctr0 (120,8))))
+    (word 1))
+   (0,8))
+  (word_subword
+   (word_add
+    (word_join
+     (word_join (word_subword ctr0 (96,8)) (word_subword ctr0 (104,8)))
+    (word_join (word_subword ctr0 (112,8)) (word_subword ctr0 (120,8))))
+   (word 1))
+  (8,8)))
+ (word_join
+  (word_subword
+   (word_add
+    (word_join
+     (word_join (word_subword ctr0 (96,8)) (word_subword ctr0 (104,8)))
+    (word_join (word_subword ctr0 (112,8)) (word_subword ctr0 (120,8))))
+   (word 1))
+  (16,8))
+ (word_subword
+  (word_add
+   (word_join
+    (word_join (word_subword ctr0 (96,8)) (word_subword ctr0 (104,8)))
+   (word_join (word_subword ctr0 (112,8)) (word_subword ctr0 (120,8))))
+  (word 1))
+ (24,8))))
+(word_join (word_join (word_subword ctr0 (88,8)) (word_subword ctr0 (80,8)))
+(word_join (word_subword ctr0 (72,8)) (word_subword ctr0 (64,8)))))
+(word_join
+ (word_join (word_join (word_subword ctr0 (56,8)) (word_subword ctr0 (48,8)))
+ (word_join (word_subword ctr0 (40,8)) (word_subword ctr0 (32,8))))
+(word_join (word_join (word_subword ctr0 (24,8)) (word_subword ctr0 (16,8)))
+(word_join (word_subword ctr0 (8,8)) (word_subword ctr0 (0,8)))))
+STORE97 []: read (memory :> bytes128 out_p) s97 =
+word_xor
+(word_xor cph
+(aese
+ (aesmc
+ (aese
+  (aesmc
+  (aese
+   (aesmc
+   (aese
+    (aesmc
+    (aese
+     (aesmc
+     (aese
+      (aesmc
+      (aese
+       (aesmc
+       (aese
+        (aesmc
+        (aese
+         (aesmc
+         (aese
+          (aesmc
+          (aese
+           (aesmc
+           (aese
+            (aesmc
+            (aese
+             (aesmc
+             (aese
+              (word_join
+               (word_join
+                (word_join
+                 (word_join (word_subword ctr0 (120,8))
+                 (word_subword ctr0 (112,8)))
+                (word_join (word_subword ctr0 (104,8))
+                (word_subword ctr0 (96,8))))
+               (word_join
+                (word_join (word_subword ctr0 (88,8))
+                (word_subword ctr0 (80,8)))
+               (word_join (word_subword ctr0 (72,8))
+               (word_subword ctr0 (64,8)))))
+              (word_join
+               (word_join
+                (word_join (word_subword ctr0 (56,8))
+                (word_subword ctr0 (48,8)))
+               (word_join (word_subword ctr0 (40,8))
+               (word_subword ctr0 (32,8))))
+              (word_join
+               (word_join (word_subword ctr0 (24,8))
+               (word_subword ctr0 (16,8)))
+              (word_join (word_subword ctr0 (8,8)) (word_subword ctr0 (0,8))))))
+             k0))
+            k1))
+           k2))
+          k3))
+         k4))
+        k5))
+       k6))
+      k7))
+     k8))
+    k9))
+   k10))
+  k11))
+ k12))
+k13))
+k14
+val WB_FUSED_1BLOCK_DIAG : thm =
+  |- [35mforall[0m pc stackpointer out_p xi_p ivec_p in_p key_p htbl_p cph xi ctr0 k0 k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13 k14 h hk.
+         [32maligned[0m 16 stackpointer /\
+         [32mnonoverlapping[0m ([32mword[0m pc,5960) (stackpointer,80) /\
+         [32mnonoverlapping[0m ([32mword[0m pc,5960) (out_p,16) /\
+         [32mnonoverlapping[0m ([32mword[0m pc,5960) (xi_p,16) /\
+         [32mnonoverlapping[0m ([32mword[0m pc,5960) (ivec_p,16) /\
+         [32mnonoverlapping[0m (out_p,16) (xi_p,16) /\
+         [32mnonoverlapping[0m (out_p,16) (ivec_p,16) /\
+         [32mnonoverlapping[0m (xi_p,16) (ivec_p,16) /\
+         [32mnonoverlapping[0m (ivec_p,16) (in_p,16) /\
+         [32mnonoverlapping[0m (ivec_p,16) (key_p,240) /\
+         [32mnonoverlapping[0m (ivec_p,16) (htbl_p,192) /\
+         [32mnonoverlapping[0m (in_p,16) (stackpointer,80) /\
+         [32mnonoverlapping[0m (key_p,240) (stackpointer,80) /\
+         [32mnonoverlapping[0m (htbl_p,192) (stackpointer,80) /\
+         [32mnonoverlapping[0m (ivec_p,16) (stackpointer,80) /\
+         [32mnonoverlapping[0m (xi_p,16) (in_p,16) /\
+         [32mnonoverlapping[0m (xi_p,16) (key_p,240) /\
+         [32mnonoverlapping[0m (xi_p,16) (htbl_p,192) /\
+         [32mnonoverlapping[0m (xi_p,16) (stackpointer,80) /\
+         [32mnonoverlapping[0m (out_p,16) (in_p,16) /\
+         [32mnonoverlapping[0m (out_p,16) (key_p,240) /\
+         [32mnonoverlapping[0m (out_p,16) (htbl_p,192) /\
+         [32mnonoverlapping[0m (out_p,16) (stackpointer,80) /\
+         [32mword_subword[0m hk (0,64) =
+         [32mword_xor[0m ([32mword_subword[0m h (0,64)) ([32mword_subword[0m h (64,64))
+         ==> [32mensures[0m [32marm[0m
+             ([35m\[0ms.
+                  [32maligned_bytes_loaded[0m s ([32mword[0m pc) [32maesv8_gcm_8x_dec_256_wb_mc[0m /\
+                  [32mread[0m [32mPC[0m s = [32mword[0m (pc + 32) /\
+                  [32mread[0m [32mSP[0m s = stackpointer /\
+                  [32mC_ARGUMENTS[0m
+                  [in_p; [32mword[0m 128; out_p; xi_p; ivec_p; key_p; htbl_p]
+                  s /\
+                  [32mread[0m ([32mmemory[0m :> [32mbytes128[0m in_p) s = cph /\
+                  [32mread[0m ([32mmemory[0m :> [32mbytes128[0m xi_p) s = xi /\
+                  [32mread[0m ([32mmemory[0m :> [32mbytes128[0m ivec_p) s = ctr0 /\
+                  [32mread[0m ([32mmemory[0m :> [32mbytes128[0m key_p) s = k0 /\
+                  [32mread[0m ([32mmemory[0m :> [32mbytes128[0m ([32mword_add[0m key_p ([32mword[0m 16))) s = k1 /\
+                  [32mread[0m ([32mmemory[0m :> [32mbytes128[0m ([32mword_add[0m key_p ([32mword[0m 32))) s = k2 /\
+                  [32mread[0m ([32mmemory[0m :> [32mbytes128[0m ([32mword_add[0m key_p ([32mword[0m 48))) s = k3 /\
+                  [32mread[0m ([32mmemory[0m :> [32mbytes128[0m ([32mword_add[0m key_p ([32mword[0m 64))) s = k4 /\
+                  [32mread[0m ([32mmemory[0m :> [32mbytes128[0m ([32mword_add[0m key_p ([32mword[0m 80))) s = k5 /\
+                  [32mread[0m ([32mmemory[0m :> [32mbytes128[0m ([32mword_add[0m key_p ([32mword[0m 96))) s = k6 /\
+                  [32mread[0m ([32mmemory[0m :> [32mbytes128[0m ([32mword_add[0m key_p ([32mword[0m 112))) s =
+                  k7 /\
+                  [32mread[0m ([32mmemory[0m :> [32mbytes128[0m ([32mword_add[0m key_p ([32mword[0m 128))) s =
+                  k8 /\
+                  [32mread[0m ([32mmemory[0m :> [32mbytes128[0m ([32mword_add[0m key_p ([32mword[0m 144))) s =
+                  k9 /\
+                  [32mread[0m ([32mmemory[0m :> [32mbytes128[0m ([32mword_add[0m key_p ([32mword[0m 160))) s =
+                  k10 /\
+                  [32mread[0m ([32mmemory[0m :> [32mbytes128[0m ([32mword_add[0m key_p ([32mword[0m 176))) s =
+                  k11 /\
+                  [32mread[0m ([32mmemory[0m :> [32mbytes128[0m ([32mword_add[0m key_p ([32mword[0m 192))) s =
+                  k12 /\
+                  [32mread[0m ([32mmemory[0m :> [32mbytes128[0m ([32mword_add[0m key_p ([32mword[0m 208))) s =
+                  k13 /\
+                  [32mread[0m ([32mmemory[0m :> [32mbytes128[0m ([32mword_add[0m key_p ([32mword[0m 224))) s =
+                  k14 /\
+                  [32mread[0m ([32mmemory[0m :> [32mbytes128[0m htbl_p) s = h /\
+                  [32mread[0m ([32mmemory[0m :> [32mbytes128[0m ([32mword_add[0m htbl_p ([32mword[0m 16))) s =
+                  hk)
+             ([35m\[0ms.
+                  [32mread[0m [32mPC[0m s = [32mword[0m (pc + 4560) /\
+                  [32mread[0m ([32mmemory[0m :> [32mbytes128[0m out_p) s =
+                  [32mword_xor[0m cph
+                  ([32maes256_encrypt[0m ctr0
+                  [k0; k1; k2; k3; k4; k5; k6; k7; k8; k9; k10; k11; k12;
+                   k13; k14]) /\
+                  [32mread[0m ([32mmemory[0m :> [32mbytes128[0m xi_p) s =
+                  [32mword_bytereverse[0m
+                  ([32mghash_polyval_acc[0m ([32mbyteswap128[0m h) ([32mword_bytereverse[0m xi)
+                  [[32mword_bytereverse[0m cph]) /\
+                  [32mread[0m ([32mmemory[0m :> [32mbytes128[0m ivec_p) s =
+                  [32mgcm_ctr_inc_iter[0m 1 ctr0)
+             ([32mMAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI[0m ,,
+              [32mMAYCHANGE[0m
+              [[32mmemory[0m :> [32mbytes[0m (out_p,16); [32mmemory[0m :> [32mbytes[0m (xi_p,16);
+               [32mmemory[0m :> [32mbytes[0m (ivec_p,16);
+               [32mmemory[0m :> [32mbytes[0m ([32mword_add[0m stackpointer ([32mword[0m 64),16)] ,,
+              [32mMAYCHANGE[0m
+              [[32mQ0[0m; [32mQ1[0m; [32mQ2[0m; [32mQ3[0m; [32mQ4[0m; [32mQ5[0m; [32mQ6[0m; [32mQ7[0m; [32mQ8[0m; [32mQ9[0m; [32mQ10[0m; [32mQ11[0m; [32mQ12[0m; [32mQ13[0m;
+               [32mQ14[0m; [32mQ15[0m; [32mQ16[0m; [32mQ17[0m; [32mQ18[0m; [32mQ19[0m; [32mQ20[0m; [32mQ21[0m; [32mQ22[0m; [32mQ23[0m; [32mQ24[0m; [32mQ25[0m;
+               [32mQ26[0m; [32mQ27[0m; [32mQ28[0m; [32mQ29[0m; [32mQ30[0m; [32mQ31[0m])
+DIAG done
+- : unit = ()
+val it : unit = ()
+# ===RESTORE_EXIT=0 [16:51:41]===
