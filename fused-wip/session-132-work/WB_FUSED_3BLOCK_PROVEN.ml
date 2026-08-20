@@ -10,6 +10,10 @@
    SIM windows: (1--30); g3/blk0 KEEPGHALL (31--80),pt0@s80; g2/blk1 (81--123),pt1@s123;
    g1/blk2+reduce (124--170), bridge s170. Tail s170->s183: xi@s177,ivec@s180,pt2@s182. *)
 
+(* Shared fused-arc helpers (DISCARD_OLDSTATE_KEEPGHALL_TAC, ARM_STEPS_FOLD_KEEPGHALL_TAC,
+   JOIN_IS_CTR0, INLINE_SELFCONTAINED, POLYVAL_DOT_SYM) — refine-094 consolidation. *)
+needs "fused-wip/fused_common.ml";;
+
 (* s130 CURE for the environmental MAYCHANGE spin (see wb-dec-fused-3block-s130.md): the real
    accumulated k=3 frame is aconv-identical to a term whose `frame subsumed goal` closes in ~5s in
    a CLEAN environment, but SUBSUMED_MAYCHANGE_TAC spins ~6min after the full fused SIM (env-degraded,
@@ -17,8 +21,8 @@
    subsumption as a lemma HERE, at file top BEFORE the SIM (clean env, ~5s), then at the MAYCHANGE goal
    apply it via MATCH_MP transport + ETA + ACCEPT (instant), never re-running SUBSUMED post-SIM.
    NB: pure frame algebra, NO fused deps — provable/checkable on the base polyval-aes MCP. *)
-let WB3_MC_TRANSPORT = MESON[subsumed]
-  `(R:armstate->armstate->bool) s s' ==> R subsumed R' ==> R' s s'`;;
+(* (WB3_MC_TRANSPORT removed refine-094: dead code — the frame is discharged via the
+   pre-computed direct implication WB3_FRAME_IMP, never via a transport lemma.) *)
 
 let WB3_FRAME_SUBSUMED = prove(
  `(MAYCHANGE [PC] ,, MAYCHANGE [X9] ,, MAYCHANGE [X16] ,, MAYCHANGE [X11] ,,
@@ -51,11 +55,8 @@ let WB3_FRAME_SUBSUMED = prove(
 let WB3_FRAME_IMP =
   SPECL [`s0:armstate`; `s183:armstate`] (REWRITE_RULE[subsumed] WB3_FRAME_SUBSUMED);;
 
-(* ---- wb.ml-only deps (NOT in fused ckpt; ckpt loads only up to le4block) ---- *)
-let POLYVAL_DOT_SYM = prove
- (`!a b:int128. polyval_dot a b = polyval_dot b a`,
-  REPEAT GEN_TAC THEN REWRITE_TAC[polyval_dot] THEN AP_TERM_TAC THEN
-  REWRITE_TAC[WORD_PMUL_SYM]);;
+(* ---- wb.ml-only deps (NOT in fused ckpt; ckpt loads only up to le4block) ----
+   (POLYVAL_DOT_SYM now comes from fused-wip/fused_common.ml.) *)
 let spec_to_byteform_wb3 = prove
  (`byteswap128 h2 = polyval_dot (byteswap128 h) (byteswap128 h) /\
    byteswap128 h3 = polyval_dot (polyval_dot (byteswap128 h) (byteswap128 h)) (byteswap128 h)
@@ -120,77 +121,9 @@ let BRIDGE_CLOSE_3_CPH2_TAC sN : tactic = fun (asl,w) ->
    REWRITE_TAC[JOIN_EQ_SPLIT] THEN CONJ_TAC THEN LANE_FINISH_TAC)
   (asl,w);;
 
-(* ---- route-b SIM helpers (verbatim from wb2_v3_qq8fold.ml) ---- *)
-let DISCARD_OLDSTATE_KEEPGHALL_TAC s =
-  let v = mk_var(s,`:armstate`) in
-  let rec unbound_statevars_of_read bound tm = match tm with
-      Comb(Comb(Const("read",_),_),st) -> if mem st bound then [] else [st]
-    | Comb(a,b) -> union (unbound_statevars_of_read bound a) (unbound_statevars_of_read bound b)
-    | Abs(vv,t) -> unbound_statevars_of_read (vv::bound) t | _ -> [] in
-  let rec mentions_htbl t = match t with
-      Var("htbl_p",_) -> true
-    | Comb(a,b) -> mentions_htbl a || mentions_htbl b | Abs(_,t2) -> mentions_htbl t2 | _ -> false in
-  let rec mentions_ghreg t = match t with
-      Comb(Comb(Const("read",_),cmp),_) ->
-        (match cmp with Const(n,_) -> n="Q16"||n="Q17"||n="Q18"||n="Q19"||n="Q20"||n="Q21"||n="Q22"||n="Q23"||n="Q24"||n="Q25"||n="Q26"||n="Q30" | _ -> false)
-    | Comb(a,b) -> mentions_ghreg a || mentions_ghreg b | Abs(_,t2) -> mentions_ghreg t2 | _ -> false in
-  DISCARD_ASSUMPTIONS_TAC(fun thm ->
-    if mentions_ghreg (concl thm) then false else
-    if (match concl thm with
-        | Comb(Comb(Const("=",_),Comb(Comb(Const("read",_),cmp),_)),_) -> mentions_htbl cmp
-        | _ -> false) then false else
-    let us = unbound_statevars_of_read [] (concl thm) in
-    if us = [] || us = [v] then false else if not(mem v us) then true else true);;
-(* SPEED (refine-093): single-pass GCM_SIMD_SIMPLIFY_CORE_TAC (was double-pass).
-   Mirrors s084 (wb.ml:1784); bridge RF8_SUBWORD re-folds the boundary REV64 trees.
-   MEASURED on the rebased fused ckpt: WB_FUSED_3BLOCK prove 772.86s -> 489.47s
-   (-36.7%), hyps=0 axioms=3 RESTORE_EXIT=0 (POST-ENSURES-FINAL goal-len/nasl
-   IDENTICAL to double-pass: 13364/1242, so same proof state, just faster). *)
-let ARM_STEPS_FOLD_KEEPGHALL_TAC exec snums =
-  MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN GCM_SIMD_SIMPLIFY_CORE_TAC THEN
-              DISCARD_OLDSTATE_KEEPGHALL_TAC s THEN CLARIFY_TAC) (statenames "s" snums);;
-
-let JOIN_IS_CTR0 = prove(
- `word_join
-    (word_join
-     (word_join
-      (word_join (word_subword (ctr0:int128) (120,8):8 word) (word_subword ctr0 (112,8):8 word):16 word)
-      (word_join (word_subword ctr0 (104,8):8 word) (word_subword ctr0 (96,8):8 word):16 word):32 word)
-     (word_join
-      (word_join (word_subword ctr0 (88,8):8 word) (word_subword ctr0 (80,8):8 word):16 word)
-      (word_join (word_subword ctr0 (72,8):8 word) (word_subword ctr0 (64,8):8 word):16 word):32 word):64 word)
-    (word_join
-     (word_join
-      (word_join (word_subword ctr0 (56,8):8 word) (word_subword ctr0 (48,8):8 word):16 word)
-      (word_join (word_subword ctr0 (40,8):8 word) (word_subword ctr0 (32,8):8 word):16 word):32 word)
-     (word_join
-      (word_join (word_subword ctr0 (24,8):8 word) (word_subword ctr0 (16,8):8 word):16 word)
-      (word_join (word_subword ctr0 (8,8):8 word) (word_subword ctr0 (0,8):8 word):16 word):32 word):64 word):int128
-  = ctr0`,
-  CONV_TAC WORD_BLAST);;
-
-let INLINE_SELFCONTAINED reg st npass : tactic = fun (asl,w) ->
-  let lhs_t = parse_term (Printf.sprintf "read %s %s" reg st) in
-  let rec nonSt tm = match tm with
-      Comb(Comb(Const("read",_),_),stv) ->
-        (match stv with Var(n,_) when n<>st -> [stv] | _ -> [])
-    | Comb(a,b) -> union (nonSt a) (nonSt b) | Abs(_,t) -> nonSt t | _ -> [] in
-  let target_rhs aslx =
-    try rhs(concl(snd(List.find (fun (_,th) -> try lhs(concl th)=lhs_t with _->false) aslx)))
-    with Not_found -> `T` in
-  let rec go n (asl,w) =
-    if n <= 0 then ALL_TAC (asl,w)
-    else if nonSt (target_rhs asl) = [] then ALL_TAC (asl,w)
-    else
-      let picks = mapfilter (fun (_,th) ->
-        match concl th with
-        | Comb(Comb(Const("=",_),Comb(Comb(Const("read",_),_),stv)),_)
-            when (match stv with Var(nm,_)->nm<>st|_->false) -> th
-        | _ -> fail()) asl in
-      (RULE_ASSUM_TAC(fun th ->
-         if (try lhs(concl th) = lhs_t with _ -> false)
-         then REWRITE_RULE picks th else th) THEN go (n-1)) (asl,w) in
-  go npass (asl,w);;
+(* ---- route-b SIM helpers now come from fused-wip/fused_common.ml (needs at file top):
+   DISCARD_OLDSTATE_KEEPGHALL_TAC, ARM_STEPS_FOLD_KEEPGHALL_TAC, JOIN_IS_CTR0,
+   INLINE_SELFCONTAINED. ---- *)
 
 let WB_FUSED_3BLOCK = prove(
  `!pc stackpointer out_p xi_p ivec_p in_p key_p htbl_p

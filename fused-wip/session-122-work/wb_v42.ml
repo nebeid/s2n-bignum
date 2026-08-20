@@ -6,6 +6,10 @@
    WORD_RULE, xi=polyval_dot-def SUBST+GHASH_1BLOCK_CORRECT, ivec=GCM_CTR_INC_LANES, MAYCHANGE=MONOTONE).
    Load prereq: needs "arm/proofs/aesv8_gcm_8x_dec_256_lemmas.ml" (~117s). *)
 
+(* Shared fused-arc helpers (DISCARD_OLDSTATE_KEEPGHALL_TAC, ARM_STEPS_FOLD_KEEPGHALL_TAC,
+   JOIN_IS_CTR0, INLINE_SELFCONTAINED, POLYVAL_DOT_SYM) — refine-094 consolidation. *)
+needs "fused-wip/fused_common.ml";;
+
 (* ---- prelude: the folds + bridge close from bridge_close_validated.ml ---- *)
 let FOLD_LO = prove(
   `word_xor (word_pmul (word_subword (word_reversefields 8 (cph:int128)) (64,64):64 word)
@@ -143,57 +147,8 @@ let BRIDGE_CLOSE_FULL_TAC =
   ABBREV_INNER_PMULS_TAC THEN
   FINISH_WV_TAC;;
 
-let DISCARD_OLDSTATE_KEEPGHALL_TAC s =
-  let v = mk_var(s,`:armstate`) in
-  let rec unbound_statevars_of_read bound tm = match tm with
-      Comb(Comb(Const("read",_),_),st) -> if mem st bound then [] else [st]
-    | Comb(a,b) -> union (unbound_statevars_of_read bound a) (unbound_statevars_of_read bound b)
-    | Abs(vv,t) -> unbound_statevars_of_read (vv::bound) t | _ -> [] in
-  let rec mentions_htbl t = match t with
-      Var("htbl_p",_) -> true
-    | Comb(a,b) -> mentions_htbl a || mentions_htbl b | Abs(_,t2) -> mentions_htbl t2 | _ -> false in
-  let rec mentions_ghreg t = match t with
-      Comb(Comb(Const("read",_),cmp),_) ->
-        (match cmp with Const(n,_) -> n="Q16"||n="Q17"||n="Q18"||n="Q19"||n="Q20"||n="Q21"||n="Q22"||n="Q23"||n="Q24"||n="Q25"||n="Q26"||n="Q30" | _ -> false)
-    | Comb(a,b) -> mentions_ghreg a || mentions_ghreg b | Abs(_,t2) -> mentions_ghreg t2 | _ -> false in
-  DISCARD_ASSUMPTIONS_TAC(fun thm ->
-    if mentions_ghreg (concl thm) then false else
-    if (match concl thm with
-        | Comb(Comb(Const("=",_),Comb(Comb(Const("read",_),cmp),_)),_) -> mentions_htbl cmp
-        | _ -> false) then false else
-    let us = unbound_statevars_of_read [] (concl thm) in
-    if us = [] || us = [v] then false else if not(mem v us) then true else true);;
-(* SPEED (refine-093): single-pass GCM_SIMD_SIMPLIFY_CORE_TAC (was double-pass
-   GCM_SIMD_SIMPLIFY_TAC = CORE THEN CORE).  Mirrors the s084 mainloop-tail fix
-   (wb.ml:1784): the 2nd CORE pass is a no-op on all but the block-boundary REV64
-   folds, and those are re-done downstream by the bridge's RF8_SUBWORD/
-   WORD_BYTEREVERSE_REVERSEFIELDS rewrites, so single-pass still closes hyps=0.
-   MEASURED on the rebased fused ckpt: WB_FUSED_1BLOCK prove 346.80s -> 282.22s
-   (-18.6%), hyps=0 axioms=3 RESTORE_EXIT=0. *)
-let ARM_STEPS_FOLD_KEEPGHALL_TAC exec snums =
-  MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN GCM_SIMD_SIMPLIFY_CORE_TAC THEN
-              DISCARD_OLDSTATE_KEEPGHALL_TAC s THEN CLARIFY_TAC) (statenames "s" snums);;
-
-
-(* ---- store-tail closer lemmas ---- *)
-let JOIN_IS_CTR0 = prove(
- `word_join
-    (word_join
-     (word_join
-      (word_join (word_subword (ctr0:int128) (120,8):8 word) (word_subword ctr0 (112,8):8 word):16 word)
-      (word_join (word_subword ctr0 (104,8):8 word) (word_subword ctr0 (96,8):8 word):16 word):32 word)
-     (word_join
-      (word_join (word_subword ctr0 (88,8):8 word) (word_subword ctr0 (80,8):8 word):16 word)
-      (word_join (word_subword ctr0 (72,8):8 word) (word_subword ctr0 (64,8):8 word):16 word):32 word):64 word)
-    (word_join
-     (word_join
-      (word_join (word_subword ctr0 (56,8):8 word) (word_subword ctr0 (48,8):8 word):16 word)
-      (word_join (word_subword ctr0 (40,8):8 word) (word_subword ctr0 (32,8):8 word):16 word):32 word)
-     (word_join
-      (word_join (word_subword ctr0 (24,8):8 word) (word_subword ctr0 (16,8):8 word):16 word)
-      (word_join (word_subword ctr0 (8,8):8 word) (word_subword ctr0 (0,8):8 word):16 word):32 word):64 word):int128
-  = ctr0`,
-  CONV_TAC WORD_BLAST);;
+(* DISCARD_OLDSTATE_KEEPGHALL_TAC, ARM_STEPS_FOLD_KEEPGHALL_TAC, JOIN_IS_CTR0
+   now come from fused-wip/fused_common.ml (needs above). *)
 
 let WB_FUSED_1BLOCK = prove(
  `!pc stackpointer out_p xi_p ivec_p in_p key_p htbl_p
