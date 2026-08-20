@@ -1,0 +1,26 @@
+# cfg=P3 leadpad=0 slots=dn dn cn cn dn dn cn cn
+slot       tag              symbol             addr16 addr32 addr64
+0          dn               dec_s0             0x1670              0   16   48
+0          dn               ml_s0              0x1b30              0   16   48
+           ml_offset_in_function=1216
+1          dn               dec_s1             0x2dc0              0    0    0
+1          dn               ml_s1              0x3280              0    0    0
+           ml_offset_in_function=1216
+2          cn               dec_s2             0x4510              0   16   16
+2          cn               ml_s2              0x49c8              8    8    8
+           ml_offset_in_function=1208
+3          cn               dec_s3             0x5880              0    0    0
+3          cn               ml_s3              0x5d38              8   24   56
+           ml_offset_in_function=1208
+4          dn               dec_s4             0x6bf0              0   16   48
+4          dn               ml_s4              0x70b0              0   16   48
+           ml_offset_in_function=1216
+5          dn               dec_s5             0x8340              0    0    0
+5          dn               ml_s5              0x8800              0    0    0
+           ml_offset_in_function=1216
+6          cn               dec_s6             0x9a90              0   16   16
+6          cn               ml_s6              0x9f48              8    8    8
+           ml_offset_in_function=1208
+7          cn               dec_s7             0xae00              0    0    0
+7          cn               ml_s7              0xb2b8              8   24   56
+           ml_offset_in_function=1208

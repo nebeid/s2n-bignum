@@ -1,0 +1,26 @@
+# cfg=A2X2 leadpad=0 slots=ca0 da0 ca8 da8 ca0 da0 ca8 da8
+slot       tag              symbol             addr16 addr32 addr64
+0          ca0              dec_s0             0x1680              0    0    0
+0          ca0              ml_s0              0x1b38              8   24   56
+           ml_offset_in_function=1208
+1          da0              dec_s1             0x2a00              0    0    0
+1          da0              ml_s1              0x2ec0              0    0    0
+           ml_offset_in_function=1216
+2          ca8              dec_s2             0x4180              0    0    0
+2          ca8              ml_s2              0x4640              0    0    0
+           ml_offset_in_function=1216
+3          da8              dec_s3             0x5500              0    0    0
+3          da8              ml_s3              0x59c8              8    8    8
+           ml_offset_in_function=1224
+4          ca0              dec_s4             0x6c80              0    0    0
+4          ca0              ml_s4              0x7138              8   24   56
+           ml_offset_in_function=1208
+5          da0              dec_s5             0x8000              0    0    0
+5          da0              ml_s5              0x84c0              0    0    0
+           ml_offset_in_function=1216
+6          ca8              dec_s6             0x9780              0    0    0
+6          ca8              ml_s6              0x9c40              0    0    0
+           ml_offset_in_function=1216
+7          da8              dec_s7             0xab00              0    0    0
+7          da8              ml_s7              0xafc8              8    8    8
+           ml_offset_in_function=1224

@@ -1,0 +1,26 @@
+# cfg=ADSW leadpad=0 slots=da0 da8 da16 da24 da32 da40 da48 da56
+slot       tag              symbol             addr16 addr32 addr64
+0          da0              dec_s0             0x1680              0    0    0
+0          da0              ml_s0              0x1b40              0    0    0
+           ml_offset_in_function=1216
+1          da8              dec_s1             0x2e00              0    0    0
+1          da8              ml_s1              0x32c8              8    8    8
+           ml_offset_in_function=1224
+2          da16             dec_s2             0x4580              0    0    0
+2          da16             ml_s2              0x4a50              0   16   16
+           ml_offset_in_function=1232
+3          da24             dec_s3             0x5d00              0    0    0
+3          da24             ml_s3              0x61d8              8   24   24
+           ml_offset_in_function=1240
+4          da32             dec_s4             0x7480              0    0    0
+4          da32             ml_s4              0x7960              0    0   32
+           ml_offset_in_function=1248
+5          da40             dec_s5             0x8c00              0    0    0
+5          da40             ml_s5              0x90e8              8    8   40
+           ml_offset_in_function=1256
+6          da48             dec_s6             0xa380              0    0    0
+6          da48             ml_s6              0xa870              0   16   48
+           ml_offset_in_function=1264
+7          da56             dec_s7             0xbb00              0    0    0
+7          da56             ml_s7              0xbff8              8   24   56
+           ml_offset_in_function=1272

@@ -1,0 +1,26 @@
+# cfg=ACSW leadpad=0 slots=ca0 ca8 ca16 ca24 ca32 ca40 ca48 ca56
+slot       tag              symbol             addr16 addr32 addr64
+0          ca0              dec_s0             0x1680              0    0    0
+0          ca0              ml_s0              0x1b38              8   24   56
+           ml_offset_in_function=1208
+1          ca8              dec_s1             0x2a00              0    0    0
+1          ca8              ml_s1              0x2ec0              0    0    0
+           ml_offset_in_function=1216
+2          ca16             dec_s2             0x3d80              0    0    0
+2          ca16             ml_s2              0x4248              8    8    8
+           ml_offset_in_function=1224
+3          ca24             dec_s3             0x5100              0    0    0
+3          ca24             ml_s3              0x55d0              0   16   16
+           ml_offset_in_function=1232
+4          ca32             dec_s4             0x6480              0    0    0
+4          ca32             ml_s4              0x6958              8   24   24
+           ml_offset_in_function=1240
+5          ca40             dec_s5             0x7840              0    0    0
+5          ca40             ml_s5              0x7d20              0    0   32
+           ml_offset_in_function=1248
+6          ca48             dec_s6             0x8c00              0    0    0
+6          ca48             ml_s6              0x90e8              8    8   40
+           ml_offset_in_function=1256
+7          ca56             dec_s7             0x9fc0              0    0    0
+7          ca56             ml_s7              0xa4b0              0   16   48
+           ml_offset_in_function=1264

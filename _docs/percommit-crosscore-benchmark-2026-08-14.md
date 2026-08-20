@@ -369,6 +369,12 @@ on all three cores. At 4096 B (256 blocks) most commits are at or near the noise
   GV5 (0.69%) - two byte-identical code copies differ by that much - while 128/256/1024/4096 B
   are all <=0.3%. 512 B = 32 blocks = exactly 4 mainloop iterations plus an empty tail, and it
   appears to sit on a code-placement/alignment cliff. Treat sub-1% 512 B deltas with suspicion.
+> **PARTIALLY RETRACTED 2026-08-20.** The ~1.1 % figure here is itself largely a
+> min-of-mins artifact. Measured with the median of per-process paired deltas over
+> **120 byte-identical A/A pairs per host**, the true 512 B placement floor is
+> <= 0.32 % (V1), <= 0.37 % (V2), <= 0.07 % (V3). The advice "treat sub-1 % 512 B
+> deltas with suspicion" was right in spirit and wrong in magnitude: what should
+> be distrusted is the estimator, not that size. See "512 B, resolved" below.
 * No version was ever slower than its predecessor by more than 0.24% anywhere, so there is no
   regression to chase - only diminishing returns.
 
@@ -390,6 +396,16 @@ instance size affects clock/uncore, not a 9% single-core delta of this shape.
 
 ## Reproduction
 
+> **2026-08-20 correction: THIS HARNESS IS LOST.** `/tmp/pcbench` is empty on this
+> workstation (`src/` and `include/` exist but contain nothing; no `harness.c`,
+> no `build.sh`, no `out_GV*.txt`, no `analyze.py`). Nothing was ever copied into
+> the repo, so the tables above **cannot be re-derived or re-analysed** — in
+> particular the min-of-mins statistic (see the 2026-08-20 extension below)
+> cannot be recomputed with a better estimator. Every later experiment
+> (`prologue-relocation/`, `prepretail-probes/`, `fused-*/`) banked its harness
+> in-repo; this one did not. The 2026-08-20 extension banks everything under
+> `aead-bench-2026-08-20/harness/` and `raw/`.
+
 Harness and raw output live under `/tmp/pcbench` on this workstation and on each of the three
 hosts (nothing was written into any git repo on any host):
 
@@ -399,3 +415,287 @@ hosts (nothing was written into any git repo on any host):
 * `/tmp/pcbench/out_GV{3,4,5}.txt` - raw `RES` lines, 10 runs per host
 * `/tmp/pcbench/analyze.py` - generates this report
 
+---
+
+# 2026-08-20 extension: aws-lc baseline, the fused variant, and 16-64 B
+
+Added six days after the run above, to answer four questions the original could
+not: how do we compare against **current aws-lc**, what does the **fused**
+short-message variant buy, what happens **below 128 B**, and does the earlier
+harness reproduce.
+
+**Scope: Graviton4 / Neoverse-V2 only** (`ec2r8g`, 4 cores, 2.7929 GHz measured
+in-process). The GV3 and GV5 hosts were unreachable (TCP timeout; AWS
+credentials expired, so their state could not be confirmed). **No cross-core
+claim is made from this extension** - the three-host tables above remain the
+only cross-core data.
+
+Full method, provenance, per-size cycles/byte, and the banked harness and raw
+per-process output: `aead-bench-2026-08-20/`.
+
+## Variants
+
+| | variant | `.S` md5 | note |
+|---|---|---|---|
+| **A** | current aws-lc `aesv8_gcm_8x_dec_256` | `eb1412c6...` | byte-identical to a fresh `aesv8-gcm-armv8-unroll8.pl linux64` regeneration from `aws-lc @ 93fd4ea5` |
+| **B** | v0 `5500b7e6` (baseline above) | `1ebeecdb...` | same object as v0 in the tables above |
+| **C** | v5 `91b1ce25` (HEAD above) | `6de404ac...` | same object as v5; its assembled `.o` md5 `114cedb5...` matches what `fused-w1-reorder/setup_w1.sh` asserts for `base.o` |
+| **D** | fused short-message variant (`d5r`) | `94b4f2c9...` | **from an artifact, not a branch**: `aes-gcm-fused-wip` contains no kernel change - the `.S`/DISPATCH splice was never performed. Regenerated with `gen_w1.py ... w5r k=1.0 K=0.35 ct=head clump=4 rejoin=1`, bit-identical to `session-108-artifacts/...d5r.S`. Object md5 `968b7a2f...` = the STATE-recorded value. |
+
+So **B->C here is exactly v0->v5 above**, which is what makes the harness
+cross-check in the next section meaningful.
+
+D's fused entry set is **nblk in {1,2,3,4}** (16/32/48/64 B) per `verify_w1.py`;
+at nblk >= 8 its code is verified content-unchanged from C.
+
+## Harness cross-check against the 2026-08-14 run
+
+Independently written harness, different instance size (that run: c8g.4xlarge;
+this: `ec2r8g`), same code:
+
+| cell | 2026-08-14 | 2026-08-20 | agreement |
+|---|---:|---:|---:|
+| C (v5) @ 128 B | 25.492 ns | 25.454 ns | **0.15 %** |
+| B (v0) @ 128 B | 32.44 ns | 32.174 ns | 0.8 % |
+| C @ 4096 B | 628.5 ns | 628.438 ns | 0.01 % |
+| B @ 4096 B | 638.0 ns | 638.388 ns | 0.06 % |
+
+Cumulative B->C also agrees with the GV4 column above to within 0.8 points at
+every shared size (-20.9/-16.2/-11.8/-5.9/-1.6 % here vs -21.4/-16.3/-11.0/-5.4/-1.5 %).
+
+## ns/call, four variants, eight sizes
+
+22 processes (10x200 + 12x300 reps), min across processes, `taskset -c 3`, two
+untimed warm-up sweeps, batch sizes chosen so every timed batch > 1 ms.
+
+| size (B) | A aws-lc | B v0 | C v5 | D fused | A/A floor |
+|---:|---:|---:|---:|---:|---:|
+| 16 | 25.667 | 24.582 | 23.360 | **12.526** | 1.06 % |
+| 32 | 26.822 | 25.396 | 23.437 | **13.214** | 0.51 % |
+| 64 | 27.390 | 26.753 | 25.149 | **18.383** | 0.67 % |
+| 128 | 32.729 | 32.174 | **25.454** | 25.442 | 0.81 % |
+| 256 | 55.261 | 54.388 | **45.564** | 45.463 | 0.44 % |
+| 512 | 94.167 | 94.217 | **83.116** | 84.343 | 1.11 %* |
+| 1024 | 171.764 | 171.732 | **161.655** | 162.364 | 0.62 % |
+| 4096 | 638.301 | 638.388 | **628.438** | 628.428 | 0.11 % |
+
+Four A/A duplicates were linked this time - one per variant - rather than the
+two of the run above, so every variant has its own placement floor rather than
+inheriting v0's or v5's.
+
+**Correctness gate: PASS in 22/22 processes**, all 8 sizes, all 8 symbols,
+comparing plaintext, `Xi`, `ivec` and the return value byte-for-byte. aws-lc
+agrees byte-for-byte with ours at whole-block lengths, as expected: its
+partial-block machinery is inert there (all-ones length mask, no-op GHASH mask,
+`bif` blend degenerating to the plain block), which is exactly the dead code our
+variants deleted.
+
+## Deltas (`~` = below that size's A/A floor, i.e. unresolved)
+
+| size | **B->C** the arc in #445 | **C->D** fusion | **A->C** vs aws-lc | A->B | floor |
+|---:|---:|---:|---:|---:|---:|
+| 16 | -4.97 % | **-46.38 %** | -8.99 % | -4.23 % | 1.06 % |
+| 32 | -7.71 % | **-43.62 %** | -12.62 % | -5.32 % | 0.51 % |
+| 64 | -6.00 % | **-26.90 %** | -8.18 % | -2.33 % | 0.67 % |
+| 128 | **-20.89 %** | -0.05 %~ | **-22.23 %** | -1.70 % | 0.81 % |
+| 256 | **-16.23 %** | -0.22 %~ | **-17.55 %** | -1.58 % | 0.44 % |
+| 512 | -11.78 % | ~~+1.48 %~~ **RETRACTED, see below** | -11.74 % | +0.05 %~ | 1.11 %* |
+| 1024 | -5.87 % | +0.44 %~ | -5.89 % | -0.02 %~ | 0.62 % |
+| 4096 | -1.56 % | -0.00 %~ | -1.55 % | +0.01 %~ | 0.11 % |
+
+### A->C: what the PR actually buys against shipping aws-lc
+
+**-22.2 % at 128 B, -17.6 % at 256 B, -11.7 % at 512 B**, decaying to -1.6 % at
+4 KB. Almost all of it is B->C (our optimisation arc); A->B - simply deleting
+the dead partial-block machinery under the whole-blocks contract - contributes
+1.6-5.3 % at <= 256 B and nothing above.
+
+### C->D: the fused variant wins only below 128 B, and has no production reach
+
+-46 / -44 / -27 % at 16/32/64 B, far above floor and structurally expected.
+128/256/1024/4096 B are all below floor - also expected, since D's nblk >= 8
+code is content-unchanged.
+
+> **RETRACTED 2026-08-20: the +1.48 % at 512 B does not exist.** It is an
+> artifact of the `min`-over-processes estimator, not of the code. Re-analysing
+> the *same* raw data with the median of per-process paired deltas gives
+> **+0.146 % [+0.105, +0.214]** (bootstrap 95 % CI), and a fresh 32-process run of
+> the identical binary gives **+0.134 % [+0.089, +0.174]**. C's per-process
+> spread at 512 B was 1.88 %, so one lucky C process set the entire delta. A
+> four-host follow-up settled it: see `512b-placement-2026-08-20/` and the
+> section "512 B, resolved" at the end of this document.
+
+The decisive point is not the timing but the dispatch: aws-lc's
+`hw_gcm_decrypt` gates the 8x kernel on
+`CRYPTO_is_ARMv8_GCM_8x_capable() && len >= 256` (verified in
+`crypto/fipsmodule/modes/gcm.c @ 93fd4ea5`), routing anything smaller to the 4x
+`aes_gcm_dec_kernel`. **Every size where fusion wins is a size the dispatch
+never sends to this kernel** - before or after the announced drop to 128, since
+at 128 B the fused variant is identical to C. This is the evidence for **not**
+splicing the fused kernel into the PR, and for treating the fused arc as a
+proven-but-parked capability.
+
+Corollary for column A: at 16/32/64/128 B it measures the raw 8x symbol on
+inputs aws-lc would never route to it. Useful for isolating kernel work from
+dispatch; **not** a production comparison at those sizes.
+
+## Below 128 B: what was already known, and what is new
+
+16/32/64 B were **not** previously unmeasured - a correction to the working
+assumption. `aead-bench-round2/` measured them for v0 and v2 on all three cores,
+and the `fused-*` docs measured v5 at 16-112 B on four hosts. Their r8g/V2
+figures for v5 (23.323 / 23.393 / 25.099 ns at 16/32/64 B) sit within 0.2-0.3 %
+of this run's C column - independent corroboration on the same core.
+
+What is new here is the **aws-lc baseline and the fused variant** at those sizes,
+and all four variants in one interleaved binary with per-variant A/A floors.
+
+Two facts from those earlier runs worth carrying forward:
+
+* **v0->v2 is worth essentially nothing at 16/32 B** (-0.4 % to +0.1 % on all
+  three cores) and only -1.7 to -13.6 % at 64 B, versus -14 to -17 % at 128 B.
+  The arc's payoff concentrates on the 8-block drain path.
+* The baseline is **non-monotone in length**: 112 B is *slower* than 128 B on all
+  four hosts (27.455 vs 25.362 on GV4). Any gain-versus-size curve drawn only
+  from 128 B upward is wrong about the shape below 128 B.
+
+## Methodological caveats that also apply to the tables above
+
+Established by an audit of all five harness generations in `_docs/`:
+
+1. **`min` across processes is the wrong estimator.** Two same-day sibling
+   reports (`prologue-relocation-experiment-2026-08-14.md`,
+   `prepretail-fusion-experiment-2026-08-14.md`) explicitly prefer the median of
+   per-process deltas, calling min-of-mins "misleading". It is retained in the
+   2026-08-20 extension only for comparability with the tables above.
+2. **The quoted A/A floors are ~15x optimistic across builds.** The same code
+   (v5) at 128 B on Neoverse-V2 measures 25.362-25.515 ns across five separate
+   binaries - a 0.61 % range - against a floor quoted as 0.04 % above. Treat any
+   delta below ~0.6 % as unresolved regardless of `~` markers.
+3. **Every size in the tables above is a multiple of 8 blocks**, so the 8-way
+   cascade path is never timed - yet v1 and v5 both edit cascade code. Adding
+   144/240/272 B would close this; `prologue-relocation-experiment` does exactly
+   that.
+4. **Only 2 of 6 variants had an A/A twin** above; the floor was then applied to
+   the four that had none. The 2026-08-20 extension uses one twin per variant.
+5. **All measurements are L1-resident.** Since every B->C change is a
+   register/dependency-depth change, removing the memory cost that would sit in
+   the shadow of those chains **inflates** the measured relative gain. -20.9 % at
+   128 B is an upper bound relative to a streaming caller; nothing quantifies by
+   how much.
+6. **No PMU counters** anywhere - wall clock divided by a separately measured
+   clock, so deltas are inferred rather than attributed.
+
+## Reproduction (2026-08-20 extension)
+
+Banked in-repo, unlike the run above:
+
+* `aead-bench-2026-08-20/harness/harness.c` - interleaved timing + correctness gate
+* `aead-bench-2026-08-20/harness/build.sh`, `mk.sh` - assemble separately, `objcopy --redefine-sym`, link one binary
+* `aead-bench-2026-08-20/harness/clk.c` - in-process core-clock chain
+* `aead-bench-2026-08-20/harness/analyze.py` - min-over-processes, A/A floors, delta tables
+* `aead-bench-2026-08-20/harness/src/{A,B,C,D}.S` - the four variant sources measured
+* `aead-bench-2026-08-20/raw/out_r8g.txt` - every `RES` line, all 22 processes
+
+---
+
+# 512 B, resolved (2026-08-20)
+
+Four hosts, 32-40 processes each, median of per-process paired deltas with
+bootstrap 95 % CIs, plus 5 link-order permutations and 5 padding sizes per host.
+Harness, 56 raw logs and per-symbol address maps: `512b-placement-2026-08-20/`.
+
+## There is no 512 B regression for the fused variant on any core
+
+| host | core | clock | 64 B (positive control) | 256 B | **512 B** | 1024 B |
+|---|---|---:|---:|---:|---:|---:|
+| gv3 | Neoverse-V1 | 2.5921 | -21.450 % | -0.099 % | **-0.285 % [-0.330,-0.192]** | -0.203 % |
+| gv4 | Neoverse-V2 | 2.7931 | -26.921 % | -0.388 % | **+0.144 % [+0.113,+0.175]** | +0.088 % |
+| gv5 | Neoverse-V3 | 3.2909 | -31.060 % | -0.015 % | **+0.020 % [-0.006,+0.034]** | +0.013 % |
+| r8g | Neoverse-V2 | 2.7931 | -26.929 % | -0.242 % | **+0.134 % [+0.089,+0.174]** | +0.089 % |
+
+The three cores agree unanimously that there is **no +1.5 % penalty**. They
+differ on the residual: V1 **-0.29 %** (D faster, real, mechanism below), V2
+**+0.14 %** inside a ~0.3 % placement floor and sign-unstable, V3 **+0.02 %**
+with a 0.07 % floor. The 64 B positive control is huge and stable in every cell,
+so the harness demonstrably resolves real effects.
+
+## The artifact signature: the delta swings sign under placement alone
+
+C-vs-D at 512 B across 5 link permutations (P0-P4) and 5 leading-pad sizes:
+
+| cfg | gv3 (V1) | gv4 (V2) | gv5 (V3) | r8g (V2) |
+|---|---:|---:|---:|---:|
+| P0 | -0.527 % | +0.111 % | +0.004 % | +0.114 % |
+| P1 | -0.491 % | +0.079 % | +0.004 % | +0.037 % |
+| P2 | -0.613 % | -0.056 % | +0.025 % | -0.085 % |
+| P3 | -0.628 % | -0.019 % | +0.003 % | -0.017 % |
+| P4 | -0.533 % | +0.052 % | +0.001 % | -0.041 % |
+| PAD16 | -0.474 % | -0.068 % | +0.026 % | -0.117 % |
+| PAD64 | -0.509 % | +0.113 % | +0.015 % | +0.099 % |
+| PAD128 | -0.537 % | +0.045 % | +0.005 % | +0.068 % |
+| PAD256 | -0.541 % | -0.045 % | -0.002 % | +0.007 % |
+| PAD1024 | -0.622 % | -0.026 % | -0.025 % | +0.046 % |
+
+On both V2 hosts the sign flips (+0.114 -> -0.117 on r8g) while the 64 B control
+holds at -27.0 +/- 0.2 % throughout. On V1 it is stably negative in all ten
+placements - a real effect, not placement noise.
+
+## Mechanism: main-loop entry address mod 16, and it is V1-only
+
+Byte-level: **`C.text[56:4956] == D.text[64:4964]`** - 4900 bytes, 1225
+instructions, byte-identical, shifted by exactly 8 bytes. Only three words differ
+in the whole object (the entry `cbz x1` displacement, and C's trailing
+`mov w0,#0; ret` which D relocates). Because `.align 4` at line 41 is the only
+alignment directive in the file - inherited from aws-lc, which aligns each
+exported function entry and never an internal label - nothing re-anchors the main
+loop, so D's two extra prologue instructions move it 8 bytes.
+
+Measured: C's main loop at function offset **1208 (= 8 mod 16)**, D's at **1216
+(= 0 mod 16)**.
+
+2x2 test with the function entry forced 64-byte aligned and 8 bytes optionally
+inserted before `.L256_dec_main_loop` (`ca0` = C ml@8, `da0` = D ml@0,
+`ca8` = C ml@0, `da8` = D ml@8), 40 processes:
+
+| host | ca0 | da0 | ca8 | da8 | A/A abs max |
+|---|---:|---:|---:|---:|---:|
+| gv3 (V1) | +0.000 % | **-0.492 %** | **-0.619 %** | +0.009 % | 0.203 % |
+| gv4 (V2) | +0.000 % | +0.005 % | +0.085 % | +0.053 % | 0.121 % |
+| gv5 (V3) | +0.000 % | -0.030 % | -0.006 % | +0.026 % | 0.006 % |
+| r8g (V2) | +0.000 % | -0.010 % | +0.064 % | +0.053 % | 0.053 % |
+
+On V1 the timing depends **only on `ml mod 16`, not on which variant**: the fast
+pair is {`da0`, `ca8`} = ml@0, the slow pair {`ca0`, `da8`} = ml@8. Single-variant
+offset sweeps (8 copies of the same kernel, main loop shifted 0..56 B) show a
+clean period-16 effect on V1 and its absence on V2/V3. Correcting for the ~0.05 %
+bias from the extra padding bytes, genuine V2/V3 alignment sensitivity is
+<= 0.05 %, i.e. nil.
+
+## Actionable consequence: the SHIPPED kernel is on the slow alignment on V1
+
+D has the good alignment by accident; **C does not**. Adding `.balign 16` before
+`.L256_dec_main_loop` (gas emits 8 bytes = 2 nops, executed once per call, never
+inside the loop) measured on gv3 against shipped `ca0`:
+
+| size | 64 B | 256 B | 512 B | 1024 B |
+|---|---:|---:|---:|---:|
+| `.balign 16` (pad 8) | -0.020 % | **-0.376 %** | **-0.435 %** | **-0.369 %** |
+| pad 24 (same mod 16) | -0.030 % | -0.531 % | -0.377 % | -0.489 % |
+
+Free ~0.4-0.5 % at every size that runs the main loop on Graviton3, no cost at
+64 B, ~0 on V2/V3. It changes the object bytes, so it needs a fresh cold gate and
+the byte-identity argument must be re-established.
+
+## Two corrections to earlier claims in this document
+
+1. The "512 B alignment cliff of up to ~1.1 %" was largely the same min-of-mins
+   artifact. Over 120 byte-identical A/A pairs per host the real 512 B floor is
+   <= 0.32 % (V1), <= 0.37 % (V2), <= 0.07 % (V3).
+2. **512 B is not special.** The V1 alignment effect is the same magnitude at
+   256 B and 1024 B. The "4 main-loop iterations plus an empty tail" explanation
+   was a story fitted to a bad number.
+
+`*` The 1.11 % floor in the tables above is the min-of-mins A/A figure, retained
+for internal consistency with those tables. The properly-measured 512 B floor on
+this core is 0.26 %.

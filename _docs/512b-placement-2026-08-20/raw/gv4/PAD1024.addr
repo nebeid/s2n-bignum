@@ -1,0 +1,26 @@
+# cfg=PAD1024 leadpad=1024 slots=cn dn cn dn cn dn cn dn
+slot       tag              symbol             addr16 addr32 addr64
+0          cn               dec_s0             0x1a70              0   16   48
+0          cn               ml_s0              0x1f28              8    8   40
+           ml_offset_in_function=1208
+1          dn               dec_s1             0x2de0              0    0   32
+1          dn               ml_s1              0x32a0              0    0   32
+           ml_offset_in_function=1216
+2          cn               dec_s2             0x4530              0   16   48
+2          cn               ml_s2              0x49e8              8    8   40
+           ml_offset_in_function=1208
+3          dn               dec_s3             0x58a0              0    0   32
+3          dn               ml_s3              0x5d60              0    0   32
+           ml_offset_in_function=1216
+4          cn               dec_s4             0x6ff0              0   16   48
+4          cn               ml_s4              0x74a8              8    8   40
+           ml_offset_in_function=1208
+5          dn               dec_s5             0x8360              0    0   32
+5          dn               ml_s5              0x8820              0    0   32
+           ml_offset_in_function=1216
+6          cn               dec_s6             0x9ab0              0   16   48
+6          cn               ml_s6              0x9f68              8    8   40
+           ml_offset_in_function=1208
+7          dn               dec_s7             0xae20              0    0   32
+7          dn               ml_s7              0xb2e0              0    0   32
+           ml_offset_in_function=1216
