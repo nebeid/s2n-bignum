@@ -3159,10 +3159,10 @@ let wb_front_frame_tm = `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
 
 let wb_front_hyps_tm = `1 <= nblk /\ nblk <= 8 /\ LENGTH (ibytes:byte list) = 16 * nblk /\
     aligned 16 stackpointer /\
-    nonoverlapping (word pc, 4976) (stackpointer:int64, 80) /\
-    nonoverlapping (word pc, 4976) (out_p:int64, 16 * nblk) /\
-    nonoverlapping (word pc, 4976) (xi_p:int64, 16) /\
-    nonoverlapping (word pc, 4976) (ivec_p:int64, 16) /\
+    nonoverlapping (word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc) (stackpointer:int64, 80) /\
+    nonoverlapping (word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc) (out_p:int64, 16 * nblk) /\
+    nonoverlapping (word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc) (xi_p:int64, 16) /\
+    nonoverlapping (word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc) (ivec_p:int64, 16) /\
     nonoverlapping (ivec_p, 16) (in_p:int64, 16 * nblk) /\
     nonoverlapping (ivec_p, 16) (key_p:int64, 240) /\
     nonoverlapping (ivec_p, 16) (htbl_p:int64, 192) /\
@@ -4952,10 +4952,10 @@ let mk_band_goal k =
   let hyps = subst [n16,`sss:num`]
     `LENGTH (ibytes:byte list) = sss /\
      aligned 16 stackpointer /\
-     nonoverlapping (word pc, 4976) (stackpointer:int64, 80) /\
-     nonoverlapping (word pc, 4976) (out_p:int64, sss) /\
-     nonoverlapping (word pc, 4976) (xi_p:int64, 16) /\
-     nonoverlapping (word pc, 4976) (ivec_p:int64, 16) /\
+     nonoverlapping (word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc) (stackpointer:int64, 80) /\
+     nonoverlapping (word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc) (out_p:int64, sss) /\
+     nonoverlapping (word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc) (xi_p:int64, 16) /\
+     nonoverlapping (word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc) (ivec_p:int64, 16) /\
      nonoverlapping (out_p, sss) (xi_p, 16) /\
      nonoverlapping (out_p, sss) (ivec_p, 16) /\
      nonoverlapping (xi_p, 16) (ivec_p, 16) /\
@@ -5780,10 +5780,10 @@ let AESV8_GCM_8X_DEC_256_1BLOCK = prove
      aligned 16 stackpointer /\
      ALLPAIRS nonoverlapping
        [out_p,16; xi_p,16; ivec_p,16]
-       [word pc,4976; in_p,16; key_p,240; htbl_p,192; stackpointer,80] /\
+       [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,16; key_p,240; htbl_p,192; stackpointer,80] /\
      PAIRWISE nonoverlapping [out_p,16; xi_p,16; ivec_p,16] /\
      ALL (nonoverlapping (stackpointer,80))
-       [word pc,4976; in_p,16; key_p,240; htbl_p,192]
+       [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,16; key_p,240; htbl_p,192]
      ==> ensures arm
           (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
                read PC s = word (pc + 0x20) /\
@@ -5816,10 +5816,10 @@ let AESV8_GCM_8X_DEC_256_2BLOCK = prove
      aligned 16 stackpointer /\
      ALLPAIRS nonoverlapping
        [out_p,32; xi_p,16; ivec_p,16]
-       [word pc,4976; in_p,32; key_p,240; htbl_p,192; stackpointer,80] /\
+       [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,32; key_p,240; htbl_p,192; stackpointer,80] /\
      PAIRWISE nonoverlapping [out_p,32; xi_p,16; ivec_p,16] /\
      ALL (nonoverlapping (stackpointer,80))
-       [word pc,4976; in_p,32; key_p,240; htbl_p,192]
+       [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,32; key_p,240; htbl_p,192]
      ==> ensures arm
           (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
                read PC s = word (pc + 0x20) /\
@@ -5852,10 +5852,10 @@ let AESV8_GCM_8X_DEC_256_3BLOCK = prove
      aligned 16 stackpointer /\
      ALLPAIRS nonoverlapping
        [out_p,48; xi_p,16; ivec_p,16]
-       [word pc,4976; in_p,48; key_p,240; htbl_p,192; stackpointer,80] /\
+       [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,48; key_p,240; htbl_p,192; stackpointer,80] /\
      PAIRWISE nonoverlapping [out_p,48; xi_p,16; ivec_p,16] /\
      ALL (nonoverlapping (stackpointer,80))
-       [word pc,4976; in_p,48; key_p,240; htbl_p,192]
+       [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,48; key_p,240; htbl_p,192]
      ==> ensures arm
           (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
                read PC s = word (pc + 0x20) /\
@@ -5888,10 +5888,10 @@ let AESV8_GCM_8X_DEC_256_4BLOCK = prove
      aligned 16 stackpointer /\
      ALLPAIRS nonoverlapping
        [out_p,64; xi_p,16; ivec_p,16]
-       [word pc,4976; in_p,64; key_p,240; htbl_p,192; stackpointer,80] /\
+       [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,64; key_p,240; htbl_p,192; stackpointer,80] /\
      PAIRWISE nonoverlapping [out_p,64; xi_p,16; ivec_p,16] /\
      ALL (nonoverlapping (stackpointer,80))
-       [word pc,4976; in_p,64; key_p,240; htbl_p,192]
+       [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,64; key_p,240; htbl_p,192]
      ==> ensures arm
           (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
                read PC s = word (pc + 0x20) /\
@@ -5924,10 +5924,10 @@ let AESV8_GCM_8X_DEC_256_5BLOCK = prove
      aligned 16 stackpointer /\
      ALLPAIRS nonoverlapping
        [out_p,80; xi_p,16; ivec_p,16]
-       [word pc,4976; in_p,80; key_p,240; htbl_p,192; stackpointer,80] /\
+       [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,80; key_p,240; htbl_p,192; stackpointer,80] /\
      PAIRWISE nonoverlapping [out_p,80; xi_p,16; ivec_p,16] /\
      ALL (nonoverlapping (stackpointer,80))
-       [word pc,4976; in_p,80; key_p,240; htbl_p,192]
+       [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,80; key_p,240; htbl_p,192]
      ==> ensures arm
           (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
                read PC s = word (pc + 0x20) /\
@@ -5960,10 +5960,10 @@ let AESV8_GCM_8X_DEC_256_6BLOCK = prove
      aligned 16 stackpointer /\
      ALLPAIRS nonoverlapping
        [out_p,96; xi_p,16; ivec_p,16]
-       [word pc,4976; in_p,96; key_p,240; htbl_p,192; stackpointer,80] /\
+       [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,96; key_p,240; htbl_p,192; stackpointer,80] /\
      PAIRWISE nonoverlapping [out_p,96; xi_p,16; ivec_p,16] /\
      ALL (nonoverlapping (stackpointer,80))
-       [word pc,4976; in_p,96; key_p,240; htbl_p,192]
+       [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,96; key_p,240; htbl_p,192]
      ==> ensures arm
           (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
                read PC s = word (pc + 0x20) /\
@@ -5996,10 +5996,10 @@ let AESV8_GCM_8X_DEC_256_7BLOCK = prove
      aligned 16 stackpointer /\
      ALLPAIRS nonoverlapping
        [out_p,112; xi_p,16; ivec_p,16]
-       [word pc,4976; in_p,112; key_p,240; htbl_p,192; stackpointer,80] /\
+       [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,112; key_p,240; htbl_p,192; stackpointer,80] /\
      PAIRWISE nonoverlapping [out_p,112; xi_p,16; ivec_p,16] /\
      ALL (nonoverlapping (stackpointer,80))
-       [word pc,4976; in_p,112; key_p,240; htbl_p,192]
+       [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,112; key_p,240; htbl_p,192]
      ==> ensures arm
           (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
                read PC s = word (pc + 0x20) /\
@@ -6032,10 +6032,10 @@ let AESV8_GCM_8X_DEC_256_8BLOCK = prove
      aligned 16 stackpointer /\
      ALLPAIRS nonoverlapping
        [out_p,128; xi_p,16; ivec_p,16]
-       [word pc,4976; in_p,128; key_p,240; htbl_p,192; stackpointer,80] /\
+       [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,128; key_p,240; htbl_p,192; stackpointer,80] /\
      PAIRWISE nonoverlapping [out_p,128; xi_p,16; ivec_p,16] /\
      ALL (nonoverlapping (stackpointer,80))
-       [word pc,4976; in_p,128; key_p,240; htbl_p,192]
+       [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,128; key_p,240; htbl_p,192]
      ==> ensures arm
           (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
                read PC s = word (pc + 0x20) /\
@@ -6077,10 +6077,10 @@ let AESV8_GCM_8X_DEC_256_DISPATCH = prove
      aligned 16 stackpointer /\
      ALLPAIRS nonoverlapping
        [out_p,16 * nblk; xi_p,16; ivec_p,16]
-       [word pc,4976; in_p,16 * nblk; key_p,240; htbl_p,192; stackpointer,80] /\
+       [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,16 * nblk; key_p,240; htbl_p,192; stackpointer,80] /\
      PAIRWISE nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16] /\
      ALL (nonoverlapping (stackpointer,80))
-       [word pc,4976; in_p,16 * nblk; key_p,240; htbl_p,192]
+       [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,16 * nblk; key_p,240; htbl_p,192]
      ==> ensures arm
           (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
                read PC s = word (pc + 0x20) /\
@@ -13484,10 +13484,10 @@ let WBN_DEC_CORE_BYTELIST = prove
     LENGTH rk = 15 /\
     aligned 16 stackpointer /\
     ALLPAIRS nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16]
-    [word pc,4976; in_p,16 * nblk; key_p,240; htbl_p,192; stackpointer,80] /\
+    [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,16 * nblk; key_p,240; htbl_p,192; stackpointer,80] /\
     PAIRWISE nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16] /\
     ALL (nonoverlapping (stackpointer,80))
-    [word pc,4976; in_p,16 * nblk; key_p,240; htbl_p,192]
+    [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,16 * nblk; key_p,240; htbl_p,192]
     ==> ensures arm
          (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
               read PC s = word (pc + 32) /\
@@ -13622,11 +13622,11 @@ let WBN_DEC_SUBROUTINE_BYTELIST = prove
       LENGTH rk = 15 /\
       aligned 16 stackpointer /\
       ALLPAIRS nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16]
-      [word pc,4976; in_p,16 * nblk; key_p,240; htbl_p,192;
+      [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,16 * nblk; key_p,240; htbl_p,192;
        word_sub stackpointer (word 80),80] /\
       PAIRWISE nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16] /\
       ALL (nonoverlapping (word_sub stackpointer (word 80),80))
-      [word pc,4976; in_p,16 * nblk; key_p,240; htbl_p,192]
+      [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,16 * nblk; key_p,240; htbl_p,192]
       ==> ensures arm
           (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
                read PC s = word pc /\
@@ -14453,10 +14453,10 @@ let AESV8_GCM_8X_DEC_256_CORRECT = prove
     aligned 16 stackpointer /\
     word_bytereverse ctr0 = ctr_block nonce c /\
     ALLPAIRS nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16]
-    [word pc,4976; in_p,16 * nblk; key_p,240; htbl_p,192; stackpointer,80] /\
+    [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,16 * nblk; key_p,240; htbl_p,192; stackpointer,80] /\
     PAIRWISE nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16] /\
     ALL (nonoverlapping (stackpointer,80))
-    [word pc,4976; in_p,16 * nblk; key_p,240; htbl_p,192]
+    [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,16 * nblk; key_p,240; htbl_p,192]
     ==> ensures arm
          (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
               read PC s = word (pc + 32) /\
@@ -14566,11 +14566,11 @@ let AESV8_GCM_8X_DEC_256_SUBROUTINE_CORRECT = prove
     aligned 16 stackpointer /\
     word_bytereverse ctr0 = ctr_block nonce c /\
     ALLPAIRS nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16]
-    [word pc,4976; in_p,16 * nblk; key_p,240; htbl_p,192;
+    [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,16 * nblk; key_p,240; htbl_p,192;
      word_sub stackpointer (word 80),80] /\
     PAIRWISE nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16] /\
     ALL (nonoverlapping (word_sub stackpointer (word 80),80))
-    [word pc,4976; in_p,16 * nblk; key_p,240; htbl_p,192]
+    [word pc, LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,16 * nblk; key_p,240; htbl_p,192]
     ==> ensures arm
          (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
               read PC s = word pc /\
