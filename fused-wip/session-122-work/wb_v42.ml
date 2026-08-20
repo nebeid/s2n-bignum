@@ -163,8 +163,15 @@ let DISCARD_OLDSTATE_KEEPGHALL_TAC s =
         | _ -> false) then false else
     let us = unbound_statevars_of_read [] (concl thm) in
     if us = [] || us = [v] then false else if not(mem v us) then true else true);;
+(* SPEED (refine-093): single-pass GCM_SIMD_SIMPLIFY_CORE_TAC (was double-pass
+   GCM_SIMD_SIMPLIFY_TAC = CORE THEN CORE).  Mirrors the s084 mainloop-tail fix
+   (wb.ml:1784): the 2nd CORE pass is a no-op on all but the block-boundary REV64
+   folds, and those are re-done downstream by the bridge's RF8_SUBWORD/
+   WORD_BYTEREVERSE_REVERSEFIELDS rewrites, so single-pass still closes hyps=0.
+   MEASURED on the rebased fused ckpt: WB_FUSED_1BLOCK prove 346.80s -> 282.22s
+   (-18.6%), hyps=0 axioms=3 RESTORE_EXIT=0. *)
 let ARM_STEPS_FOLD_KEEPGHALL_TAC exec snums =
-  MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN GCM_SIMD_SIMPLIFY_CORE_TAC THEN
               DISCARD_OLDSTATE_KEEPGHALL_TAC s THEN CLARIFY_TAC) (statenames "s" snums);;
 
 
