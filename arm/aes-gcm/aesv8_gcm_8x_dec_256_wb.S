@@ -413,6 +413,7 @@ S2N_BN_SYMBOL(aesv8_gcm_8x_dec_256_wb):
 	add	v30.4s, v30.4s, v31.4s		//CTR block 12
 	b.ge	.L256_dec_prepretail					//do prepretail
 
+	.balign	16			//Neoverse-V1: main loop must enter at addr mod 16 = 0
 .L256_dec_main_loop:	//main	loop start
 	rev32	v5.16b, v30.16b				//CTR block 8k+13
 	ldp	q26, q27, [x11, #0]					//load rk0, rk1

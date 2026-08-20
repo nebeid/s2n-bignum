@@ -43,9 +43,9 @@ let aesv8_gcm_8x_dec_256_wb_mc = define_assert_from_elf "aesv8_gcm_8x_dec_256_wb
   "arm/aes-gcm/aesv8_gcm_8x_dec_256_wb.o"
 [
   0xd503201f;       (* arm_NOP *)
-  0xb4009ae1;       (* arm_CBZ X1 (word 4956) *)
+  0xb4009b21;       (* arm_CBZ X1 (word 4964) *)
   0xf240183f;       (* arm_TST X1 (rvalue (word 127)) *)
-  0x54009aa1;       (* arm_BNE (word 4948) *)
+  0x54009ae1;       (* arm_BNE (word 4956) *)
   0x6dbb27e8;       (* arm_STP D8 D9 SP (Preimmediate_Offset (iword (-- &80))) *)
   0x6d012fea;       (* arm_STP D10 D11 SP (Immediate_Offset (iword (&16))) *)
   0x6d0237ec;       (* arm_STP D12 D13 SP (Immediate_Offset (iword (&32))) *)
@@ -315,7 +315,7 @@ let aesv8_gcm_8x_dec_256_wb_mc = define_assert_from_elf "aesv8_gcm_8x_dec_256_wb
   0x4e284b66;       (* arm_AESE Q6 Q27 *)
   0x4e284b63;       (* arm_AESE Q3 Q27 *)
   0x4e284b67;       (* arm_AESE Q7 Q27 *)
-  0x540054aa;       (* arm_BGE (word 2708) *)
+  0x540054ea;       (* arm_BGE (word 2716) *)
   0xacc12408;       (* arm_LDP Q8 Q9 X0 (Postimmediate_Offset (iword (&32))) *)
   0xacc12c0a;       (* arm_LDP Q10 Q11 X0 (Postimmediate_Offset (iword (&32))) *)
   0xacc1340c;       (* arm_LDP Q12 Q13 X0 (Postimmediate_Offset (iword (&32))) *)
@@ -343,7 +343,9 @@ let aesv8_gcm_8x_dec_256_wb_mc = define_assert_from_elf "aesv8_gcm_8x_dec_256_wb
   0xac811c46;       (* arm_STP Q6 Q7 X2 (Postimmediate_Offset (iword (&32))) *)
   0x6e200bc4;       (* arm_REV32_VEC Q4 Q30 8 *)
   0x4ebf87de;       (* arm_ADD_VEC Q30 Q30 Q31 32 128 *)
-  0x54002aaa;       (* arm_BGE (word 1364) *)
+  0x54002aea;       (* arm_BGE (word 1372) *)
+  0xd503201f;       (* arm_NOP *)
+  0xd503201f;       (* arm_NOP *)
   0x6e200bc5;       (* arm_REV32_VEC Q5 Q30 8 *)
   0xad406d7a;       (* arm_LDP Q26 Q27 X11 (Immediate_Offset (iword (&0))) *)
   0x4ebf87de;       (* arm_ADD_VEC Q30 Q30 Q31 32 128 *)
@@ -3157,10 +3159,10 @@ let wb_front_frame_tm = `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
 
 let wb_front_hyps_tm = `1 <= nblk /\ nblk <= 8 /\ LENGTH (ibytes:byte list) = 16 * nblk /\
     aligned 16 stackpointer /\
-    nonoverlapping (word pc, 4968) (stackpointer:int64, 80) /\
-    nonoverlapping (word pc, 4968) (out_p:int64, 16 * nblk) /\
-    nonoverlapping (word pc, 4968) (xi_p:int64, 16) /\
-    nonoverlapping (word pc, 4968) (ivec_p:int64, 16) /\
+    nonoverlapping (word pc, 4976) (stackpointer:int64, 80) /\
+    nonoverlapping (word pc, 4976) (out_p:int64, 16 * nblk) /\
+    nonoverlapping (word pc, 4976) (xi_p:int64, 16) /\
+    nonoverlapping (word pc, 4976) (ivec_p:int64, 16) /\
     nonoverlapping (ivec_p, 16) (in_p:int64, 16 * nblk) /\
     nonoverlapping (ivec_p, 16) (key_p:int64, 240) /\
     nonoverlapping (ivec_p, 16) (htbl_p:int64, 192) /\
@@ -3225,7 +3227,7 @@ let wb_front_init_tac =
    "(&:num->int)" with "(int_of_num:num->int)" (the bare & does not reparse);
    verify aconv against the folded harvested term.
      let wb_front_postcond_harvested =
-       let min_goal = mk_wb_front_goal `\s:armstate. read PC s = word (pc + 3820)` in
+       let min_goal = mk_wb_front_goal `\s:armstate. read PC s = word (pc + 3828)` in
        let _ = g min_goal in
        let _ = e wb_front_init_tac in
        let (asl265,_) = top_goal() in
@@ -3270,7 +3272,7 @@ let wb_front_postcond = parse_term {|\(s:armstate).
     (read:(armstate,(64)word)component->armstate->(64)word)
     (PC:(armstate,(64)word)component)
     (s:armstate) =
-    (word:num->(64)word) ((pc:num) + 3820) /\
+    (word:num->(64)word) ((pc:num) + 3828) /\
     (read:(armstate,(128)word)component->armstate->(128)word)
     (Q24:(armstate,(128)word)component)
     (s:armstate) =
@@ -4944,10 +4946,10 @@ let mk_band_goal k =
   let hyps = subst [n16,`sss:num`]
     `LENGTH (ibytes:byte list) = sss /\
      aligned 16 stackpointer /\
-     nonoverlapping (word pc, 4968) (stackpointer:int64, 80) /\
-     nonoverlapping (word pc, 4968) (out_p:int64, sss) /\
-     nonoverlapping (word pc, 4968) (xi_p:int64, 16) /\
-     nonoverlapping (word pc, 4968) (ivec_p:int64, 16) /\
+     nonoverlapping (word pc, 4976) (stackpointer:int64, 80) /\
+     nonoverlapping (word pc, 4976) (out_p:int64, sss) /\
+     nonoverlapping (word pc, 4976) (xi_p:int64, 16) /\
+     nonoverlapping (word pc, 4976) (ivec_p:int64, 16) /\
      nonoverlapping (out_p, sss) (xi_p, 16) /\
      nonoverlapping (out_p, sss) (ivec_p, 16) /\
      nonoverlapping (xi_p, 16) (ivec_p, 16) /\
@@ -4989,7 +4991,7 @@ let mk_band_goal k =
         read (memory :> bytes128 (word_add key_p (word 208))) s = k13 /\
         read (memory :> bytes128 (word_add key_p (word 224))) s = k14 /\
         htable_mem_dec h htbl_p s` in
-  let pc_post = `read PC s = word (pc + 4552)` in
+  let pc_post = `read PC s = word (pc + 4560)` in
   let outs = map mk_out_conj (0--(k-1)) in
   let xi_post = subst [mk_ghash_list k,`lll:int128 list`]
     `read (memory :> bytes128 xi_p) s =
@@ -5772,10 +5774,10 @@ let AESV8_GCM_8X_DEC_256_1BLOCK = prove
      aligned 16 stackpointer /\
      ALLPAIRS nonoverlapping
        [out_p,16; xi_p,16; ivec_p,16]
-       [word pc,4968; in_p,16; key_p,240; htbl_p,192; stackpointer,80] /\
+       [word pc,4976; in_p,16; key_p,240; htbl_p,192; stackpointer,80] /\
      PAIRWISE nonoverlapping [out_p,16; xi_p,16; ivec_p,16] /\
      ALL (nonoverlapping (stackpointer,80))
-       [word pc,4968; in_p,16; key_p,240; htbl_p,192]
+       [word pc,4976; in_p,16; key_p,240; htbl_p,192]
      ==> ensures arm
           (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
                read PC s = word (pc + 0x20) /\
@@ -5786,7 +5788,7 @@ let AESV8_GCM_8X_DEC_256_1BLOCK = prove
                read (memory :> bytes128 ivec_p) s = ctr0 /\
                wordlist_from_memory (key_p,15) s = rk /\
                htable_mem_8 (ghash_twist H) htbl_p s)
-          (\s. read PC s = word (pc + 4552) /\
+          (\s. read PC s = word (pc + 4560) /\
                byte_list_at (gcm_dec_pt_bytes 16 ibytes ctr0 rk) out_p (word 16) s /\
                read (memory :> bytes128 xi_p) s =
                word_reversefields 8
@@ -5808,10 +5810,10 @@ let AESV8_GCM_8X_DEC_256_2BLOCK = prove
      aligned 16 stackpointer /\
      ALLPAIRS nonoverlapping
        [out_p,32; xi_p,16; ivec_p,16]
-       [word pc,4968; in_p,32; key_p,240; htbl_p,192; stackpointer,80] /\
+       [word pc,4976; in_p,32; key_p,240; htbl_p,192; stackpointer,80] /\
      PAIRWISE nonoverlapping [out_p,32; xi_p,16; ivec_p,16] /\
      ALL (nonoverlapping (stackpointer,80))
-       [word pc,4968; in_p,32; key_p,240; htbl_p,192]
+       [word pc,4976; in_p,32; key_p,240; htbl_p,192]
      ==> ensures arm
           (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
                read PC s = word (pc + 0x20) /\
@@ -5822,7 +5824,7 @@ let AESV8_GCM_8X_DEC_256_2BLOCK = prove
                read (memory :> bytes128 ivec_p) s = ctr0 /\
                wordlist_from_memory (key_p,15) s = rk /\
                htable_mem_8 (ghash_twist H) htbl_p s)
-          (\s. read PC s = word (pc + 4552) /\
+          (\s. read PC s = word (pc + 4560) /\
                byte_list_at (gcm_dec_pt_bytes 32 ibytes ctr0 rk) out_p (word 32) s /\
                read (memory :> bytes128 xi_p) s =
                word_reversefields 8
@@ -5844,10 +5846,10 @@ let AESV8_GCM_8X_DEC_256_3BLOCK = prove
      aligned 16 stackpointer /\
      ALLPAIRS nonoverlapping
        [out_p,48; xi_p,16; ivec_p,16]
-       [word pc,4968; in_p,48; key_p,240; htbl_p,192; stackpointer,80] /\
+       [word pc,4976; in_p,48; key_p,240; htbl_p,192; stackpointer,80] /\
      PAIRWISE nonoverlapping [out_p,48; xi_p,16; ivec_p,16] /\
      ALL (nonoverlapping (stackpointer,80))
-       [word pc,4968; in_p,48; key_p,240; htbl_p,192]
+       [word pc,4976; in_p,48; key_p,240; htbl_p,192]
      ==> ensures arm
           (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
                read PC s = word (pc + 0x20) /\
@@ -5858,7 +5860,7 @@ let AESV8_GCM_8X_DEC_256_3BLOCK = prove
                read (memory :> bytes128 ivec_p) s = ctr0 /\
                wordlist_from_memory (key_p,15) s = rk /\
                htable_mem_8 (ghash_twist H) htbl_p s)
-          (\s. read PC s = word (pc + 4552) /\
+          (\s. read PC s = word (pc + 4560) /\
                byte_list_at (gcm_dec_pt_bytes 48 ibytes ctr0 rk) out_p (word 48) s /\
                read (memory :> bytes128 xi_p) s =
                word_reversefields 8
@@ -5880,10 +5882,10 @@ let AESV8_GCM_8X_DEC_256_4BLOCK = prove
      aligned 16 stackpointer /\
      ALLPAIRS nonoverlapping
        [out_p,64; xi_p,16; ivec_p,16]
-       [word pc,4968; in_p,64; key_p,240; htbl_p,192; stackpointer,80] /\
+       [word pc,4976; in_p,64; key_p,240; htbl_p,192; stackpointer,80] /\
      PAIRWISE nonoverlapping [out_p,64; xi_p,16; ivec_p,16] /\
      ALL (nonoverlapping (stackpointer,80))
-       [word pc,4968; in_p,64; key_p,240; htbl_p,192]
+       [word pc,4976; in_p,64; key_p,240; htbl_p,192]
      ==> ensures arm
           (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
                read PC s = word (pc + 0x20) /\
@@ -5894,7 +5896,7 @@ let AESV8_GCM_8X_DEC_256_4BLOCK = prove
                read (memory :> bytes128 ivec_p) s = ctr0 /\
                wordlist_from_memory (key_p,15) s = rk /\
                htable_mem_8 (ghash_twist H) htbl_p s)
-          (\s. read PC s = word (pc + 4552) /\
+          (\s. read PC s = word (pc + 4560) /\
                byte_list_at (gcm_dec_pt_bytes 64 ibytes ctr0 rk) out_p (word 64) s /\
                read (memory :> bytes128 xi_p) s =
                word_reversefields 8
@@ -5916,10 +5918,10 @@ let AESV8_GCM_8X_DEC_256_5BLOCK = prove
      aligned 16 stackpointer /\
      ALLPAIRS nonoverlapping
        [out_p,80; xi_p,16; ivec_p,16]
-       [word pc,4968; in_p,80; key_p,240; htbl_p,192; stackpointer,80] /\
+       [word pc,4976; in_p,80; key_p,240; htbl_p,192; stackpointer,80] /\
      PAIRWISE nonoverlapping [out_p,80; xi_p,16; ivec_p,16] /\
      ALL (nonoverlapping (stackpointer,80))
-       [word pc,4968; in_p,80; key_p,240; htbl_p,192]
+       [word pc,4976; in_p,80; key_p,240; htbl_p,192]
      ==> ensures arm
           (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
                read PC s = word (pc + 0x20) /\
@@ -5930,7 +5932,7 @@ let AESV8_GCM_8X_DEC_256_5BLOCK = prove
                read (memory :> bytes128 ivec_p) s = ctr0 /\
                wordlist_from_memory (key_p,15) s = rk /\
                htable_mem_8 (ghash_twist H) htbl_p s)
-          (\s. read PC s = word (pc + 4552) /\
+          (\s. read PC s = word (pc + 4560) /\
                byte_list_at (gcm_dec_pt_bytes 80 ibytes ctr0 rk) out_p (word 80) s /\
                read (memory :> bytes128 xi_p) s =
                word_reversefields 8
@@ -5952,10 +5954,10 @@ let AESV8_GCM_8X_DEC_256_6BLOCK = prove
      aligned 16 stackpointer /\
      ALLPAIRS nonoverlapping
        [out_p,96; xi_p,16; ivec_p,16]
-       [word pc,4968; in_p,96; key_p,240; htbl_p,192; stackpointer,80] /\
+       [word pc,4976; in_p,96; key_p,240; htbl_p,192; stackpointer,80] /\
      PAIRWISE nonoverlapping [out_p,96; xi_p,16; ivec_p,16] /\
      ALL (nonoverlapping (stackpointer,80))
-       [word pc,4968; in_p,96; key_p,240; htbl_p,192]
+       [word pc,4976; in_p,96; key_p,240; htbl_p,192]
      ==> ensures arm
           (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
                read PC s = word (pc + 0x20) /\
@@ -5966,7 +5968,7 @@ let AESV8_GCM_8X_DEC_256_6BLOCK = prove
                read (memory :> bytes128 ivec_p) s = ctr0 /\
                wordlist_from_memory (key_p,15) s = rk /\
                htable_mem_8 (ghash_twist H) htbl_p s)
-          (\s. read PC s = word (pc + 4552) /\
+          (\s. read PC s = word (pc + 4560) /\
                byte_list_at (gcm_dec_pt_bytes 96 ibytes ctr0 rk) out_p (word 96) s /\
                read (memory :> bytes128 xi_p) s =
                word_reversefields 8
@@ -5988,10 +5990,10 @@ let AESV8_GCM_8X_DEC_256_7BLOCK = prove
      aligned 16 stackpointer /\
      ALLPAIRS nonoverlapping
        [out_p,112; xi_p,16; ivec_p,16]
-       [word pc,4968; in_p,112; key_p,240; htbl_p,192; stackpointer,80] /\
+       [word pc,4976; in_p,112; key_p,240; htbl_p,192; stackpointer,80] /\
      PAIRWISE nonoverlapping [out_p,112; xi_p,16; ivec_p,16] /\
      ALL (nonoverlapping (stackpointer,80))
-       [word pc,4968; in_p,112; key_p,240; htbl_p,192]
+       [word pc,4976; in_p,112; key_p,240; htbl_p,192]
      ==> ensures arm
           (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
                read PC s = word (pc + 0x20) /\
@@ -6002,7 +6004,7 @@ let AESV8_GCM_8X_DEC_256_7BLOCK = prove
                read (memory :> bytes128 ivec_p) s = ctr0 /\
                wordlist_from_memory (key_p,15) s = rk /\
                htable_mem_8 (ghash_twist H) htbl_p s)
-          (\s. read PC s = word (pc + 4552) /\
+          (\s. read PC s = word (pc + 4560) /\
                byte_list_at (gcm_dec_pt_bytes 112 ibytes ctr0 rk) out_p (word 112) s /\
                read (memory :> bytes128 xi_p) s =
                word_reversefields 8
@@ -6024,10 +6026,10 @@ let AESV8_GCM_8X_DEC_256_8BLOCK = prove
      aligned 16 stackpointer /\
      ALLPAIRS nonoverlapping
        [out_p,128; xi_p,16; ivec_p,16]
-       [word pc,4968; in_p,128; key_p,240; htbl_p,192; stackpointer,80] /\
+       [word pc,4976; in_p,128; key_p,240; htbl_p,192; stackpointer,80] /\
      PAIRWISE nonoverlapping [out_p,128; xi_p,16; ivec_p,16] /\
      ALL (nonoverlapping (stackpointer,80))
-       [word pc,4968; in_p,128; key_p,240; htbl_p,192]
+       [word pc,4976; in_p,128; key_p,240; htbl_p,192]
      ==> ensures arm
           (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
                read PC s = word (pc + 0x20) /\
@@ -6038,7 +6040,7 @@ let AESV8_GCM_8X_DEC_256_8BLOCK = prove
                read (memory :> bytes128 ivec_p) s = ctr0 /\
                wordlist_from_memory (key_p,15) s = rk /\
                htable_mem_8 (ghash_twist H) htbl_p s)
-          (\s. read PC s = word (pc + 4552) /\
+          (\s. read PC s = word (pc + 4560) /\
                byte_list_at (gcm_dec_pt_bytes 128 ibytes ctr0 rk) out_p (word 128) s /\
                read (memory :> bytes128 xi_p) s =
                word_reversefields 8
@@ -6069,10 +6071,10 @@ let AESV8_GCM_8X_DEC_256_DISPATCH = prove
      aligned 16 stackpointer /\
      ALLPAIRS nonoverlapping
        [out_p,16 * nblk; xi_p,16; ivec_p,16]
-       [word pc,4968; in_p,16 * nblk; key_p,240; htbl_p,192; stackpointer,80] /\
+       [word pc,4976; in_p,16 * nblk; key_p,240; htbl_p,192; stackpointer,80] /\
      PAIRWISE nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16] /\
      ALL (nonoverlapping (stackpointer,80))
-       [word pc,4968; in_p,16 * nblk; key_p,240; htbl_p,192]
+       [word pc,4976; in_p,16 * nblk; key_p,240; htbl_p,192]
      ==> ensures arm
           (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
                read PC s = word (pc + 0x20) /\
@@ -6083,7 +6085,7 @@ let AESV8_GCM_8X_DEC_256_DISPATCH = prove
                read (memory :> bytes128 ivec_p) s = ctr0 /\
                wordlist_from_memory (key_p,15) s = rk /\
                htable_mem_8 (ghash_twist H) htbl_p s)
-          (\s. read PC s = word (pc + 4552) /\
+          (\s. read PC s = word (pc + 4560) /\
                byte_list_at (gcm_dec_pt_bytes (16 * nblk) ibytes ctr0 rk) out_p (word (16 * nblk)) s /\
                read (memory :> bytes128 xi_p) s =
                word_reversefields 8
@@ -6527,8 +6529,9 @@ let WBN_RESOLVE_49C_TAC : tactic = fun (asl,w) ->
    MP_TAC(SPEC `nblk:num` D_GT_128) THEN ANTS_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
    DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th]))) (asl,w);;
 
-(* the complete front sim entry 0x20 -> loop head 0x4b8 (ends at s294).
-   Step map: b.ge@0x42c is step 266, tail 267..293, b.ge@0x49c step 294. *)
+(* the complete front sim entry 0x20 -> loop head 0x4c0 (ends at s296; the two
+   .balign-16 nops at 0x4b8/0x4bc are steps 295,296).
+   Step map: b.ge@0x444 is step 266, tail 267..293, b.ge@0x4b4 step 294. *)
 let WBN_FRONT_FULL_TAC =
   wbn_init_tac THEN WBN_LANES_TAC THEN WBN_FRONT_STEP_TAC THEN
   WBN_RESOLVE_42C_TAC THEN
@@ -6536,7 +6539,7 @@ let WBN_FRONT_FULL_TAC =
   EVERY(map (fun i -> ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (i--i) THEN
              GCM_SIMD_SIMPLIFY_TAC THEN DISCARD_STALE_Q30_TAC) (267--293)) THEN
   WBN_RESOLVE_49C_TAC THEN
-  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (294--294);;
+  ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (294--296);;
 
 (* ------------------------------------------------------------------------- *)
 (* SPEED REFACTOR -- the SHARED FRONT PREFIX, simulated ONCE.                  *)
@@ -7731,7 +7734,7 @@ let WBN_FRONT_PREFIX = prove(mk_wbn_prefix_goal wbn_front_prefix_postcond,
    verify aconv against the folded harvested term (this postcond has no bare
    & integer literals, so no int_of_num substitution is needed):
      let wbn_front_postcond_i0 =
-       let min_goal = mk_wbn_front_goal `\s:armstate. read PC s = word (pc + 0x4b8)` in
+       let min_goal = mk_wbn_front_goal `\s:armstate. read PC s = word (pc + 0x4c0)` in
        let _ = g min_goal in
        let _ = e (WBN_FRONT_FULL_TAC THEN wb_front_fold_tac) in
        let (asl288,_) = top_goal() in
@@ -7745,7 +7748,7 @@ let wbn_front_postcond_i0 = parse_term {|\(s:armstate).
     (read:(armstate,(64)word)component->armstate->(64)word)
     (PC:(armstate,(64)word)component)
     (s:armstate) =
-    (word:num->(64)word) ((pc:num) + 1208) /\
+    (word:num->(64)word) ((pc:num) + 1216) /\
     (read:(armstate,(128)word)component->armstate->(128)word)
     (Q4:(armstate,(128)word)component)
     (s:armstate) =
@@ -8711,8 +8714,9 @@ let wbn_front_postcond_i0 = parse_term {|\(s:armstate).
    Q19 = word_bytereverse xi (GHASH acc over blocks 0..-1 = tag only), stores
    done for blocks 0..7, counters at 8..12, X0=in_p+128, X2=out_p+128.
    no longer runs the 287-step front sim -- reuses the shared
-   WBN_FRONT_PREFIX (0x20->0x4b4) via ENSURES_TRANS_SIMPLE, then a single step 294
-   (0x4b4 b.ge FALLS THROUGH for 17<=nblk, via WBN_RESOLVE_49C_TAC) lands at 0x4b8.
+   WBN_FRONT_PREFIX (0x20->0x4b4) via ENSURES_TRANS_SIMPLE, then step 294
+   (0x4b4 b.ge FALLS THROUGH for 17<=nblk, via WBN_RESOLVE_49C_TAC) + the two
+   .balign-16 nops (steps 295,296) land at the loop head 0x4c0.
    Close = the old WBN_FRONT_BUF final-state close (ASM_REWRITE + WORD_ADD_0). *)
 let WBN_FRONT_BUF = prove(mk_wbn_front_goal wbn_front_postcond_i0,
   REPEAT GEN_TAC THEN STRIP_TAC THEN
@@ -8725,7 +8729,7 @@ let WBN_FRONT_BUF = prove(mk_wbn_front_goal wbn_front_postcond_i0,
    [MATCH_MP_TAC WBN_FRONT_PREFIX THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
     ENSURES_INIT_TAC "s293" THEN
     WBN_RESOLVE_49C_TAC THEN
-    ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (294--294) THEN
+    ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (294--296) THEN
     ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
     REWRITE_TAC[WORD_ADD_0] THEN
     REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
@@ -8799,7 +8803,7 @@ let wbn_loop_invariant_raw = new_definition
     (k0:int128) k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13 (k14:int128) =
   \(i:num) (s:armstate).
     aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
-    read PC s = word (pc + 1208) /\
+    read PC s = word (pc + 1216) /\
     read Q0 s = gcm_ctr_add (word (8 * i + 8)) ctr0 /\
     read Q1 s = gcm_ctr_add (word (8 * i + 9)) ctr0 /\
     read Q2 s = gcm_ctr_add (word (8 * i + 10)) ctr0 /\
@@ -9714,7 +9718,7 @@ let wbn_inv_applied =
 let wbn_entry_post =
   subst [wbn_inv_applied,`INVAPP:num->armstate->bool`]
     `\s:armstate. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
-                  read PC s = word (pc + 0x4b8) /\
+                  read PC s = word (pc + 0x4c0) /\
                   INVAPP (0:num) s`;;
 
 let wbn_entry_goal =
@@ -9732,7 +9736,7 @@ let WBN_LOOP_INVARIANT_ENTRY_RAW = prove(wbn_entry_goal,
   REPEAT GEN_TAC THEN STRIP_TAC THEN
   MATCH_MP_TAC ENSURES_POSTCONDITION_THM THEN
   EXISTS_TAC wbn_extQ THEN CONJ_TAC THENL
-   [(* (Q0 x /\ R x) ==> decodes /\ PC=pc+0x4b8 /\ inv 0 x *)
+   [(* (Q0 x /\ R x) ==> decodes /\ PC=pc+0x4c0 /\ inv 0 x *)
     GEN_TAC THEN REWRITE_TAC[wbn_loop_invariant_raw] THEN
     CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN STRIP_TAC THEN
     CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN
@@ -9770,7 +9774,7 @@ let WBN_LOOP_INVARIANT_ENTRY_RAW = prove(wbn_entry_goal,
 (* wbn_loop_invariant_raw bakes in two conjuncts the ENSURES_WHILE tactics MUST   *)
 (* own themselves:                                                            *)
 (*   C1  aligned_bytes_loaded s (word pc) ...mc   (program_decodes)           *)
-(*   C2  read PC s = word (pc + 1208)             (the loop-head PC)          *)
+(*   C2  read PC s = word (pc + 1216)             (the loop-head PC)          *)
 (* Every ENSURES_WHILE_* template threads `program_decodes` and `read PC =    *)
 (* word pcX` around its OWN `loopinv i s`, applying loopinv at BOTH pc1 (head)*)
 (* and pc2 (back-edge/exit).  A PC baked into the invariant is therefore      *)
@@ -9810,7 +9814,7 @@ let WBN_INV_RAW_SPLIT = prove
       list_mk_comb(`wbn_loop_invariant_raw`, wbn_inv_args @ [`i:num`;`s:armstate`]),
       list_mk_conj[
         `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
-        `read PC s = word (pc + 1208)`;
+        `read PC s = word (pc + 1216)`;
         list_mk_comb(`wbn_loop_inv_core_raw`, wbn_inv_args @ [`i:num`;`s:armstate`])])),
   REWRITE_TAC[wbn_loop_invariant_raw; wbn_loop_inv_core_raw] THEN
   CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN REWRITE_TAC[CONJ_ACI]);;
@@ -10440,8 +10444,8 @@ let WBN_PTRCMP_PREMS = prove
 
 (* word distributes over the back-edge if *)
 let WBN_PC_IF = prove
- (`(if b then word (pc + 1208) else word (pc + 2568)):int64 =
-   word (if b then pc + 1208 else pc + 2568)`,
+ (`(if b then word (pc + 1216) else word (pc + 2576)):int64 =
+   word (if b then pc + 1216 else pc + 2576)`,
   COND_CASES_TAC THEN REWRITE_TAC[]);;
 
 (* the LOOP theorem: PC=0x4a0 /\ core 0  ==>  PC=0x9f0 /\ core k, over the front
@@ -10453,19 +10457,19 @@ let wbn_main_loop_goal =
   let loop_pre = mk_abs(`s:armstate`,
     list_mk_conj[
       `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
-      `read PC s = word (pc + 0x4b8)`;
+      `read PC s = word (pc + 0x4c0)`;
       mk_comb(mk_comb(wbn_core_applied,`0`),`s:armstate`)]) in
   let loop_post = mk_abs(`s:armstate`,
     list_mk_conj[
       `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
-      `read PC s = word (pc + 0xa08)`;
+      `read PC s = word (pc + 0xa10)`;
       mk_comb(mk_comb(wbn_core_applied,kk),`s:armstate`)]) in
   let ens = list_mk_comb(`ensures arm`,[loop_pre; loop_post; wbn_front_C_tm]) in
   list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
 
 let WBN_MAIN_LOOP_raw = prove(wbn_main_loop_goal,
   REPEAT GEN_TAC THEN STRIP_TAC THEN
-  UP2_ABI_TAC `(nblk - 9) DIV 8` `pc + 0x4b8` `pc + 0xa08` wbn_core_iv THEN
+  UP2_ABI_TAC `(nblk - 9) DIV 8` `pc + 0x4c0` `pc + 0xa10` wbn_core_iv THEN
   REPEAT CONJ_TAC THENL
    [ (* 1. count <> 0 : 17<=nblk => (nblk-1) DIV 8 >= 2 > 0 *)
     SUBGOAL_THEN `1 <= nblk - 1` MP_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
@@ -10805,7 +10809,7 @@ let wbn_prepretail_post_raw = parse_term {|\(s:armstate).
     (read:(armstate,(64)word)component->armstate->(64)word)
     (PC:(armstate,(64)word)component)
     (s:armstate) =
-    (word:num->(64)word) ((pc:num) + 3820) /\
+    (word:num->(64)word) ((pc:num) + 3828) /\
     (read:(armstate,(128)word)component->armstate->(128)word)
     (Q24:(armstate,(128)word)component)
     (s:armstate) =
@@ -11733,7 +11737,7 @@ let wbn_prepretail_ext2_goal =
   let pre = mk_abs(`s:armstate`,
     list_mk_conj[
       `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
-      `read PC s = word (pc + 0xa08)`;
+      `read PC s = word (pc + 0xa10)`;
       mk_comb(mk_comb(wbn_core_applied,kk),`s:armstate`)]) in
   let ens = list_mk_comb(`ensures arm`,[pre; wbn_prepretail_post_ext2; wbn_front_C_tm]) in
   list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
@@ -11828,7 +11832,7 @@ let wbn_prepretail_ext2_uni_goal =
   let pre = mk_abs(`s:armstate`,
     list_mk_conj[
       `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
-      `read PC s = word (pc + 0xa08)`;
+      `read PC s = word (pc + 0xa10)`;
       mk_comb(mk_comb(wbn_core_applied,kk),`s:armstate`)]) in
   let ens = list_mk_comb(`ensures arm`,[pre; wbn_prepretail_post_ext2; wbn_front_C_tm]) in
   list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_9_tm, ens));;
@@ -11852,7 +11856,7 @@ let wbn_loop_prep_ext2_goal =
   let loop_pre = mk_abs(`s:armstate`,
     list_mk_conj[
       `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
-      `read PC s = word (pc + 0x4b8)`;
+      `read PC s = word (pc + 0x4c0)`;
       mk_comb(mk_comb(wbn_core_applied,`0`),`s:armstate`)]) in
   let ens = list_mk_comb(`ensures arm`,[loop_pre; wbn_prepretail_post_ext2; wbn_front_C_tm]) in
   list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_wide_tm, ens));;
@@ -11890,7 +11894,7 @@ let WBN_FRONT_TO_PREP_EXT2 = prove(wbn_front_to_prep_ext2_goal,
     CONJ_TAC THENL
      [GEN_TAC THEN REWRITE_TAC[WBN_INV_RAW_SPLIT] THEN
       CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN
-      REWRITE_TAC[ARITH_RULE `pc + 0x4b8 = pc + 1208`] THEN CONV_TAC TAUT;
+      REWRITE_TAC[ARITH_RULE `pc + 0x4c0 = pc + 1216`] THEN CONV_TAC TAUT;
       MP_TAC(SPECL wb_front_vars WBN_LOOP_PREP_EXT2) THEN
       ANTS_TAC THENL [FIRST_X_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC]]]);;
 
@@ -12216,7 +12220,7 @@ let wbn_end_post =
      GCM_CTR_INC_ITER_ADD + GCM_CTR_ADD_COMPOSE (8(q+1)+r = nblk). *)
   let ivec = `read (memory :> bytes128 ivec_p) s = gcm_ctr_inc_iter nblk ctr0` in
   mk_abs(`s:armstate`,
-    list_mk_conj [`read PC s = word (pc + 4552)`; end_forall; tag; ivec]);;
+    list_mk_conj [`read PC s = word (pc + 4560)`; end_forall; tag; ivec]);;
 
 (* full-post goal for a given r *)
 let wbn_prep_to_end_full_goal r =
@@ -12802,8 +12806,8 @@ let WBN_RESOLVE_49C_916_TAC : tactic = fun (asl,w) ->
                                ARITH_RULE `128 * 1 = 128`])) (asl,w);;
 
 (* the full front-916 sim: prefix IDENTICAL to WBN_FRONT_FULL_TAC to s293, then
-   0x4b4 resolved TAKEN, step 294 lands at 0xa08.  (Dead since the shared-prefix
-   refactor; kept in sync with the +6 shift for consistency.) *)
+   0x4b4 resolved TAKEN, step 294 lands at 0xa10 (the b.ge target, post-.balign16).
+   (Dead since the shared-prefix refactor; kept in sync for consistency.) *)
 let WBN_FRONT_916_FULL_TAC =
   wbn_init_916_tac THEN WBN_LANES_916_TAC THEN WBN_FRONT_STEP_TAC THEN
   WBN_RESOLVE_42C_916_TAC THEN
@@ -12845,7 +12849,7 @@ let wbn_entry_post_916 =
   mk_abs(`s:armstate`,
     list_mk_conj[
       `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
-      `read PC s = word (pc + 0xa08)`;
+      `read PC s = word (pc + 0xa10)`;
       mk_comb(mk_comb(wbn_core_applied,`0:num`),`s:armstate`)]);;
 
 let wbn_front_to_prep_916_goal =
@@ -12899,7 +12903,7 @@ let wbn_prepretail_ext2_916_goal =
   let pre = mk_abs(`s:armstate`,
     list_mk_conj[
       `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
-      `read PC s = word (pc + 0xa08)`;
+      `read PC s = word (pc + 0xa10)`;
       mk_comb(mk_comb(wbn_core_applied,kk),`s:armstate`)]) in
   let ens = list_mk_comb(`ensures arm`,[pre; wbn_prepretail_post_ext2; wbn_front_C_tm]) in
   list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_916_tm, ens));;
@@ -13474,10 +13478,10 @@ let WBN_DEC_CORE_BYTELIST = prove
     LENGTH rk = 15 /\
     aligned 16 stackpointer /\
     ALLPAIRS nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16]
-    [word pc,4968; in_p,16 * nblk; key_p,240; htbl_p,192; stackpointer,80] /\
+    [word pc,4976; in_p,16 * nblk; key_p,240; htbl_p,192; stackpointer,80] /\
     PAIRWISE nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16] /\
     ALL (nonoverlapping (stackpointer,80))
-    [word pc,4968; in_p,16 * nblk; key_p,240; htbl_p,192]
+    [word pc,4976; in_p,16 * nblk; key_p,240; htbl_p,192]
     ==> ensures arm
          (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
               read PC s = word (pc + 32) /\
@@ -13490,7 +13494,7 @@ let WBN_DEC_CORE_BYTELIST = prove
               read (memory :> bytes128 ivec_p) s = ctr0 /\
               wordlist_from_memory (key_p,15) s = rk /\
               htable_mem_8 (ghash_twist H) htbl_p s)
-         (\s. read PC s = word (pc + 4552) /\
+         (\s. read PC s = word (pc + 4560) /\
               byte_list_at (gcm_dec_pt_bytes (16 * nblk) ibytes ctr0 rk) out_p
               (word (16 * nblk)) s /\
               read (memory :> bytes128 xi_p) s =
@@ -13612,11 +13616,11 @@ let WBN_DEC_SUBROUTINE_BYTELIST = prove
       LENGTH rk = 15 /\
       aligned 16 stackpointer /\
       ALLPAIRS nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16]
-      [word pc,4968; in_p,16 * nblk; key_p,240; htbl_p,192;
+      [word pc,4976; in_p,16 * nblk; key_p,240; htbl_p,192;
        word_sub stackpointer (word 80),80] /\
       PAIRWISE nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16] /\
       ALL (nonoverlapping (word_sub stackpointer (word 80),80))
-      [word pc,4968; in_p,16 * nblk; key_p,240; htbl_p,192]
+      [word pc,4976; in_p,16 * nblk; key_p,240; htbl_p,192]
       ==> ensures arm
           (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
                read PC s = word pc /\
@@ -13955,7 +13959,7 @@ let wbn_loop_invariant = new_definition
     (nblk:num) (inblock:num->int128) (tag0:int128) (rk:int128 list) =
   \(i:num) (s:armstate).
     aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
-    read PC s = word (pc + 1208) /\
+    read PC s = word (pc + 1216) /\
     read Q0 s = word_reversefields 8 (ctr_block nonce (c + (8 * i + 8))) /\
     read Q1 s = word_reversefields 8 (ctr_block nonce (c + (8 * i + 9))) /\
     read Q2 s = word_reversefields 8 (ctr_block nonce (c + (8 * i + 10))) /\
@@ -14219,7 +14223,7 @@ let WBN_INV_SPLIT = prove
       list_mk_comb(`wbn_loop_invariant`, wbn_inv_nist_args @ [`i:num`;`s:armstate`]),
       list_mk_conj[
         `aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
-        `read PC s = word (pc + 1208)`;
+        `read PC s = word (pc + 1216)`;
         list_mk_comb(`wbn_loop_inv_core`, wbn_inv_nist_args @ [`i:num`;`s:armstate`])])),
   REWRITE_TAC[wbn_loop_invariant; wbn_loop_inv_core] THEN
   CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN REWRITE_TAC[CONJ_ACI]);;
@@ -14443,10 +14447,10 @@ let AESV8_GCM_8X_DEC_256_CORRECT = prove
     aligned 16 stackpointer /\
     word_bytereverse ctr0 = ctr_block nonce c /\
     ALLPAIRS nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16]
-    [word pc,4968; in_p,16 * nblk; key_p,240; htbl_p,192; stackpointer,80] /\
+    [word pc,4976; in_p,16 * nblk; key_p,240; htbl_p,192; stackpointer,80] /\
     PAIRWISE nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16] /\
     ALL (nonoverlapping (stackpointer,80))
-    [word pc,4968; in_p,16 * nblk; key_p,240; htbl_p,192]
+    [word pc,4976; in_p,16 * nblk; key_p,240; htbl_p,192]
     ==> ensures arm
          (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
               read PC s = word (pc + 32) /\
@@ -14461,7 +14465,7 @@ let AESV8_GCM_8X_DEC_256_CORRECT = prove
               read (memory :> bytes128 ivec_p) s = ctr0 /\
               wordlist_from_memory (key_p,15) s = rk /\
               htable_mem_8 (ghash_twist (aes256_encrypt (word 0) rk)) htbl_p s)
-         (\s. read PC s = word (pc + 4552) /\
+         (\s. read PC s = word (pc + 4560) /\
               (!j. j < nblk
                    ==> read (memory :> bytes128
                               (word_add out_p (word (16 * j)))) s =
@@ -14483,7 +14487,7 @@ let AESV8_GCM_8X_DEC_256_CORRECT = prove
   REPEAT GEN_TAC THEN STRIP_TAC THEN
   MATCH_MP_TAC ENSURES_POSTCONDITION_THM THEN
   EXISTS_TAC
-    `\s. read PC s = word (pc + 4552) /\
+    `\s. read PC s = word (pc + 4560) /\
          byte_list_at
            (gcm_dec_pt_bytes (16 * nblk)
               (int128_list_to_bytes (list_of_seq inblock nblk)) ctr0 rk) out_p
@@ -14556,11 +14560,11 @@ let AESV8_GCM_8X_DEC_256_SUBROUTINE_CORRECT = prove
     aligned 16 stackpointer /\
     word_bytereverse ctr0 = ctr_block nonce c /\
     ALLPAIRS nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16]
-    [word pc,4968; in_p,16 * nblk; key_p,240; htbl_p,192;
+    [word pc,4976; in_p,16 * nblk; key_p,240; htbl_p,192;
      word_sub stackpointer (word 80),80] /\
     PAIRWISE nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16] /\
     ALL (nonoverlapping (word_sub stackpointer (word 80),80))
-    [word pc,4968; in_p,16 * nblk; key_p,240; htbl_p,192]
+    [word pc,4976; in_p,16 * nblk; key_p,240; htbl_p,192]
     ==> ensures arm
          (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
               read PC s = word pc /\
@@ -14705,7 +14709,7 @@ let () =
     let cvars, cbody = strip_forall core_bytelist_anchor in
     let base = subst
       [`word pc:int64`,`word (pc + 32):int64`;
-       `returnaddress:int64`,`word (pc + 4552):int64`;
+       `returnaddress:int64`,`word (pc + 4560):int64`;
        `word_sub stackpointer (word 80):int64,80`,`stackpointer:int64,80`;
        `word_sub stackpointer (word 80):int64,80`,
        `word_add stackpointer (word 64):int64,16`]
