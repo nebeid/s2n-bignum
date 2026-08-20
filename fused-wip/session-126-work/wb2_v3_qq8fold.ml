@@ -48,54 +48,17 @@ let dec_bridge_specl_2_cph1 =
   [`word_xor (word_bytereverse xi) (word_bytereverse cph0):int128`; `byteswap128 h2:int128`;
    `word_bytereverse cph1:int128`; `byteswap128 h:int128`];;
 
-(* BRIDGE_CLOSE_2_CPH1_TAC: DEC_BRIDGE_CLOSE_TAC body at nblk=2 (no FOLD_MID_HPOW), cph1 specl.
-   NOTE: as written, LANE_FINISH_TAC's final REFL_TAC FAILS on a residual qq8=xor(qq1,qq5) merge.
-   INSERT the fix (v42 FOLD_MID2-style SUBGOAL_THEN) at the marked point before LANE_FINISH_TAC. *)
+(* BRIDGE_CLOSE_2_CPH1_TAC: nblk=2 (no FOLD_MID_HPOW), cph1 specl.  Thin wrapper over the
+   shared DEC_BRIDGE_ROUTEB_TAC (fused_common.ml); builds spec_eq from the k=2-local
+   spec_to_byteform_2 / dec_bridge_specl_2_cph1 / GMULT2_FULL_CORRECT_BA, and passes the k=2
+   block-0 (H^2) karatsuba-mid distributions: qq8=qq1(+)qq5 (hi), qq7=qq0(+)qq4 (lo),
+   qq12=qq9(+)qq10 (mid). *)
 let BRIDGE_CLOSE_2_CPH1_TAC sN : tactic = fun (asl,w) ->
-  let q19asm = snd(List.find(fun(_,th)->try lhs(concl th)=parse_term(Printf.sprintf "read Q19 s%d" sN) with _->false) asl) in
   let h2asm = snd(List.find(fun(_,th)->try lhs(concl th)=`byteswap128 h2` with _->false) asl) in
   let gmult_dec = REWRITE_RULE[LET_DEF;LET_END_DEF] (SPECL dec_bridge_specl_2_cph1 GMULT2_FULL_CORRECT_BA) in
   let spec_eq = TRANS (MP spec_to_byteform_2 h2asm) (GSYM gmult_dec) in
-  (GEN_REWRITE_TAC LAND_CONV [q19asm] THEN
-   GEN_REWRITE_TAC RAND_CONV [spec_eq] THEN
-   REWRITE_TAC[WORD_XOR_0; WORD_XOR_0_LEFT] THEN
-   REWRITE_TAC[byteswap128] THEN REWRITE_TAC[WORD_BYTEREVERSE_REVERSEFIELDS] THEN
-   REWRITE_TAC[WORD_INSERT_SUBWORD; WORD_SUBWORD_SUBWORD] THEN
-   REWRITE_TAC[SUBWORD_XOR_JOIN_DIST] THEN
-   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; RF8_SUBWORD] THEN
-   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES] THEN
-   ABBREV_INNER_PMULS_TAC THEN MERGE_2BLK_TAC THEN
-   (* FIX (s126): the machine (LHS) has the block-0 x H^2 karatsuba mids in DISTRIBUTED form
-      (qq1(+)qq5 hi, qq0(+)qq4 lo); the spec (RHS, GMULT2 byteform) has them COMBINED as qq8, qq7.
-      MERGE_2BLK cannot bridge combined-vs-distributed, and WA_UNIFY's opaque-atom WORD_RULE then
-      fails on `subword qq8 = word_xor (subword qq1)(subword qq5)`. Distribute the spec side to
-      match the machine: qq8 = qq1(+)qq5, qq7 = qq0(+)qq4 (CONJUNCT1 WORD_PMUL_XOR), then push the
-      subwords inward (WORD_SUBWORD_XOR) so WA_UNIFY sees pure ACI over identical subword-qqi atoms.
-      This is v42's FOLD_MID2 step, adapted to k=2's block-0 (H^2) lanes.  (QQ8_FOLD_TAC is a
-      no-op here: it searches the goal for a BARE pmul, but ABBREV_INNER_PMULS abbreviated it.) *)
-   SUBGOAL_THEN `qq8:int128 = word_xor qq1 qq5` (fun th -> REWRITE_TAC[th]) THENL
-    [MAP_EVERY EXPAND_TAC ["qq8";"qq1";"qq5"] THEN
-     GEN_REWRITE_TAC LAND_CONV [CONJUNCT1 WORD_PMUL_XOR] THEN
-     REWRITE_TAC[WORD_XOR_ACI]; ALL_TAC] THEN
-   SUBGOAL_THEN `qq7:int128 = word_xor qq0 qq4` (fun th -> REWRITE_TAC[th]) THENL
-    [MAP_EVERY EXPAND_TAC ["qq7";"qq0";"qq4"] THEN
-     GEN_REWRITE_TAC LAND_CONV [CONJUNCT1 WORD_PMUL_XOR] THEN
-     REWRITE_TAC[WORD_XOR_ACI]; ALL_TAC] THEN
-   (* block-0 combined MIDDLE karatsuba product qq12 = qq9(+)qq10 (xi-mid (+) cph0-mid, shared
-      multiplier h2_hi(+)h2_lo).  qq9/qq10 carry nested subword(join..) operands, so close via
-      GSYM CONJUNCT1 WORD_PMUL_XOR + PMUL_CONG_128 + WORD_BLAST (the v42 FOLD_MID shape). *)
-   SUBGOAL_THEN `qq12:int128 = word_xor qq9 qq10` (fun th -> REWRITE_TAC[th]) THENL
-    [MAP_EVERY EXPAND_TAC ["qq12";"qq9";"qq10"] THEN
-     GEN_REWRITE_TAC RAND_CONV [GSYM (CONJUNCT1 WORD_PMUL_XOR)] THEN
-     MATCH_MP_TAC PMUL_CONG_128 THEN CONJ_TAC THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
-   REWRITE_TAC[WORD_SUBWORD_XOR] THEN
-   WA_UNIFY_TAC THEN WV_UNIFY_TAC THEN ABBREV_WAWV_TAC THEN
-   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
-   GEN_REWRITE_TAC ONCE_DEPTH_CONV [QQ0SPLIT] THEN
-   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
-   REWRITE_TAC[JOIN_EQ_SPLIT] THEN CONJ_TAC THEN
-   LANE_FINISH_TAC)
-  (asl,w);;
+  DEC_BRIDGE_ROUTEB_TAC sN spec_eq
+    (("qq8","qq1","qq5"),("qq7","qq0","qq4"),("qq12","qq9","qq10")) (asl,w);;
 
 (* DISCARD_OLDSTATE_KEEPGHALL_TAC, ARM_STEPS_FOLD_KEEPGHALL_TAC, JOIN_IS_CTR0,
    INLINE_SELFCONTAINED now come from fused-wip/fused_common.ml (needs above). *)

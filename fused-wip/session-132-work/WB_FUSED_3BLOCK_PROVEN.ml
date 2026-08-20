@@ -84,42 +84,16 @@ let dec_bridge_specl_3_cph2 =
    `word_bytereverse cph1:int128`; `byteswap128 h2:int128`;
    `word_bytereverse cph2:int128`; `byteswap128 h:int128`];;
 
-(* BRIDGE_CLOSE_3_CPH2_TAC: DEC_BRIDGE_CLOSE body at nblk=3, cph2 unmasked, NO FOLD_MID_HPOW,
-   + the 3 block-0(H^3) mid distributions (s127 diagnostic). *)
+(* BRIDGE_CLOSE_3_CPH2_TAC: nblk=3, cph2 unmasked, NO FOLD_MID_HPOW.  Thin wrapper over the
+   shared DEC_BRIDGE_ROUTEB_TAC (fused_common.ml); the 3 block-0(H^3) mid distributions
+   (s127 diagnostic): qq11=qq1(+)qq7 (hi), qq10=qq0(+)qq6 (lo), qq16=qq12(+)qq13 (mid). *)
 let BRIDGE_CLOSE_3_CPH2_TAC sN : tactic = fun (asl,w) ->
-  let q19asm = snd(List.find(fun(_,th)->try lhs(concl th)=parse_term(Printf.sprintf "read Q19 s%d" sN) with _->false) asl) in
   let h2asm = snd(List.find(fun(_,th)->try lhs(concl th)=`byteswap128 h2` with _->false) asl) in
   let h3asm = snd(List.find(fun(_,th)->try lhs(concl th)=`byteswap128 h3` with _->false) asl) in
   let gmult_dec = REWRITE_RULE[LET_DEF;LET_END_DEF] (SPECL dec_bridge_specl_3_cph2 GMULT3_FULL_CORRECT_BA) in
   let spec_eq = TRANS (MP spec_to_byteform_wb3 (CONJ h2asm h3asm)) (GSYM gmult_dec) in
-  (GEN_REWRITE_TAC LAND_CONV [q19asm] THEN
-   GEN_REWRITE_TAC RAND_CONV [spec_eq] THEN
-   REWRITE_TAC[WORD_XOR_0; WORD_XOR_0_LEFT] THEN
-   REWRITE_TAC[byteswap128] THEN REWRITE_TAC[WORD_BYTEREVERSE_REVERSEFIELDS] THEN
-   REWRITE_TAC[WORD_INSERT_SUBWORD; WORD_SUBWORD_SUBWORD] THEN
-   REWRITE_TAC[SUBWORD_XOR_JOIN_DIST] THEN
-   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; RF8_SUBWORD] THEN
-   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES] THEN
-   ABBREV_INNER_PMULS_TAC THEN MERGE_2BLK_TAC THEN
-   SUBGOAL_THEN `qq11:int128 = word_xor qq1 qq7` (fun th -> REWRITE_TAC[th]) THENL
-    [MAP_EVERY EXPAND_TAC ["qq11";"qq1";"qq7"] THEN
-     GEN_REWRITE_TAC LAND_CONV [CONJUNCT1 WORD_PMUL_XOR] THEN
-     REWRITE_TAC[WORD_XOR_ACI]; ALL_TAC] THEN
-   SUBGOAL_THEN `qq10:int128 = word_xor qq0 qq6` (fun th -> REWRITE_TAC[th]) THENL
-    [MAP_EVERY EXPAND_TAC ["qq10";"qq0";"qq6"] THEN
-     GEN_REWRITE_TAC LAND_CONV [CONJUNCT1 WORD_PMUL_XOR] THEN
-     REWRITE_TAC[WORD_XOR_ACI]; ALL_TAC] THEN
-   SUBGOAL_THEN `qq16:int128 = word_xor qq12 qq13` (fun th -> REWRITE_TAC[th]) THENL
-    [MAP_EVERY EXPAND_TAC ["qq16";"qq12";"qq13"] THEN
-     GEN_REWRITE_TAC RAND_CONV [GSYM (CONJUNCT1 WORD_PMUL_XOR)] THEN
-     MATCH_MP_TAC PMUL_CONG_128 THEN CONJ_TAC THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
-   REWRITE_TAC[WORD_SUBWORD_XOR] THEN
-   WA_UNIFY_TAC THEN WV_UNIFY_TAC THEN ABBREV_WAWV_TAC THEN
-   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
-   GEN_REWRITE_TAC ONCE_DEPTH_CONV [QQ0SPLIT] THEN
-   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
-   REWRITE_TAC[JOIN_EQ_SPLIT] THEN CONJ_TAC THEN LANE_FINISH_TAC)
-  (asl,w);;
+  DEC_BRIDGE_ROUTEB_TAC sN spec_eq
+    (("qq11","qq1","qq7"),("qq10","qq0","qq6"),("qq16","qq12","qq13")) (asl,w);;
 
 (* ---- route-b SIM helpers now come from fused-wip/fused_common.ml (needs at file top):
    DISCARD_OLDSTATE_KEEPGHALL_TAC, ARM_STEPS_FOLD_KEEPGHALL_TAC, JOIN_IS_CTR0,

@@ -102,3 +102,50 @@ let POLYVAL_DOT_SYM = prove
  (`!a b:int128. polyval_dot a b = polyval_dot b a`,
   REPEAT GEN_TAC THEN REWRITE_TAC[polyval_dot] THEN AP_TERM_TAC THEN
   REWRITE_TAC[WORD_PMUL_SYM]);;
+
+(* ---- parameterised route-b bridge close (was BRIDGE_CLOSE_{2,3,4}_CPH*_TAC) ----
+   For k>=2 the three per-k bridge tactics were structurally identical (same prelude
+   + finisher, md5-confirmed) and differed ONLY in the spec-equation `spec_eq` and the
+   three karatsuba-mid qq-distribution identities the machine (LHS, DISTRIBUTED) needs
+   to match the spec (RHS, GMULTk byteform, COMBINED).  Two of the three are "LAND-shape"
+   (subword-level, CONJUNCT1 WORD_PMUL_XOR + WORD_XOR_ACI) and one is "MID-shape"
+   (nested subword(join..) operands, GSYM CONJUNCT1 + PMUL_CONG_128 + WORD_BLAST).
+   The caller passes sN, the pre-built spec_eq (from its own spec_to_byteform_wbK /
+   dec_bridge_specl / GMULTk_FULL_CORRECT_BA + h-assumptions), and the (lo,hi,mid) triples. *)
+let bridge_qq_land (a,b,c) : tactic =
+  SUBGOAL_THEN (parse_term (Printf.sprintf "(%s:int128) = word_xor %s %s" a b c))
+    (fun th -> REWRITE_TAC[th]) THENL
+   [MAP_EVERY EXPAND_TAC [a;b;c] THEN
+    GEN_REWRITE_TAC LAND_CONV [CONJUNCT1 WORD_PMUL_XOR] THEN
+    REWRITE_TAC[WORD_XOR_ACI]; ALL_TAC];;
+
+let bridge_qq_mid (a,b,c) : tactic =
+  SUBGOAL_THEN (parse_term (Printf.sprintf "(%s:int128) = word_xor %s %s" a b c))
+    (fun th -> REWRITE_TAC[th]) THENL
+   [MAP_EVERY EXPAND_TAC [a;b;c] THEN
+    GEN_REWRITE_TAC RAND_CONV [GSYM (CONJUNCT1 WORD_PMUL_XOR)] THEN
+    MATCH_MP_TAC PMUL_CONG_128 THEN CONJ_TAC THEN CONV_TAC WORD_BLAST; ALL_TAC];;
+
+let DEC_BRIDGE_ROUTEB_TAC sN spec_eq (lo_triple,hi_triple,mid_triple) : tactic =
+  fun (asl,w) ->
+  let q19asm = snd(List.find(fun(_,th)->
+    try lhs(concl th)=parse_term(Printf.sprintf "read Q19 s%d" sN) with _->false) asl) in
+  (GEN_REWRITE_TAC LAND_CONV [q19asm] THEN
+   GEN_REWRITE_TAC RAND_CONV [spec_eq] THEN
+   REWRITE_TAC[WORD_XOR_0; WORD_XOR_0_LEFT] THEN
+   REWRITE_TAC[byteswap128] THEN REWRITE_TAC[WORD_BYTEREVERSE_REVERSEFIELDS] THEN
+   REWRITE_TAC[WORD_INSERT_SUBWORD; WORD_SUBWORD_SUBWORD] THEN
+   REWRITE_TAC[SUBWORD_XOR_JOIN_DIST] THEN
+   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; RF8_SUBWORD] THEN
+   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES] THEN
+   ABBREV_INNER_PMULS_TAC THEN MERGE_2BLK_TAC THEN
+   bridge_qq_land lo_triple THEN
+   bridge_qq_land hi_triple THEN
+   bridge_qq_mid mid_triple THEN
+   REWRITE_TAC[WORD_SUBWORD_XOR] THEN
+   WA_UNIFY_TAC THEN WV_UNIFY_TAC THEN ABBREV_WAWV_TAC THEN
+   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
+   GEN_REWRITE_TAC ONCE_DEPTH_CONV [QQ0SPLIT] THEN
+   REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
+   REWRITE_TAC[JOIN_EQ_SPLIT] THEN CONJ_TAC THEN LANE_FINISH_TAC)
+  (asl,w);;
