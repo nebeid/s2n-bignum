@@ -40,11 +40,22 @@ labels:
 * `.L256_dec_w5r_small`, `.L256_dec_w5r_h1`, `.L256_dec_w5r_done` — dispatch and
   rejoin
 
-## Provenance — read this before trusting the numbers
+## Provenance — one sentence, then the audit trail
 
-The file here is byte-equivalent **as machine code** to the object that was both
-benchmarked and proved, but it is not the same *text* as the benchmark input,
-because it has been rebased onto this branch's `.S`. Specifically:
+**This file is not literally the file that was timed, but it assembles to
+identical machine code, and that is verified rather than assumed.**
+
+Why they differ at all: the fused variant was developed against an older
+snapshot of the kernel. Since then the branch's `.S` drifted by 57 lines, and
+**every one of those lines is a comment** (`[opt]` progress markers, stripped).
+So what is published here is `current branch source + fused delta`, whereas what
+was benchmarked was `older source + fused delta`. Comments emit no instructions,
+so this cannot move a measurement — and both files were assembled to confirm it:
+same `.text`, md5 `fd19c342…`. Identical instructions means identical
+performance by construction.
+
+If you only want the takeaway, stop here. The rest of this section is the audit
+trail for that claim.
 
 | artifact | md5 | note |
 |---|---|---|
@@ -73,20 +84,38 @@ whole-blocks proof.
 
 ## Performance, in one table
 
-Fused versus the non-fused whole-blocks kernel, Graviton4 / Neoverse-V2, median
-of per-process paired deltas; negative = faster. `~` = below that size's
-measured placement floor, i.e. not resolved.
+Fused versus the non-fused whole-blocks kernel. Median of per-process paired
+deltas; negative = faster. `~` = below that size's measured placement floor,
+i.e. not resolved.
 
-| size | delta |
-|---:|---:|
-| 16 B | **−46.4 %** |
-| 32 B | **−43.6 %** |
-| 64 B | **−26.9 %** |
-| 128 B | −0.05 %~ |
-| 256 B | −0.22 %~ |
-| 512 B | −0.29 % (V1) / +0.14 % (V2) / +0.02 % (V3) |
-| 1024 B | +0.44 %~ |
-| 4096 B | −0.00 %~ |
+**Read the host column first — the coverage is uneven, and only 512 B was
+measured on more than one core.**
+
+| size | Graviton4 / V2 | Graviton3 / V1 | Graviton5 / V3 |
+|---:|---:|---:|---:|
+| 16 B | **−46.4 %** | not measured | not measured |
+| 32 B | **−43.6 %** | not measured | not measured |
+| 64 B | **−26.9 %** | not measured | not measured |
+| 128 B | −0.05 %~ | not measured | not measured |
+| 256 B | −0.22 %~ | not measured | not measured |
+| 512 B | +0.14 % | −0.29 % | +0.02 % |
+| 1024 B | +0.44 %~ | not measured | not measured |
+| 4096 B | −0.00 %~ | not measured | not measured |
+
+The gaps are a gap in the data, not a claim that the other cores behave the
+same. The four-variant sweep was run on one host (Graviton4); the separate
+placement study is what covers 512 B on three. Two consequences worth stating
+before anyone quotes these:
+
+* **The headline 16/32/64 B wins are single-host.** They are also the sizes
+  where the A/A noise floor was measured at **4.9–8.6 %** on V1 and V2, so
+  reproducing them on another core needs per-run A/A twins in the same binary,
+  not a bare comparison. Only Graviton5 supported sub-0.5 % claims at these
+  sizes.
+* **Do not read the ≥128 B cells as "no effect on any core."** They are one
+  host, and on V1 the dominant effect at those sizes is code placement (main
+  loop address mod 16), not the variant — see
+  [`../512b-placement-2026-08-20/`](../512b-placement-2026-08-20/).
 
 Two things to know:
 
