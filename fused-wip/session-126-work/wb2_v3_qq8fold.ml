@@ -113,8 +113,12 @@ let DISCARD_OLDSTATE_KEEPGHALL_TAC s =
         | _ -> false) then false else
     let us = unbound_statevars_of_read [] (concl thm) in
     if us = [] || us = [v] then false else if not(mem v us) then true else true);;
+(* SPEED (refine-093): single-pass GCM_SIMD_SIMPLIFY_CORE_TAC (was double-pass).
+   Mirrors s084 (wb.ml:1784); bridge RF8_SUBWORD re-folds the boundary REV64 trees.
+   MEASURED on the rebased fused ckpt: WB_FUSED_2BLOCK prove 426.08s -> 285.41s
+   (-33.0%), hyps=0 axioms=3 RESTORE_EXIT=0. *)
 let ARM_STEPS_FOLD_KEEPGHALL_TAC exec snums =
-  MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN GCM_SIMD_SIMPLIFY_TAC THEN
+  MAP_EVERY (fun s -> ARM_VERBOSE_STEP_TAC exec s THEN GCM_SIMD_SIMPLIFY_CORE_TAC THEN
               DISCARD_OLDSTATE_KEEPGHALL_TAC s THEN CLARIFY_TAC) (statenames "s" snums);;
 
 let JOIN_IS_CTR0 = prove(
