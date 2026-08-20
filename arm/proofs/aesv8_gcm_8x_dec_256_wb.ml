@@ -4907,7 +4907,13 @@ let WB_FRONT_BUF = prove(mk_wb_front_goal wb_front_postcond,
     RULE_ASSUM_TAC(REWRITE_RULE[WORD_ADD_0]) THEN
     SUBGOAL_THEN `ival (in_p:int64) - ival in_p = &0` ASSUME_TAC THENL
      [CONV_TAC INT_ARITH; ALL_TAC] THEN
-    ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (266--271) THEN
+    (* s139/s140: split the batched (266--271) into (266--270)+(271--271).
+       The .balign-16 +8 shift makes s271 (=ldp q24,q25,[x6,#160]) force a
+       per-step normalization that batched ARM_STEPS_TAC defers, raising
+       "RAND_CONV: Not a combination"; single-stepping s271 avoids it.
+       Same EXEC/stepper/statement -> identical resulting theorem. *)
+    ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (266--270) THEN
+    ARM_STEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC (271--271) THEN
     RULE_ASSUM_TAC(REWRITE_RULE[WORD_RULE
       `word_sub (word_add in_p (word (16 * nblk))) in_p:int64 = word (16 * nblk)`]) THEN
     ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
