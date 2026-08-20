@@ -244,18 +244,24 @@ It does not address 2, 4 or 7.
 
 ### Defects to fix in #445 before it leaves draft
 
-1. **`arm/aes-gcm/kat/Makefile` cannot build from a clean checkout.** It
-   requires `aesv8_gcm_8x_dec_256.o` and `aesv8_gcm_8x_enc_256.o`, neither of
-   which exists in the tree, plus a hardcoded
-   `AWS_LC_DIR ?= $(HOME)/workplace/git-code/aws-lc`. The primary target fails.
-   Either fix it or drop the directory from the PR.
-2. **`arm/aes-gcm/Makefile` is missing.** Every other `arm/` subdirectory has
-   one; #440 adds it. CI is green only because of the generic `%.o : %.S` rule,
-   but `cd arm/aes-gcm && make` fails.
+1. ~~**`arm/aes-gcm/kat/Makefile` cannot build from a clean checkout.**~~
+   **FIXED** in `73638528`. It required `aesv8_gcm_8x_dec_256.o` and
+   `aesv8_gcm_8x_enc_256.o`, neither of which is in this change set, plus a
+   hardcoded `AWS_LC_DIR ?= $(HOME)/workplace/git-code/aws-lc`. The directory is
+   dropped; its seven aws-lc vectors are the same seven the `tests/test.c`
+   known-answer test now drives through the production call path, so no coverage
+   is lost.
+2. ~~**`arm/aes-gcm/Makefile` is missing.**~~ **FIXED** in `73638528` — the
+   `arm/aes-xts/Makefile` verbatim with the object list changed. Mirrored onto
+   `aes-gcm-wb-mainloop` in `52e539f2` so the branches do not diverge on build
+   files. Verified: `cd arm/aes-gcm && make` now works on both macOS and Linux.
 3. **Guard-test bit-lengths are all below 256 B**, so the dispatch-eligible band
    is never exercised. #440 also adds a false-positive check ("guard bypassed!")
    that re-encrypts `floor(bitlen/128)` blocks and asserts the output did *not*
-   match. Worth adopting.
+   match. Worth adopting. **Still open** — `73638528` widened only the *random
+   differential* test's block-count draw (16..63 common, one-in-four on 16..23
+   for the cascade and exact-8 drain, one-in-eight on 64..256 for the long
+   main-loop path). The guard test itself is unchanged.
 4. **Theorem naming.** Dropping the `_wb` infix put our theorems in the
    `AESV8_GCM_8X_DEC_256_*` namespace, which belongs to the non-WB upstream
    kernel. #440 kept `_WB_`. This should be settled jointly.
