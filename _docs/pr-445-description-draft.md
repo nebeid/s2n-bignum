@@ -70,25 +70,23 @@ byte-list spine, in the shared NIST counter vocabulary
 (`arm/proofs/utils/aes_ctr_spec.ml`) so that the encrypt and decrypt contracts
 present the same per-block keystream term.
 
-Full-file cold gate, from source, against the CI-pinned HOL Light:
-`axioms = 3`, target theorem 0 hypotheses, `GATE_PASS`.
+Full-file cold gate from source against the CI-pinned HOL Light: `axioms = 3`,
+target theorem 0 hypotheses, `GATE_PASS`. Load times, all on **Graviton4
+(r8g.xlarge, Neoverse-V2, 4 cores)**: **2459 s** as the PR branch stands,
+**2559 s** with the alignment and `LENGTH …_wb_mc` changes, **4011 s** with the
+fused path spliced in. The last exceeds the repo's 30-minute norm; a refinement
+pass is queued, since the load is dominated by ARM-simulation proofs and several
+near-identical families of them can share one simulation.
 
-Cold load times, from source at the CI pin, for reference when reviewing scope:
-**2459 s** for the kernel as it stands on the PR branch, **2559 s** with the
-alignment and `LENGTH …_wb_mc` changes, and **4011 s** with the fused path
-spliced in. The last figure is above the repo's 30-minute norm and a refinement
-pass to bring it down is queued — the load is dominated by ARM-simulation
-proofs, several near-identical families of which can share one simulation.
-
-**[PENDING FLOW]** The exported statements express the code region's length as
-`LENGTH aesv8_gcm_8x_dec_256_wb_mc` rather than a hardcoded byte count, matching
-`arm/proofs/aes_xts_{en,de}crypt.ml` and the sibling encrypt PR #440, so a
-`.text`-size change needs no bookkeeping in the proof. The PR branch still spells
-it as a literal in 34 places. Note for anyone repeating this: the ARM
-store-safety check does numeric arithmetic on that length, so it must be reduced
-back to a numeral at each simulation init — a mixed numeral/`LENGTH` state fails,
-and an unreduced one fails at the fifth instruction with "could not prove that
-updates will not modify the program code".
+**[PENDING FLOW]** The exported statements give the code region's length as
+`LENGTH aesv8_gcm_8x_dec_256_wb_mc`, not a byte count, so a `.text`-size change
+needs no bookkeeping in the proof — matching `arm/proofs/aes_xts_{en,de}crypt.ml`
+and the sibling encrypt PR #440. The PR branch still uses a literal, in 34
+places. Caution when repeating it: the ARM store-safety check does numeric
+arithmetic on that length, so each simulation init must reduce it back to a
+numeral. A mixed numeral/`LENGTH` state fails, and an unreduced one fails at the
+fifth instruction with "could not prove that updates will not modify the program
+code".
 
 #### Testing
 
@@ -154,7 +152,7 @@ At the library level the same change is worth roughly half the kernel-level
 figure, because the AEAD wrapper contributes a fixed per-call cost: measured
 −5.8 % / −6.1 % / −8.0 % at 256 B on V1 / V2 / V3 through `bssl speed`.
 
-Caveats stated plainly: absolute nanosecond figures are not comparable to
+Caveats: absolute nanosecond figures are not comparable to
 `benchmarks/benchmark.c`, which re-initialises round keys and the `Htable`
 inside its timed region; buffers here are L1-resident, which flatters
 dependency-depth optimisations relative to a streaming caller; and deltas below
@@ -181,19 +179,18 @@ with an A/A twin per variant. Negative = faster.
 | 128 B | −0.15 % | +0.28 % | +0.19 % | +0.03 % |
 | 4096 B | −0.40 % | −0.02 % | −0.02 % | +0.00 % |
 
-The win is strongly core-dependent — at 64 B it spans −21.9 % on V1 to −31.0 % on
-V3 — so no single number represents that row. *floor* = the non-fused baseline
-drew a bad 16 B link slot in that binary on the two V2 hosts (its own A/A floor
-there is 4.38 % and 7.55 %), so no 16 B figure is claimed on those; V1 and V3
-resolve it, and a separate median-estimator run on r8g independently gets
-−46.4 % at 16 B, agreeing to 0.1–0.4 points with this table where they overlap.
-A second run also covers the sizes this one omits: 256 B −0.22 %, 512 B +0.14 %,
-1024 B +0.44 %, all inside their floors.
+The win is core-dependent: at 64 B it spans −21.9 % (V1) to −31.0 % (V3), so no
+single number represents that row. *floor* = the non-fused baseline drew a bad
+16 B link slot in that binary on the two V2 hosts, where its own A/A floor is
+4.38 % and 7.55 %; V1 and V3 resolve 16 B, and a separate median-estimator run on
+r8g gets −46.4 % there. That run agrees with this table to 0.1–0.4 points where
+they overlap, and adds the sizes it omits: 256 B −0.22 %, 512 B +0.14 %, 1024 B
++0.44 %, all inside their floors.
 
-Structural, and the numbers reflect it: the fused bodies cover
-`nblk ∈ {1,2,3,4}` only, and the `nblk ≥ 8` code is verified content-unchanged —
-940 instructions diff-confirmed byte-identical **at the same offsets**, same
-main-loop backedge — so every size from 80 B up is at or inside the floor.
+Everything ≥ 80 B sitting at or inside the floor is structural, not luck: the
+fused bodies cover `nblk ∈ {1,2,3,4}` only, and the `nblk ≥ 8` code is
+diff-confirmed byte-identical **at the same offsets** — 940 instructions, same
+main-loop backedge.
 
 **Differential size: `.text` grows to 5960 bytes.** Against the pre-`.balign`
 kernel that is +992 B (+20.0 %); against the `.balign` kernel it is **+984 B
@@ -203,7 +200,7 @@ that matches whichever baseline lands. That absorption is also why the main loop
 keeps the same address in both, so the fused measurement is not confounded by a
 placement change.
 
-Two caveats stated plainly. First, an earlier revision of these numbers reported
+Two caveats. First, an earlier revision of these numbers reported
 a +1.48 % penalty at 512 B; that was an artifact of a `min`-over-processes
 estimator and has been **retracted** — a four-host study (32–40 processes each,
 bootstrap CIs, 5 link permutations × 5 padding offsets) measured no regression on
@@ -213,36 +210,29 @@ here today; the value is for callers that do, or for a future threshold change.
 
 #### Main-loop alignment — **[PENDING FLOW]**
 
-The same study found something that applies to the **non-fused** kernel and is
-worth landing independently. `.align 4` before the function entry is the only
-alignment directive in the file — inherited from the aws-lc generator, which
-aligns each exported entry and never an internal label — so the main loop's
-address is purely a consequence of preceding code size, and nothing re-anchors
-it.
+Applies to the **non-fused** kernel and lands independently. `.align 4` before
+the function entry is the file's only alignment directive — inherited from the
+aws-lc generator, which aligns each exported entry and never an internal label —
+so the main loop's address is purely a consequence of preceding code size, and
+nothing re-anchors it.
 
-On Neoverse-V1 the kernel's runtime depends on the main-loop entry address
-**mod 16, and only on that** — not on which variant. Verified by a 2×2 test that
-swaps alignment between variants and by single-variant offset sweeps showing a
-clean period-16 effect; V2/V3 sensitivity is ≤ 0.05 %, i.e. nil. The shipped
-kernel's main loop sits at function offset 1208 (≡ 8 mod 16), the slow class; the
-fused variant is at 1216 (≡ 0) by accident.
-
-Adding `.balign 16` before the main-loop label — gas emits 8 bytes, two `nop`s
-executed once per call and never inside the loop — measured on Graviton3:
+On Neoverse-V1, runtime depends on the main-loop entry address **mod 16 and only
+on that**, not on which variant. Verified by a 2×2 test swapping alignment
+between variants, and by single-variant offset sweeps showing a clean period-16
+effect; V2/V3 sensitivity is ≤ 0.05 %, i.e. nil. `.balign 16` before the
+main-loop label moves it from function offset 1208 (≡ 8, the slow class) to 1216
+(≡ 0), costing 8 bytes of `nop` executed once per call and never inside the loop:
+`.text` 4976 B (md5 `a28d72a6…`) against 4968 B without. Measured on Graviton3:
 
 | size | 64 B | 256 B | 512 B | 1024 B |
 |---:|---:|---:|---:|---:|
 | gain | −0.02 % | **−0.38 %** | **−0.44 %** | **−0.37 %** |
 
-Free ~0.4 % at every size that runs the main loop on Graviton3, no cost at 64 B,
-~0 on V2/V3.
+Free ~0.4 % at every size that runs the main loop, no cost at 64 B, ~0 on V2/V3.
 
-**Caveat on those four numbers:** they were measured on a *synthetic padded
-probe*, not on the committed `.balign` object. The committed artifact is
-`.text` 4976 B (md5 `a28d72a6…`) versus 4968 B without it, and it moves the main
-loop from function offset 1208 (≡ 8 mod 16, the slow class) to 1216 (≡ 0). A
-direct measurement of the two committed objects on all three cores is the right
-evidence and should replace this table before the claim goes in the body.
+**Caveat:** those four numbers come from a *synthetic padded probe*, not the
+committed object. Replace them with a direct measurement of the 4968 B and
+4976 B artifacts on all three cores before the claim ships.
 
 ---
 
