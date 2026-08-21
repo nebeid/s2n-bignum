@@ -4,6 +4,30 @@ Draft for review. Replace the current placeholder body with the section marked
 **PR BODY** below. Everything after that section is supporting material and
 rationale, not intended for the PR itself.
 
+## Status against the actual PR branch — read before pasting
+
+**PR #445 head is `73638528` on `aes-gcm-dec-clean` (draft, CI 12/12 green).** Three
+pieces of work described below are proved and gated on other branches but are
+**NOT on the PR branch yet**, so the body must not claim them until the
+mainloop → squashes → dec-clean re-flow has happened:
+
+| item | state on `aes-gcm-dec-clean` @ `73638528` | where it is |
+|---|---|---|
+| the whole-blocks kernel + proof, tests, headers, build wiring | **present** — this is the PR today | — |
+| `.balign 16` on the main loop | **absent** (0 occurrences) | `aes-gcm-wb-mainloop` `1735b5e7`+`541de123` |
+| code size as `LENGTH …_wb_mc` instead of a literal | **absent** (34× literal `4968`) | `aes-gcm-wb-mainloop` `37715896`+`dd8740b2` |
+| the fused 1–4 block path | **absent** (0 `w5r` labels, 0 `WB_FUSED` theorems) | `aes-gcm-splice-wip-s143` `d7b524e2` |
+
+Sections below tagged **[PENDING FLOW]** describe work that is complete and
+cold-gated but not yet on the PR branch. Either flow it first or delete those
+sections before pasting — do not paste them as-is.
+
+When porting, note that `dec-clean` spells every `.L`-prefixed label as `L`
+(Mach-O's local prefix is `L`, and `.L` labels create atom boundaries CFI cannot
+compute an `advance_loc` across). So `.L256_dec_main_loop` and the fused path's
+twelve new labels all need renaming. The wrong spelling silently creates a new
+label instead of the intended one.
+
 ---
 
 ## PR BODY
@@ -48,6 +72,23 @@ present the same per-block keystream term.
 
 Full-file cold gate, from source, against the CI-pinned HOL Light:
 `axioms = 3`, target theorem 0 hypotheses, `GATE_PASS`.
+
+Cold load times, from source at the CI pin, for reference when reviewing scope:
+**2459 s** for the kernel as it stands on the PR branch, **2559 s** with the
+alignment and `LENGTH …_wb_mc` changes, and **4011 s** with the fused path
+spliced in. The last figure is above the repo's 30-minute norm and a refinement
+pass to bring it down is queued — the load is dominated by ARM-simulation
+proofs, several near-identical families of which can share one simulation.
+
+**[PENDING FLOW]** The exported statements express the code region's length as
+`LENGTH aesv8_gcm_8x_dec_256_wb_mc` rather than a hardcoded byte count, matching
+`arm/proofs/aes_xts_{en,de}crypt.ml` and the sibling encrypt PR #440, so a
+`.text`-size change needs no bookkeeping in the proof. The PR branch still spells
+it as a literal in 34 places. Note for anyone repeating this: the ARM
+store-safety check does numeric arithmetic on that length, so it must be reduced
+back to a numeral at each simulation init — a mixed numeral/`LENGTH` state fails,
+and an unreduced one fails at the fifth instruction with "could not prove that
+updates will not modify the program code".
 
 #### Testing
 
@@ -119,34 +160,48 @@ inside its timed region; buffers here are L1-resident, which flatters
 dependency-depth optimisations relative to a streaming caller; and deltas below
 the per-size A/A floor are not resolved by this method.
 
-#### The fused short-message path
+#### The fused short-message path — **[PENDING FLOW]**
 
-This PR also includes a **fused** variant covering 1–4 whole blocks
-(16/32/48/64 B), separately proof-complete: `WB_FUSED_{1,2,3,4}BLOCK`, each
-`hyps=0`, `axioms=3`, 0-CHEAT, re-validated against upstream's instruction model.
+A **fused** path covering 1–4 whole blocks (16/32/48/64 B). Proof-complete:
+`WB_FUSED_{1,2,3,4}BLOCK`, each `hyps=0`, `axioms=3`, 0-CHEAT, re-validated
+against upstream's current instruction model, and the spliced whole file
+cold-gates at the CI-pinned HOL Light with `axioms=3` and both exported targets
+bound at 0 hypotheses.
 
-Differential benchmark, fused versus the non-fused kernel above, same host and
-method (median of per-process paired deltas; `~` = below that size's placement
-floor, i.e. not resolved):
+Differential benchmark, fused versus the non-fused kernel, both in one binary
+with an A/A twin per variant. Negative = faster.
 
-| size | fused vs non-fused |
-|---:|---:|
-| 16 B | **−46.4 %** |
-| 32 B | **−43.6 %** |
-| 64 B | **−26.9 %** |
-| 128 B | −0.05 %~ |
-| 256 B | −0.22 %~ |
-| 512 B | −0.29 % (V1) / +0.14 % (V2) / +0.02 % (V3) — no regression on any core |
-| 1024 B | +0.44 %~ |
-| 4096 B | −0.00 %~ |
+| size | V1 / Graviton3 | V2 / Graviton4 | V2 / r8g | V3 / Graviton5 |
+|---:|---:|---:|---:|---:|
+| 16 B | **−47.50 %** | *floor* | *floor* | **−46.17 %** |
+| 32 B | **−42.52 %** | **−43.56 %** | **−43.54 %** | **−42.89 %** |
+| 48 B | **−32.33 %** | **−37.66 %** | **−37.70 %** | **−40.31 %** |
+| 64 B | **−21.92 %** | **−27.23 %** | **−27.24 %** | **−31.02 %** |
+| 80 B | +0.28 % | −0.01 % | +0.01 % | −0.05 % |
+| 128 B | −0.15 % | +0.28 % | +0.19 % | +0.03 % |
+| 4096 B | −0.40 % | −0.02 % | −0.02 % | +0.00 % |
 
-Structural, and the numbers reflect it exactly: the fused bodies cover
-`nblk ∈ {1,2,3,4}` only, and the `nblk ≥ 8` code is verified content-unchanged,
-so every size from 128 B up is at or below the placement floor.
+The win is strongly core-dependent — at 64 B it spans −21.9 % on V1 to −31.0 % on
+V3 — so no single number represents that row. *floor* = the non-fused baseline
+drew a bad 16 B link slot in that binary on the two V2 hosts (its own A/A floor
+there is 4.38 % and 7.55 %), so no 16 B figure is claimed on those; V1 and V3
+resolve it, and a separate median-estimator run on r8g independently gets
+−46.4 % at 16 B, agreeing to 0.1–0.4 points with this table where they overlap.
+A second run also covers the sizes this one omits: 256 B −0.22 %, 512 B +0.14 %,
+1024 B +0.44 %, all inside their floors.
 
-**Differential size: `.text` grows 4968 → 5960 bytes, +992 B (+20.0 %).** That is
-the honest cost of the fused entry paths, paid in instruction footprint for
-messages of 1–4 blocks.
+Structural, and the numbers reflect it: the fused bodies cover
+`nblk ∈ {1,2,3,4}` only, and the `nblk ≥ 8` code is verified content-unchanged —
+940 instructions diff-confirmed byte-identical **at the same offsets**, same
+main-loop backedge — so every size from 80 B up is at or inside the floor.
+
+**Differential size: `.text` grows to 5960 bytes.** Against the pre-`.balign`
+kernel that is +992 B (+20.0 %); against the `.balign` kernel it is **+984 B
+(+19.8 %)**, because the fused prologue's 8 extra bytes are absorbed by the
+existing `.balign 16` — it emits zero padding instead of eight. Quote the figure
+that matches whichever baseline lands. That absorption is also why the main loop
+keeps the same address in both, so the fused measurement is not confounded by a
+placement change.
 
 Two caveats stated plainly. First, an earlier revision of these numbers reported
 a +1.48 % penalty at 512 B; that was an artifact of a `min`-over-processes
@@ -156,7 +211,7 @@ any core. Second, aws-lc's current dispatch gates the 8x kernel on `len >= 256`
 (moving to 128), so the sizes where fusion wins are not ones its dispatch routes
 here today; the value is for callers that do, or for a future threshold change.
 
-#### Main-loop alignment
+#### Main-loop alignment — **[PENDING FLOW]**
 
 The same study found something that applies to the **non-fused** kernel and is
 worth landing independently. `.align 4` before the function entry is the only
@@ -181,6 +236,13 @@ executed once per call and never inside the loop — measured on Graviton3:
 
 Free ~0.4 % at every size that runs the main loop on Graviton3, no cost at 64 B,
 ~0 on V2/V3.
+
+**Caveat on those four numbers:** they were measured on a *synthetic padded
+probe*, not on the committed `.balign` object. The committed artifact is
+`.text` 4976 B (md5 `a28d72a6…`) versus 4968 B without it, and it moves the main
+loop from function offset 1208 (≡ 8 mod 16, the slow class) to 1216 (≡ 0). A
+direct measurement of the two committed objects on all three cores is the right
+evidence and should replace this table before the claim goes in the body.
 
 ---
 
