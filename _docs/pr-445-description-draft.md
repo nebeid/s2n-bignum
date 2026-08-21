@@ -224,15 +224,22 @@ main-loop label moves it from function offset 1208 (≡ 8, the slow class) to 12
 (≡ 0), costing 8 bytes of `nop` executed once per call and never inside the loop:
 `.text` 4976 B (md5 `a28d72a6…`) against 4968 B without. Measured on Graviton3:
 
-| size | 64 B | 256 B | 512 B | 1024 B |
+Measured 2026-08-21 on the two committed objects (4968 B vs 4976 B), one binary,
+A/A twin per variant, median of per-process paired deltas with 20k-resample
+bootstrap CIs, 24 processes, correctness gate 72/72 in every process:
+
+| Graviton3 / V1 | 256 B | 512 B | 1024 B | 4096 B |
 |---:|---:|---:|---:|---:|
-| gain | −0.02 % | **−0.38 %** | **−0.44 %** | **−0.37 %** |
+| gain | **−0.64 %** | **−0.46 %** | **−0.38 %** | **−0.29 %** |
+| CI | [−0.70, −0.61] | [−0.50, −0.41] | [−0.43, −0.25] | [−0.37, −0.24] |
 
-Free ~0.4 % at every size that runs the main loop, no cost at 64 B, ~0 on V2/V3.
+Every cell below 256 B, and every cell on Graviton4 and Graviton5, sits inside
+its A/A floor — no effect resolved. That fits the mechanism: the gain appears
+only once the 8-block main loop actually iterates.
 
-**Caveat:** those four numbers come from a *synthetic padded probe*, not the
-committed object. Replace them with a direct measurement of the 4968 B and
-4976 B artifacts on all three cores before the claim ships.
+This supersedes a synthetic-padded-probe estimate of −0.38 / −0.44 / −0.37 % at
+256 / 512 / 1024 B, which was right at 512 B and 1024 B to within 0.02 points,
+understated 256 B by roughly 1.7x, and had no 4096 B figure.
 
 ---
 

@@ -51,7 +51,7 @@ twin alongside every variant. Negative = faster. All four hosts, from
 
 | size | V1 / Graviton3 | V2 / Graviton4 | V2 / r8g | V3 / Graviton5 |
 |---:|---:|---:|---:|---:|
-| 16 B | **−47.50 %** | *floor* | *floor* | **−46.17 %** |
+| 16 B | **−47.50 %** | **−46.29 %** ‡ | *floor* | **−46.17 %** |
 | 32 B | **−42.52 %** | **−43.56 %** | **−43.54 %** | **−42.89 %** |
 | 48 B | **−32.33 %** | **−37.66 %** | **−37.70 %** | **−40.31 %** |
 | 64 B | **−21.92 %** | **−27.23 %** | **−27.24 %** | **−31.02 %** |
@@ -62,9 +62,11 @@ twin alongside every variant. Negative = faster. All four hosts, from
 **The size of the win depends strongly on the core** — at 64 B it spans −21.9 %
 on V1 to −31.0 % on V3 — so no single number represents that row.
 
-*floor*: on the two V2 hosts the non-fused baseline drew a bad 16 B link slot in
-that binary, where its own A/A floor is 4.38 % (GV4) and 7.55 % (r8g). No 16 B
-figure is claimed there. The V1 and V3 floors at 16 B are 1.6 % and 0.02 %.
+*floor*: the non-fused baseline drew a bad 16 B link slot in that binary, where
+its own A/A floor was 4.38 % (GV4) and 7.55 % (r8g), so no 16 B figure was
+claimable. The V1 and V3 floors at 16 B are 1.6 % and 0.02 %. ‡ = re-measured
+2026-08-21 on the spliced object in a fresh binary, where Graviton4's 16 B floor
+is 0.381 % and the cell resolves cleanly; r8g was not re-run.
 
 A later, independent run on r8g covers the sizes the table above omits — a
 different binary, different link slots, and a **median of per-process paired
@@ -102,10 +104,15 @@ today. The value is for callers that do, or for a future threshold change.
 
 ## Size cost
 
-`__text` grows **4968 → 5960 bytes, +992 B (+20.0 %)** — the footprint of the
-fused entry paths. Both figures are measured against the *pre-`.balign`* base;
-`aes-gcm-wb-mainloop` now assembles to 4976 B, so re-measure rather than reusing
-5960 B as an expected post-splice size.
+`__text` is **5960 bytes**: +992 B (+20.0 %) against the pre-`.balign` base of
+4968 B, or **+984 B (+19.8 %)** against `aes-gcm-wb-mainloop`'s current 4976 B.
+
+The spliced object comes out at 5960 B either way, md5
+`968b7a2f0e89093da5d1961d978e4f44` — the same object as the standalone fused
+kernel. The fused prologue's 8 extra bytes are absorbed by the existing
+`.balign 16`, which then emits zero padding instead of eight, so the main loop
+keeps its address and the body stays byte-identical at the same offsets (940
+instructions diff-confirmed, same backedge).
 
 ## Verification status
 
@@ -113,9 +120,17 @@ All four fused bodies are proof-complete — `WB_FUSED_{1,2,3,4}BLOCK`, each
 `hyps=0`, `axioms=3`, 0-CHEAT, re-validated against upstream's current
 instruction model.
 
-They are **not yet spliced** into the kernel on `aes-gcm-wb-mainloop`. Splicing
-changes the object bytes, so it requires a full re-gate of the whole-blocks
-proof, and is sequenced as its own step.
+The splice itself is done and cold-gated, on `aes-gcm-splice-wip-s143`
+@ `d7b524e2` rather than on `aes-gcm-wb-mainloop`: `loadsecs=4010.6 axioms=3`,
+both exported targets bound at 0 hypotheses, 0 CHEAT / `new_axiom` / `mk_thm`,
+against the CI-pinned HOL Light. It is held on its own branch because the splice
+is atomic — installing the fused literal breaks the staggered front simulations
+until the front-sim surgery and DISPATCH re-case land with it — and mainloop does
+not accept a tip that fails to load.
+
+Correctness was re-checked independently of the proof: the 4968 B, 4976 B and
+5960 B committed objects each pass the differential test, the whole-blocks guard
+and 7/7 aws-lc known-answer vectors on Graviton3, Graviton4 and Graviton5.
 
 ## Is this the exact file that was measured?
 
