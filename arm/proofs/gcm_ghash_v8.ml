@@ -443,3 +443,103 @@ let LEGB_RUNG = prove
   REPEAT STRIP_TAC THEN
   EXISTS_TAC `(n - 4) DIV 4` THEN EXISTS_TAC `(n - 4) MOD 4` THEN
   MP_TAC(SPECL [`n - 4`; `4`] DIVISION) THEN ASM_ARITH_TAC);;
+
+(* ------------------------------------------------------------------------- *)
+(* Symbolic-simulation infrastructure for the leg-A bands.                    *)
+(*                                                                           *)
+(* CRITICAL ORDERING: EXT8_FOLD must be rewritten BEFORE                      *)
+(* WORD_SIMPLE_SUBWORD_CONV.  The ARM `ext v,v,v,#8` emits                    *)
+(* `word_subword (word_join x x : 256 word) (64,128)`; if the subword conv     *)
+(* runs first it distributes that into a 256-bit byte tree, and any BITBLAST   *)
+(* over such a tree exhausts memory and kills the HOL process.                *)
+(* ------------------------------------------------------------------------- *)
+
+let EXT8_FOLD = prove
+ (`!x:int128. word_subword (word_join x x : 256 word) (64,128) = byteswap128 x`,
+  GEN_TAC THEN REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST);;
+
+let BYTESWAP128_INVOLUTION = prove
+ (`!x:int128. byteswap128(byteswap128 x) = x`,
+  GEN_TAC THEN REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST);;
+
+(* The rev64 byte tree the stepper emits, folded back to `rev64_128`.  Built
+   programmatically so the shape matches the stepper's output exactly. *)
+let REV64_TREE_FOLD =
+  let s8 x k = mk_comb(mk_comb(`word_subword:int128->num#num->8 word`,x),
+                       mk_pair(mk_small_numeral k,`8`)) in
+  let j16 a b = mk_comb(mk_comb(`word_join:8 word->8 word->16 word`,a),b) in
+  let j32 a b = mk_comb(mk_comb(`word_join:16 word->16 word->32 word`,a),b) in
+  let j64 a b = mk_comb(mk_comb(`word_join:32 word->32 word->64 word`,a),b) in
+  let j128 a b = mk_comb(mk_comb(`word_join:64 word->64 word->128 word`,a),b) in
+  let lane x b =
+    j64 (j32 (j16 (s8 x b) (s8 x (b+8))) (j16 (s8 x (b+16)) (s8 x (b+24))))
+        (j32 (j16 (s8 x (b+32)) (s8 x (b+40))) (j16 (s8 x (b+48)) (s8 x (b+56)))) in
+  let revtree x = j128 (lane x 64) (lane x 0) in
+  GEN_ALL(prove(mk_eq(revtree `x:int128`, `rev64_128 (x:int128)`),
+    REWRITE_TAC[rev64_128] THEN CONV_TAC WORD_BLAST));;
+
+(* Per-step normalizer.  It rewrites ONLY `read <reg> sN = <int128>`
+   assumptions: a blanket RULE_ASSUM_TAC over every assumption mangles the
+   `read PC sN = ...` fact, and the next ARM_STEPS_TAC then dies with
+   "ARM_CONV: can't find `read PC .. = ..` from ths". *)
+let Q128_NORM_TAC =
+  let core = TOP_DEPTH_CONV(REWR_CONV EXT8_FOLD) THENC
+             REWRITE_CONV[BYTESWAP128_INVOLUTION] THENC
+             TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
+             TOP_DEPTH_CONV(REWR_CONV EXT8_FOLD) THENC
+             REWRITE_CONV[BYTESWAP128_INVOLUTION; REV64_TREE_FOLD;
+                          REV64_EXT8_IS_BYTEREVERSE; EXT8_REV64_IS_BYTEREVERSE;
+                          BYTEREVERSE128_INVOLUTION] in
+  RULE_ASSUM_TAC(fun th ->
+    let c = concl th in
+    if is_eq c && type_of(rhs c) = `:int128` &&
+       (try (let l = lhs c in is_comb l &&
+             (let f = rator l in is_comb f &&
+              fst(dest_const(fst(strip_comb f))) = "read")) with _ -> false)
+    then CONV_RULE(RAND_CONV core) th else th);;
+
+(* ------------------------------------------------------------------------- *)
+(* Phase 2, step 1: the n = 1 (.Lodd_tail_v8) band, PC-only postcondition.    *)
+(*                                                                           *)
+(* This pins the CONTROL FLOW of the single-block path, harvested from the    *)
+(* live simulation (40 steps, ~29s, hyps = 0):                                *)
+(*   s3  : `b.cs` @0x004 falls through (16 < 64).                             *)
+(*   s18 : `b.lo` @0x044 IS taken -> PC = pc+0x110 = .Lodd_tail_v8, with      *)
+(*         Q0 = word_bytereverse xi, Q3 = word_bytereverse blk0,              *)
+(*         Q16 = rev64_128 blk0, Q20 = h_power h 0, Q22 = h_power h 1.        *)
+(*   s26 : the Karatsuba triple is formed and separable --                    *)
+(*         Q3 = xi' XOR blk0', Q0/Q2 = the lo/hi pmulls against h_power h 0.  *)
+(*   s40 : PC = pc+0x168, the `ret`.                                          *)
+(*                                                                           *)
+(* The GHASH algebra close (upgrading the postcondition to the nist_ghash     *)
+(* statement) is the next step; this theorem is what it will be built on.     *)
+(* ------------------------------------------------------------------------- *)
+
+let GCM_GHASH_V8_LE1BLOCK_PCONLY = prove
+ (`!xi_p htbl_p in_p pc h xi blk0.
+     nonoverlapping (word pc, LENGTH ghash_v8_lega_mc) (xi_p,16) /\
+     nonoverlapping (xi_p,16) (in_p,16) /\
+     nonoverlapping (xi_p,16) (htbl_p,96)
+     ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) ghash_v8_lega_mc /\
+               read PC s = word pc /\
+               C_ARGUMENTS [xi_p; htbl_p; in_p; word 16] s /\
+               read (memory :> bytes128 xi_p) s = xi /\
+               read (memory :> bytes128 in_p) s = blk0 /\
+               htable_mem_4 h htbl_p s)
+          (\s. read PC s = word (pc + 0x168))
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                      Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
+                      Q29;Q30;Q31])`,
+  REWRITE_TAC[C_ARGUMENTS; htable_mem_4; fst GHASH_V8_LEGA_EXEC;
+              NONOVERLAPPING_CLAUSES] THEN
+  REPEAT STRIP_TAC THEN
+  ENSURES_INIT_TAC "s0" THEN
+  ARM_STEPS_TAC GHASH_V8_LEGA_EXEC (1--3) THEN
+  MAP_EVERY (fun n -> ARM_STEPS_TAC GHASH_V8_LEGA_EXEC [n] THEN Q128_NORM_TAC)
+            (4--40) THEN
+  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+  REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC THEN ASM_REWRITE_TAC[]);;
