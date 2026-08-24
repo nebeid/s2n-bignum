@@ -349,3 +349,94 @@ let GHASH_V8_LENGTH = prove
 let ghash_v8_lega_mc_def, ghash_v8_lega_mc, GHASH_V8_LEGA_EXEC =
   mk_sublist_of_mc "ghash_v8_lega_mc" ghash_v8_mc (`0`,`0x170`)
     GHASH_V8_LENGTH;;
+
+(* ------------------------------------------------------------------------- *)
+(* Spec vocabulary, lifted with provenance so this file's closure stays at    *)
+(* base.ml + gmult_nblock_lemmas.ml + ghash_nist_bridge.ml (the 940 KB        *)
+(* decrypt proof is deliberately NOT a dependency).                           *)
+(* ------------------------------------------------------------------------- *)
+
+(* From _docs/jargh_gcm/aes_gcm_enc_kernel_x4_ilp.ml:329, restricted to the 6
+   slots this routine reads (Htable[0..5], 96 bytes).  h is the POLYVAL-side
+   key; with h = ghash_twist H this is the x4 kernels' hypothesis shape. *)
+let htable_mem_4 = new_definition
+ `htable_mem_4 (h:int128) (ptr:int64) (s:armstate) <=>
+  read (memory :> bytes128 ptr) s = byteswap128(h_power h 0) /\
+  read (memory :> bytes128 (word_add ptr (word 16))) s =
+    word_join (karatsuba_mid(h_power h 1) : 64 word)
+              (karatsuba_mid(h_power h 0) : 64 word) /\
+  read (memory :> bytes128 (word_add ptr (word 32))) s = byteswap128(h_power h 1) /\
+  read (memory :> bytes128 (word_add ptr (word 48))) s = byteswap128(h_power h 2) /\
+  read (memory :> bytes128 (word_add ptr (word 64))) s =
+    word_join (karatsuba_mid(h_power h 3) : 64 word)
+              (karatsuba_mid(h_power h 2) : 64 word) /\
+  read (memory :> bytes128 (word_add ptr (word 80))) s = byteswap128(h_power h 3)`;;
+
+(* From arm/proofs/aesv8_gcm_8x_dec_256_wb.ml:7622 / ~:7626. *)
+let BREV_RF8_128 = prove
+ (`word_bytereverse (x:int128) = word_reversefields 8 x`,
+  REWRITE_TAC[REWRITE_RULE[FUN_EQ_THM] WORD_BYTEREVERSE_REVERSEFIELDS]);;
+
+let BREV_RF8_INV_128 = prove
+ (`!x:int128. word_bytereverse (word_reversefields 8 x) = x`,
+  REWRITE_TAC[GSYM BREV_RF8_128; WORD_BYTEREVERSE_BYTEREVERSE]);;
+
+(* From arm/proofs/aesv8_gcm_8x_dec_256_wb.ml:7646. *)
+let nist_input_block = new_definition
+ `nist_input_block (x:byte list) (i:num) : int128 =
+    word_reversefields 8 (bytes_to_int128 (SUB_LIST (16 * i, 16) x))`;;
+
+(* ------------------------------------------------------------------------- *)
+(* Byte-order pipeline: rev64 (per-lane byte reverse) composed with ext #8    *)
+(* (byteswap128, i.e. the 64-bit lane exchange) is a full 128-bit reversal.   *)
+(* Mined from the stale probe branch ghash-v8-symbolic-sim:                   *)
+(* arm/proofs/ghash_v8_sim.ml:111-140.  All feasible at 128 bits (< 0.3s).    *)
+(* ------------------------------------------------------------------------- *)
+
+let rev64_128 = new_definition
+ `rev64_128 (x:int128) : int128 =
+    word_join (word_bytereverse (word_subword x (64,64) : 64 word))
+              (word_bytereverse (word_subword x (0,64) : 64 word))`;;
+
+let REV64_EXT8_IS_BYTEREVERSE = prove
+ (`!x:int128. byteswap128(rev64_128 x) = word_bytereverse x`,
+  GEN_TAC THEN REWRITE_TAC[byteswap128; rev64_128] THEN BITBLAST_TAC);;
+
+let EXT8_REV64_IS_BYTEREVERSE = prove
+ (`!x:int128. rev64_128(byteswap128 x) = word_bytereverse x`,
+  GEN_TAC THEN REWRITE_TAC[byteswap128; rev64_128] THEN BITBLAST_TAC);;
+
+let BYTEREVERSE128_INVOLUTION = prove
+ (`!x:int128. word_bytereverse(word_bytereverse x) = x`,
+  GEN_TAC THEN BITBLAST_TAC);;
+
+let BYTEREVERSE128_XOR = prove
+ (`!x y:int128. word_bytereverse(word_xor x y) =
+                word_xor (word_bytereverse x) (word_bytereverse y)`,
+  REPEAT GEN_TAC THEN BITBLAST_TAC);;
+
+(* The single-block GHASH core, once the byte-swaps have cancelled. *)
+let GHASH_1BLOCK_CORRECT = prove
+ (`!acc block h:int128.
+     polyval_dot (word_xor acc block) h = ghash_polyval_acc h acc [block]`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[ghash_polyval_acc; polyval_dot]);;
+
+(* ------------------------------------------------------------------------- *)
+(* Scalar rung lemmas: which branch each n takes.                            *)
+(*   leg A -- n in {1,2,3}: n=1 takes b.lo at 0x044 (16 - 32 borrows),        *)
+(*   n=2 exits via b.eq at 0x10c, n=3 falls through to .Lodd_tail_v8.         *)
+(*   leg B -- n >= 4: k+1 full .Loop4x groups plus a remainder r < 4.         *)
+(* ------------------------------------------------------------------------- *)
+
+let LEGA_RUNG = prove
+ (`!n. 1 <= n /\ n <= 3
+       ==> (16 * n < 32 <=> n = 1) /\
+           (16 * n = 32 <=> n = 2) /\
+           (16 * n = 48 <=> n = 3)`,
+  REPEAT STRIP_TAC THEN ASM_ARITH_TAC);;
+
+let LEGB_RUNG = prove
+ (`!n. 4 <= n ==> ?k r. r < 4 /\ n = 4 * (k + 1) + r`,
+  REPEAT STRIP_TAC THEN
+  EXISTS_TAC `(n - 4) DIV 4` THEN EXISTS_TAC `(n - 4) MOD 4` THEN
+  MP_TAC(SPECL [`n - 4`; `4`] DIVISION) THEN ASM_ARITH_TAC);;
