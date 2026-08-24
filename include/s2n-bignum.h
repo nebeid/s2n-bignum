@@ -55,6 +55,15 @@ extern size_t aesv8_gcm_8x_dec_256_wb(const uint8_t *in, size_t bit_len, uint8_t
         uint8_t xi[S2N_BIGNUM_STATIC 16], uint8_t ivec[S2N_BIGNUM_STATIC 16],
         const s2n_bignum_AES_KEY *key, const uint64_t htable[S2N_BIGNUM_STATIC 32]);
 
+// GCM_GHASH_V8 (GHASH over whole 16-byte blocks)
+// Accumulates GHASH over "len" bytes of "inp" into the 16-byte state "Xi", using
+// the v8-format key table "Htable" produced by aws-lc's gcm_init_v8. "len" is in
+// bytes and must be a positive multiple of 16; only the 16 bytes at "Xi" are
+// written. Reads Htable[0..11] (96 bytes) when len >= 64, Htable[0..5] otherwise.
+// Inputs Xi[16], Htable[32], inp[len], len; output Xi[16]
+extern void gcm_ghash_v8(uint8_t Xi[S2N_BIGNUM_STATIC 16],
+        const uint64_t Htable[S2N_BIGNUM_STATIC 32], const uint8_t *inp, size_t len);
+
 // Add, z := x + y
 // Inputs x[m], y[n]; outputs function return (carry-out) and z[p]
 extern uint64_t bignum_add (uint64_t p, uint64_t *z, uint64_t m, const uint64_t *x, uint64_t n, const uint64_t *y);
