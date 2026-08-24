@@ -1006,3 +1006,81 @@ let GCM_GHASH_V8_LE3BLOCK = prove
     MATCH_MP_TAC GHASH3_SPEC_CHAIN THEN REFL_TAC;
     REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
     REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC THEN ASM_REWRITE_TAC[]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* Phase 4: unify leg A.  ONE theorem for every length the routine accepts    *)
+(* below 64 bytes, i.e. len = 16*n for n in {1,2,3}.                          *)
+(*                                                                           *)
+(* This is the first externally meaningful milestone and the place where the  *)
+(* EXPORTED STATEMENT SHAPE is frozen, so leg B inherits it verbatim:         *)
+(*  - the block count is a scalar `n` with `1 <= n /\ n <= 3` (leg B will     *)
+(*    carry `4 <= n` instead; everything else is identical);                  *)
+(*  - the input is a QUANTIFIED memory precondition                          *)
+(*    `!i. i < n ==> read (memory :> bytes128 (in_p + 16*i)) s = blk i`       *)
+(*    over an abstract `blk : num -> int128`, rather than n named variables;  *)
+(*  - the postcondition is `word_bytereverse (nist_ghash H (word_bytereverse  *)
+(*    xi) (MAP word_bytereverse (list_of_seq blk n)))` -- the same NIST       *)
+(*    vocabulary the decrypt bands use, now indexed rather than spelled out;  *)
+(*  - `nonoverlapping (xi_p,16) (in_p,16*n)`: only the `len` bytes actually   *)
+(*    consumed need be readable (the duplicate `ld1 ...,[x2],x12` loads are   *)
+(*    dead, x12 having been zeroed by the `csel` chain).                      *)
+(*                                                                           *)
+(* Each case reduces to the corresponding band theorem by pure bookkeeping.   *)
+(* The one non-obvious step is the CONJ re-bracketing: expanding              *)
+(* `!i. i < k ==> P i` into k conjuncts via FORALL_AND_THM produces a         *)
+(* LEFT-nested `(P 0 /\ P 1) /\ rest`, while the band theorems state their    *)
+(* preconditions right-nested.  MATCH_MP_TAC does not see through that, and   *)
+(* a blanket `REWRITE_TAC[CONJ_ASSOC]` re-associates the WRONG way (it makes  *)
+(* the mismatch worse, and the failure is the same opaque "MATCH_MP_TAC: No   *)
+(* match" either way).  One `ONCE_DEPTH_CONV (REWR_CONV (GSYM CONJ_ASSOC))`   *)
+(* per EXTRA block -- 0 at n = 1, 1 at n = 2, 2 at n = 3 -- fixes it exactly. *)
+(* ------------------------------------------------------------------------- *)
+
+let LEGA_CASE_TAC nrebrack blockthm =
+  FIRST_X_ASSUM(fun th -> if is_eq(concl th) && lhs(concl th) = `n:num`
+                          then SUBST_ALL_TAC th else NO_TAC) THEN
+  RULE_ASSUM_TAC(CONV_RULE NUM_REDUCE_CONV) THEN
+  REWRITE_TAC[num_CONV `3`; num_CONV `2`; num_CONV `1`;
+              list_of_seq; MAP; APPEND] THEN
+  CONV_TAC NUM_REDUCE_CONV THEN
+  REWRITE_TAC[ARITH_RULE `!i. i < 1 <=> i = 0`;
+              ARITH_RULE `!i. i < 2 <=> i = 0 \/ i = 1`;
+              ARITH_RULE `!i. i < 3 <=> i = 0 \/ i = 1 \/ i = 2`] THEN
+  REWRITE_TAC[TAUT `(a \/ b ==> c) <=> (a ==> c) /\ (b ==> c)`;
+              FORALL_AND_THM; FORALL_UNWIND_THM2] THEN
+  CONV_TAC(ONCE_DEPTH_CONV NUM_MULT_CONV) THEN REWRITE_TAC[WORD_ADD_0] THEN
+  REPLICATE_TAC nrebrack
+    (CONV_TAC(ONCE_DEPTH_CONV(REWR_CONV(GSYM CONJ_ASSOC)))) THEN
+  MATCH_MP_TAC blockthm THEN ASM_REWRITE_TAC[];;
+
+let GCM_GHASH_V8_LEGA = prove
+ (`!xi_p htbl_p in_p pc H h xi (blk:num->int128) n.
+     h = ghash_twist H /\ 1 <= n /\ n <= 3 /\
+     nonoverlapping (word pc, LENGTH ghash_v8_lega_mc) (xi_p,16) /\
+     nonoverlapping (xi_p,16) (in_p,16 * n) /\
+     nonoverlapping (xi_p,16) (htbl_p,96)
+     ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) ghash_v8_lega_mc /\
+               read PC s = word pc /\
+               C_ARGUMENTS [xi_p; htbl_p; in_p; word (16 * n)] s /\
+               read (memory :> bytes128 xi_p) s = xi /\
+               (!i. i < n
+                    ==> read (memory :> bytes128
+                               (word_add in_p (word (16 * i)))) s = blk i) /\
+               htable_mem_4 h htbl_p s)
+          (\s. read PC s = word (pc + 0x168) /\
+               read (memory :> bytes128 xi_p) s =
+               word_bytereverse
+                 (nist_ghash H (word_bytereverse xi)
+                    (MAP word_bytereverse (list_of_seq blk n))))
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                      Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
+                      Q29;Q30;Q31])`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN `n = 1 \/ n = 2 \/ n = 3` STRIP_ASSUME_TAC THENL
+   [ASM_ARITH_TAC;
+    LEGA_CASE_TAC 0 GCM_GHASH_V8_LE1BLOCK;
+    LEGA_CASE_TAC 1 GCM_GHASH_V8_LE2BLOCK;
+    LEGA_CASE_TAC 2 GCM_GHASH_V8_LE3BLOCK]);;
