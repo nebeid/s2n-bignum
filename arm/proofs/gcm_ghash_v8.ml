@@ -597,3 +597,92 @@ let MID_FOLD = prove
        (word_subword (word_xor (word_bytereverse xi) (word_bytereverse blk0))
                      (64,64) : 64 word)`,
   REPEAT GEN_TAC THEN REWRITE_TAC[byteswap128; rev64_128] THEN CONV_TAC WORD_BLAST);;
+
+(* ------------------------------------------------------------------------- *)
+(* The two lemmas that finish the n = 1 algebra close.                        *)
+(*                                                                           *)
+(* Both are stated over OPAQUE 128-bit atoms p1/p2/p3, which stand for the    *)
+(* three Karatsuba partial products                                          *)
+(*   p1 = pmul (mid H) (mid B),  p2 = pmul (lo H) (lo B),  p3 = pmul (hi H) (hi B)  *)
+(* where H = h_power h 0 and B = xi' XOR blk0'.  Abstracting the pmuls is     *)
+(* what makes these tractable: the raw machine-vs-spec diff is 4054 vs 3525   *)
+(* chars, but over the abstracted atoms it is 397 vs 314, and `word_pmul` is  *)
+(* opaque to BITBLAST anyway, so nothing is lost by hiding it.                *)
+(*                                                                           *)
+(* ARG_EQ: the two spellings of the reduce step's 64-bit argument agree.  The *)
+(* machine builds it as `xor <wa> (join ...)` with a doubly-nested subword on *)
+(* the low lane; build_GMULTn_fast states it as `xor (join ...) <wa>`.        *)
+(* GHASH1_ALIGN: with that in hand, the whole 3-summand XOR aligns -- pure    *)
+(* XOR/word_join/word_subword bookkeeping, ~1.7s at 128 bits.                 *)
+(* ------------------------------------------------------------------------- *)
+
+let ARG_EQ = prove
+ (`!p1 p2 p3 p4:int128. ((word_subword ((word_xor (p4:(128)word) ((word_join 
+     ((word_subword ((word_subword (p2:(128)word) (0,64)):(128)word) (0,64)):(64)word) 
+     ((word_subword ((word_xor ((word_xor (p3:(128)word) (p2:(128)word)):(128)word) 
+     ((word_xor ((word_subword ((word_join (p3:(128)word) (p2:(128)word)):(256)word) 
+     (64,128)):(128)word) (p1:(128)word)):(128)word)):(128)word) (0,64)):(64)word)):(128)word)):(128)word) 
+     (0,64)):(64)word) = ((word_subword ((word_xor ((word_join ((word_subword 
+     (p2:(128)word) (0,64)):(64)word) ((word_xor ((word_subword (p2:(128)word) 
+     (64,64)):(64)word) ((word_subword ((word_xor ((word_xor (p1:(128)word) 
+     (p2:(128)word)):(128)word) (p3:(128)word)):(128)word) (0,64)):(64)word)):(64)word)):(128)word) 
+     (p4:(128)word)):(128)word) (0,64)):(64)word)`,
+  REPEAT GEN_TAC THEN BITBLAST_TAC);;
+
+let GHASH1_ALIGN = prove
+ (`!p1 p2 p3:int128. ((word_xor ((word_xor ((word_join ((word_subword (p3:(128)word) 
+     (64,64)):(64)word) ((word_subword ((word_subword ((word_xor ((word_xor 
+     (p3:(128)word) (p2:(128)word)):(128)word) ((word_xor ((word_subword 
+     ((word_join (p3:(128)word) (p2:(128)word)):(256)word) (64,128)):(128)word) 
+     (p1:(128)word)):(128)word)):(128)word) (64,64)):(128)word) (0,64)):(64)word)):(128)word) 
+     (byteswap128 ((word_xor ((word_pmul ((word_subword (p2:(128)word) (0,64)):(64)word) 
+     ((word 13979173243358019584):(64)word)):(128)word) ((word_join ((word_subword 
+     ((word_subword (p2:(128)word) (0,64)):(128)word) (0,64)):(64)word) ((word_subword 
+     ((word_xor ((word_xor (p3:(128)word) (p2:(128)word)):(128)word) ((word_xor 
+     ((word_subword ((word_join (p3:(128)word) (p2:(128)word)):(256)word) 
+     (64,128)):(128)word) (p1:(128)word)):(128)word)):(128)word) (0,64)):(64)word)):(128)word)):(128)word))):(128)word) 
+     ((word_pmul ((word_subword ((word_xor ((word_pmul ((word_subword (p2:(128)word) 
+     (0,64)):(64)word) ((word 13979173243358019584):(64)word)):(128)word) 
+     ((word_join ((word_subword ((word_subword (p2:(128)word) (0,64)):(128)word) 
+     (0,64)):(64)word) ((word_subword ((word_xor ((word_xor (p3:(128)word) 
+     (p2:(128)word)):(128)word) ((word_xor ((word_subword ((word_join (p3:(128)word) 
+     (p2:(128)word)):(256)word) (64,128)):(128)word) (p1:(128)word)):(128)word)):(128)word) 
+     (0,64)):(64)word)):(128)word)):(128)word) (0,64)):(64)word) ((word 13979173243358019584):(64)word)):(128)word)):(128)word) 
+     = ((word_xor ((word_pmul ((word_subword ((word_xor ((word_join ((word_subword 
+     (p2:(128)word) (0,64)):(64)word) ((word_xor ((word_subword (p2:(128)word) 
+     (64,64)):(64)word) ((word_subword ((word_xor ((word_xor (p1:(128)word) 
+     (p2:(128)word)):(128)word) (p3:(128)word)):(128)word) (0,64)):(64)word)):(64)word)):(128)word) 
+     ((word_pmul ((word_subword (p2:(128)word) (0,64)):(64)word) ((word 13979173243358019584):(64)word)):(128)word)):(128)word) 
+     (0,64)):(64)word) ((word 13979173243358019584):(64)word)):(128)word) 
+     ((word_xor (byteswap128 ((word_xor ((word_join ((word_subword (p2:(128)word) 
+     (0,64)):(64)word) ((word_xor ((word_subword (p2:(128)word) (64,64)):(64)word) 
+     ((word_subword ((word_xor ((word_xor (p1:(128)word) (p2:(128)word)):(128)word) 
+     (p3:(128)word)):(128)word) (0,64)):(64)word)):(64)word)):(128)word) 
+     ((word_pmul ((word_subword (p2:(128)word) (0,64)):(64)word) ((word 13979173243358019584):(64)word)):(128)word)):(128)word)) 
+     ((word_join ((word_subword (p3:(128)word) (64,64)):(64)word) ((word_xor 
+     ((word_subword (p3:(128)word) (0,64)):(64)word) ((word_subword ((word_xor 
+     ((word_xor (p1:(128)word) (p2:(128)word)):(128)word) (p3:(128)word)):(128)word) 
+     (64,64)):(64)word)):(64)word)):(128)word)):(128)word)):(128)word)`,
+  REPEAT GEN_TAC THEN
+  ABBREV_TAC `(p4:int128) = ((word_pmul ((word_subword (p2:(128)word) (0,64)):(64)word) ((word 13979173243358019584):(64)word)):(128)word)` THEN
+  REWRITE_TAC[ARG_EQ] THEN
+  ABBREV_TAC `(p5:int128) = ((word_pmul ((word_subword ((word_xor ((word_join ((word_subword (p2:(128)word) (0,64)):(64)word) ((word_xor ((word_subword (p2:(128)word) (64,64)):(64)word) ((word_subword ((word_xor ((word_xor (p1:(128)word) (p2:(128)word)):(128)word) (p3:(128)word)):(128)word) (0,64)):(64)word)):(64)word)):(128)word) (p4:(128)word)):(128)word) (0,64)):(64)word) ((word 13979173243358019584):(64)word)):(128)word)` THEN
+  REWRITE_TAC[byteswap128] THEN BITBLAST_TAC);;
+
+(* The spec-level chain, from the reduce output to the exported NIST vocabulary.
+   `h_power h 0 = h` turns the reduce into `polyval_dot`, WORD_PMUL_SYM puts the
+   accumulator on the left where `GHASH_1BLOCK_CORRECT` expects it, and
+   `NIST_GHASH_IS_POLYVAL` (common/ghash_nist_bridge.ml) lands in `nist_ghash`. *)
+let GHASH1_SPEC_CHAIN = prove
+ (`!(H:int128) (h:int128) (xi:int128) (blk0:int128).
+     h = ghash_twist H
+     ==> polyval_reduce_prop3
+           (word_pmul (h_power h 0)
+                      (word_xor (word_bytereverse xi) (word_bytereverse blk0))) =
+         nist_ghash H (word_bytereverse xi) [word_bytereverse blk0]`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[NIST_GHASH_IS_POLYVAL] THEN
+  ASM_REWRITE_TAC[GSYM GHASH_1BLOCK_CORRECT] THEN
+  REWRITE_TAC[polyval_dot; h_power] THEN
+  GEN_REWRITE_TAC (LAND_CONV o ONCE_DEPTH_CONV) [WORD_PMUL_SYM] THEN
+  REFL_TAC);;
