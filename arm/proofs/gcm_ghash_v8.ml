@@ -861,3 +861,148 @@ let GCM_GHASH_V8_LE2BLOCK = prove
     MATCH_MP_TAC GHASH2_SPEC_CHAIN THEN REFL_TAC;
     REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
     REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC THEN ASM_REWRITE_TAC[]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* Phase 3, part 2: the n = 3 band.  One `.Loop_mod2x_v8` pass, then the      *)
+(* `b.eq` at 0x10c is NOT taken (x3 was restored to 16, nonzero), so control  *)
+(* FALLS THROUGH into `.Lodd_tail_v8` for the third block.                    *)
+(*                                                                           *)
+(* Control flow (88 steps, machine-confirmed; exit pc + 0x168):               *)
+(*   0x000..0x044  18 steps.  Both `b.cs`@0x004 (48 < 64) and `b.cc`@0x044    *)
+(*                 (48 - 32 does not borrow) fall through.                    *)
+(*   0x048..0x064   8 steps  (loop preamble + the `b` at 0x064).              *)
+(*   0x070..0x0f8  35 steps  (one `.Loop_mod2x_v8` pass; x3 reaches 16 - 32,  *)
+(*                 which borrows, so the `b.hs` back-edge is NOT taken).      *)
+(*   0x0fc..0x10c   5 steps.  `adds x3,x3,#0x20` restores x3 to 16, NONZERO,  *)
+(*                 so `b.eq`@0x10c is NOT taken and we fall into the tail.    *)
+(*   0x110..0x158  19 steps  (`.Lodd_tail_v8` -- the SECOND reduce).          *)
+(*   0x15c..0x164   3 steps  (rev64 + ext + st1), then `ret` at 0x168.        *)
+(*                                                                           *)
+(* THE STRUCTURAL POINT (session 152's reviewer predicted it, session 153     *)
+(* measured it): n = 3 is TWO STAGED REDUCES, not one.  The final term is a   *)
+(* tail reduce whose accumulator argument is literally                        *)
+(*   <loop-reduce output> XOR word_bytereverse blk2,                          *)
+(* so a single `build_GMULTn_fast 3` is the wrong shape and                   *)
+(* `GHASH_POLYVAL_ACC_3` (which states the single-reduce form) does not apply.*)
+(*                                                                           *)
+(* The close therefore CASCADES the two bands' align lemmas, innermost first: *)
+(* `GHASH2_ALIGN` + `build_GMULTn_fast 2` collapse the inner (loop) reduce to *)
+(* a `polyval_reduce_prop3`, which then sits as an opaque accumulator inside  *)
+(* the outer reduce -- at which point `GHASH1_ALIGN` + `build_GMULTn_fast 1`  *)
+(* collapse THAT.  No `ABBREV_TAC` of the accumulator is needed: rewriting    *)
+(* the inner reduce first shrinks the term from 211 KB to under 400 chars, so *)
+(* the outer stage runs at n = 1 size anyway.  Total algebra time: 0.6 s.     *)
+(*                                                                           *)
+(* Exactly ONE new BITBLAST is required beyond the n = 1 / n = 2 kit.         *)
+(* ------------------------------------------------------------------------- *)
+
+(* The tail's Karatsuba MID operand.  At n = 1 the accumulator entering
+   `.Lodd_tail_v8` is `word_bytereverse xi`, so `MID_FOLD` matches its literal
+   spelling.  At n = 3 the accumulator is the loop reduce's output and the
+   `ext #8` has been DISTRIBUTED over the XOR by the per-step normalizer, giving
+   `(x XOR y) XOR (byteswap128 x XOR byteswap128 y)`.  Neither `MID_FOLD` nor
+   `MID_FOLD_BSWAP_LO` matches that, so state the distributed form directly.
+   ~2 s at 128 bits. *)
+let MID_FOLD_BSWAP_DIST = prove
+ (`!x y:int128.
+     word_subword (word_xor (word_xor x y)
+                            (word_xor (byteswap128 x) (byteswap128 y)))
+                  (0,64) : 64 word =
+     word_xor (word_subword (word_xor x y) (0,64) : 64 word)
+              (word_subword (word_xor x y) (64,64) : 64 word)`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST);;
+
+(* `GHASH1_SPEC_CHAIN` with an ARBITRARY accumulator rather than the
+   `word_bytereverse xi` the n = 1 band happens to present.  The n = 3 tail
+   consumes the loop reduce's output, which is not syntactically a
+   `word_bytereverse`, so the chain has to be stated over a bare `acc`.  One
+   `BYTEREVERSE128_INVOLUTION` is all it takes. *)
+let GHASH1_SPEC_CHAIN_GEN = prove
+ (`!(H:int128) (h:int128) (acc:int128) (blk:int128).
+     h = ghash_twist H
+     ==> polyval_reduce_prop3
+           (word_pmul (h_power h 0) (word_xor acc (word_bytereverse blk))) =
+         nist_ghash H acc [word_bytereverse blk]`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(SPECL [`H:int128`; `h:int128`; `word_bytereverse(acc:int128)`; `blk:int128`]
+               GHASH1_SPEC_CHAIN) THEN
+  ASM_REWRITE_TAC[BYTEREVERSE128_INVOLUTION]);;
+
+(* The 3-block spec chain: the STAGED reduce equals `nist_ghash` over the
+   three-element block list.  Stage 2 (the loop) is `GHASH2_SPEC_CHAIN`, stage 1
+   (the tail) is `GHASH1_SPEC_CHAIN_GEN` at the accumulator stage 2 produced,
+   and the two are glued by `NIST_GHASH_APPEND` at [b0;b1] ++ [b2] -- which is
+   precisely the sense in which the machine's two reduces compose. *)
+let GHASH3_SPEC_CHAIN = prove
+ (`!(H:int128) (h:int128) (xi:int128) (blk0:int128) (blk1:int128) (blk2:int128).
+     h = ghash_twist H
+     ==> polyval_reduce_prop3
+           (word_pmul (h_power h 0)
+             (word_xor
+               (polyval_reduce_prop3
+                 (word_xor
+                   (word_pmul (h_power h 0) (word_bytereverse blk1))
+                   (word_pmul (h_power h 1)
+                     (word_xor (word_bytereverse xi) (word_bytereverse blk0)))))
+               (word_bytereverse blk2))) =
+         nist_ghash H (word_bytereverse xi)
+           [word_bytereverse blk0; word_bytereverse blk1; word_bytereverse blk2]`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(SPECL [`H:int128`;`h:int128`;`xi:int128`;`blk0:int128`;`blk1:int128`]
+               GHASH2_SPEC_CHAIN) THEN
+  ASM_REWRITE_TAC[] THEN DISCH_THEN SUBST1_TAC THEN
+  MP_TAC(SPECL [`H:int128`;`h:int128`;
+                `nist_ghash H (word_bytereverse (xi:int128))
+                   [word_bytereverse (blk0:int128); word_bytereverse (blk1:int128)]`;
+                `blk2:int128`] GHASH1_SPEC_CHAIN_GEN) THEN
+  ASM_REWRITE_TAC[] THEN DISCH_THEN SUBST1_TAC THEN
+  REWRITE_TAC[GSYM(REWRITE_RULE[APPEND] (SPECL
+     [`H:int128`; `[word_bytereverse (blk0:int128); word_bytereverse (blk1:int128)]`;
+      `[word_bytereverse (blk2:int128)]`] NIST_GHASH_APPEND))]);;
+
+let GCM_GHASH_V8_LE3BLOCK = prove
+ (`!xi_p htbl_p in_p pc H h xi blk0 blk1 blk2.
+     h = ghash_twist H /\
+     nonoverlapping (word pc, LENGTH ghash_v8_lega_mc) (xi_p,16) /\
+     nonoverlapping (xi_p,16) (in_p,48) /\
+     nonoverlapping (xi_p,16) (htbl_p,96)
+     ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) ghash_v8_lega_mc /\
+               read PC s = word pc /\
+               C_ARGUMENTS [xi_p; htbl_p; in_p; word 48] s /\
+               read (memory :> bytes128 xi_p) s = xi /\
+               read (memory :> bytes128 in_p) s = blk0 /\
+               read (memory :> bytes128 (word_add in_p (word 16))) s = blk1 /\
+               read (memory :> bytes128 (word_add in_p (word 32))) s = blk2 /\
+               htable_mem_4 h htbl_p s)
+          (\s. read PC s = word (pc + 0x168) /\
+               read (memory :> bytes128 xi_p) s =
+               word_bytereverse
+                 (nist_ghash H (word_bytereverse xi)
+                    [word_bytereverse blk0; word_bytereverse blk1;
+                     word_bytereverse blk2]))
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                      Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
+                      Q29;Q30;Q31])`,
+  REWRITE_TAC[C_ARGUMENTS; htable_mem_4; fst GHASH_V8_LEGA_EXEC;
+              NONOVERLAPPING_CLAUSES] THEN
+  REPEAT STRIP_TAC THEN
+  ENSURES_INIT_TAC "s0" THEN
+  ARM_STEPS_TAC GHASH_V8_LEGA_EXEC (1--3) THEN
+  MAP_EVERY (fun n -> ARM_STEPS_TAC GHASH_V8_LEGA_EXEC [n] THEN Q128_NORM_TAC)
+            (4--88) THEN
+  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL
+   [AP_TERM_TAC THEN
+    REWRITE_TAC[INS128_TO_JOIN; INS_TO_JOIN; INS128_HI_TO_JOIN;
+                INS_HI_TO_JOIN; REV64_AS_BSWAP_BREV;
+                MID_FOLD_BSWAP_LO; MID_FOLD_BSWAP_HI; MID_FOLD;
+                MID_FOLD_BSWAP_DIST; karatsuba_mid] THEN
+    REWRITE_TAC[GHASH2_ALIGN] THEN
+    REWRITE_TAC[snd(build_GMULTn_fast 2)] THEN
+    REWRITE_TAC[GHASH1_ALIGN] THEN
+    REWRITE_TAC[snd(build_GMULTn_fast 1)] THEN
+    MATCH_MP_TAC GHASH3_SPEC_CHAIN THEN REFL_TAC;
+    REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+    REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC THEN ASM_REWRITE_TAC[]]);;
