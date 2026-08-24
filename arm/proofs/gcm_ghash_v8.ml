@@ -381,10 +381,13 @@ let BREV_RF8_INV_128 = prove
  (`!x:int128. word_bytereverse (word_reversefields 8 x) = x`,
   REWRITE_TAC[GSYM BREV_RF8_128; WORD_BYTEREVERSE_BYTEREVERSE]);;
 
-(* From arm/proofs/aesv8_gcm_8x_dec_256_wb.ml:7646. *)
-let nist_input_block = new_definition
- `nist_input_block (x:byte list) (i:num) : int128 =
-    word_reversefields 8 (bytes_to_int128 (SUB_LIST (16 * i, 16) x))`;;
+(* NOTE: `nist_input_block` (decrypt file :7646) is deliberately NOT lifted here.
+   Its body needs `bytes_to_int128`, which lives in arm/proofs/utils/aes_ctr_spec.ml
+   -- outside this file's three-`needs` closure.  The band statements below quantify
+   the input block as an `int128` read directly, so it is not needed until the
+   byte-list-shaped export in Phase 10; lift it (with its substrate) there.
+   Lifting it here made `new_definition` raise "term not closed: bytes_to_int128",
+   which `loadt` swallows -- every definition after it silently vanished. *)
 
 (* ------------------------------------------------------------------------- *)
 (* Byte-order pipeline: rev64 (per-lane byte reverse) composed with ext #8    *)
