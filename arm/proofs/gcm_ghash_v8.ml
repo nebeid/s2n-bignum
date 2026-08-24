@@ -543,3 +543,57 @@ let GCM_GHASH_V8_LE1BLOCK_PCONLY = prove
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
   REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
   REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC THEN ASM_REWRITE_TAC[]);;
+
+(* ------------------------------------------------------------------------- *)
+(* Algebra-close ingredients for the n = 1 band's GHASH postcondition.        *)
+(*                                                                           *)
+(* The value the assembly leaves in Q0 (and stores at xi_p) at s40 is         *)
+(* `word_bytereverse (<byteform>)`, where <byteform> is a 3-summand XOR built *)
+(* from exactly the atoms `build_GMULTn_fast 1` produces (the two `h_power h  *)
+(* 0` lane pmulls, `karatsuba_mid (h_power h 0)`, and the reduce constant     *)
+(* `word 13979173243358019584` = 0xC200000000000000).  The four lemmas below  *)
+(* were measured against the LIVE s40 term and each fires; they are what the  *)
+(* close needs beyond `build_GMULTn_fast 1` itself.                          *)
+(*                                                                           *)
+(* THE TYPE GOTCHA: `arm_INS` at 0x140/0x144 emits `word_insert` whose        *)
+(* INSERTED argument is an `int128`, not a `64 word`.  A 64-bit-typed         *)
+(* ins->join lemma silently fails to rewrite (`Failure "type_match"`), so     *)
+(* BOTH width variants are needed.                                           *)
+(* ------------------------------------------------------------------------- *)
+
+let INS_TO_JOIN = prove
+ (`!(x:int128) (y:64 word). word_insert x (0,64) y : int128 =
+     word_join (word_subword x (64,64) : 64 word) y`,
+  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
+
+let INS_HI_TO_JOIN = prove
+ (`!(x:int128) (y:64 word). word_insert x (64,64) y : int128 =
+     word_join y (word_subword x (0,64) : 64 word)`,
+  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
+
+let INS128_TO_JOIN = prove
+ (`!(x:int128) (y:int128). word_insert x (0,64) y : int128 =
+     word_join (word_subword x (64,64) : 64 word) (word_subword y (0,64) : 64 word)`,
+  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
+
+let INS128_HI_TO_JOIN = prove
+ (`!(x:int128) (y:int128). word_insert x (64,64) y : int128 =
+     word_join (word_subword y (0,64) : 64 word) (word_subword x (0,64) : 64 word)`,
+  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
+
+(* The Karatsuba MID operand.  `eor v17,v16,v18` at 0x118 mixes the un-ext'd
+   input register (rev64_128 blk0) with the ext'd accumulator, so the machine's
+   mid input is NOT syntactically `karatsuba_mid`'s `lo XOR hi` shape.  This
+   collapses it to exactly that shape (BITBLAST at 128 bits, ~2.2s). *)
+let MID_FOLD = prove
+ (`!(xi:int128) (blk0:int128).
+     word_subword
+       (word_xor (word_xor (word_bytereverse xi) (word_bytereverse blk0))
+                 (word_xor (byteswap128 (word_bytereverse xi)) (rev64_128 blk0)))
+       (0,64) : 64 word =
+     word_xor
+       (word_subword (word_xor (word_bytereverse xi) (word_bytereverse blk0))
+                     (0,64) : 64 word)
+       (word_subword (word_xor (word_bytereverse xi) (word_bytereverse blk0))
+                     (64,64) : 64 word)`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[byteswap128; rev64_128] THEN CONV_TAC WORD_BLAST);;
