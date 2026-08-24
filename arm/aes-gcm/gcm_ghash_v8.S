@@ -3,13 +3,13 @@
 
 // ----------------------------------------------------------------------------
 // GCM_GHASH_V8 (GHASH over whole 16-byte blocks, AArch64 NEON/PMULL)
-// Inputs Xi[16] (read and written), Htable[16], inp[len], len;
-// output Xi[16]
+// Inputs xi[16], htable[32], inp[len], len; output xi[16]
 //
-//    extern void gcm_ghash_v8(uint8_t Xi[static 16], const uint64_t Htable[static 32],
+//    extern void gcm_ghash_v8(uint8_t xi[static 16], const uint64_t htable[static 32],
 //                             const uint8_t *inp, size_t len);
 //
-// Standard ARM ABI: X0 = Xi, X1 = Htable, X2 = inp, X3 = len
+// The accumulator xi is both an input and the output.
+// Standard ARM ABI: X0 = xi, X1 = htable, X2 = inp, X3 = len
 // ----------------------------------------------------------------------------
 
 // Imported from aws-lc generated-src/linux-aarch64/crypto/fipsmodule/ghashv8-armx.S
