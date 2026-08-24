@@ -51,12 +51,12 @@ extern size_t aesv8_gcm_8x_dec_256_wb(const uint8_t *in, size_t bit_len, uint8_t
         const s2n_bignum_AES_KEY *key, const uint64_t htable[32]);
 
 /* GCM_GHASH_V8 (GHASH over whole 16-byte blocks) */
-/* Accumulates GHASH over "len" bytes of "inp" into the 16-byte state "Xi", using */
-/* the v8-format key table "Htable" produced by aws-lc's gcm_init_v8. "len" is in */
-/* bytes and must be a positive multiple of 16; only the 16 bytes at "Xi" are */
-/* written. Reads Htable[0..11] (96 bytes) when len >= 64, Htable[0..5] otherwise. */
-/* Inputs Xi[16], Htable[32], inp[len], len; output Xi[16] */
-extern void gcm_ghash_v8(uint8_t Xi[16], const uint64_t Htable[32],
+/* Accumulates GHASH over "len" bytes of "inp" into the 16-byte state "xi", using */
+/* the v8-format key table "htable" produced by aws-lc's gcm_init_v8. "len" is in */
+/* bytes and must be a positive multiple of 16; only the 16 bytes at "xi" are */
+/* written. Reads htable[0..5] (96 bytes) when len >= 64, htable[0..2] otherwise. */
+/* Inputs xi[16], htable[32], inp[len], len; output xi[16] */
+extern void gcm_ghash_v8(uint8_t xi[16], const uint64_t htable[32],
         const uint8_t *inp, size_t len);
 
 /* Add, z := x + y */
