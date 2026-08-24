@@ -499,52 +499,6 @@ let Q128_NORM_TAC =
     then CONV_RULE(RAND_CONV core) th else th);;
 
 (* ------------------------------------------------------------------------- *)
-(* Phase 2, step 1: the n = 1 (.Lodd_tail_v8) band, PC-only postcondition.    *)
-(*                                                                           *)
-(* This pins the CONTROL FLOW of the single-block path, harvested from the    *)
-(* live simulation (40 steps, ~29s, hyps = 0):                                *)
-(*   s3  : `b.cs` @0x004 falls through (16 < 64).                             *)
-(*   s18 : `b.lo` @0x044 IS taken -> PC = pc+0x110 = .Lodd_tail_v8, with      *)
-(*         Q0 = word_bytereverse xi, Q3 = word_bytereverse blk0,              *)
-(*         Q16 = rev64_128 blk0, Q20 = h_power h 0, Q22 = h_power h 1.        *)
-(*   s26 : the Karatsuba triple is formed and separable --                    *)
-(*         Q3 = xi' XOR blk0', Q0/Q2 = the lo/hi pmulls against h_power h 0.  *)
-(*   s40 : PC = pc+0x168, the `ret`.                                          *)
-(*                                                                           *)
-(* The GHASH algebra close (upgrading the postcondition to the nist_ghash     *)
-(* statement) is the next step; this theorem is what it will be built on.     *)
-(* ------------------------------------------------------------------------- *)
-
-let GCM_GHASH_V8_LE1BLOCK_PCONLY = prove
- (`!xi_p htbl_p in_p pc h xi blk0.
-     nonoverlapping (word pc, LENGTH ghash_v8_lega_mc) (xi_p,16) /\
-     nonoverlapping (xi_p,16) (in_p,16) /\
-     nonoverlapping (xi_p,16) (htbl_p,96)
-     ==> ensures arm
-          (\s. aligned_bytes_loaded s (word pc) ghash_v8_lega_mc /\
-               read PC s = word pc /\
-               C_ARGUMENTS [xi_p; htbl_p; in_p; word 16] s /\
-               read (memory :> bytes128 xi_p) s = xi /\
-               read (memory :> bytes128 in_p) s = blk0 /\
-               htable_mem_4 h htbl_p s)
-          (\s. read PC s = word (pc + 0x168))
-          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-           MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
-           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
-                      Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
-                      Q29;Q30;Q31])`,
-  REWRITE_TAC[C_ARGUMENTS; htable_mem_4; fst GHASH_V8_LEGA_EXEC;
-              NONOVERLAPPING_CLAUSES] THEN
-  REPEAT STRIP_TAC THEN
-  ENSURES_INIT_TAC "s0" THEN
-  ARM_STEPS_TAC GHASH_V8_LEGA_EXEC (1--3) THEN
-  MAP_EVERY (fun n -> ARM_STEPS_TAC GHASH_V8_LEGA_EXEC [n] THEN Q128_NORM_TAC)
-            (4--40) THEN
-  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
-  REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC THEN ASM_REWRITE_TAC[]);;
-
-(* ------------------------------------------------------------------------- *)
 (* Algebra-close ingredients for the n = 1 band's GHASH postcondition.        *)
 (*                                                                           *)
 (* The value the assembly leaves in Q0 (and stores at xi_p) at s40 is         *)
@@ -686,3 +640,70 @@ let GHASH1_SPEC_CHAIN = prove
   REWRITE_TAC[polyval_dot; h_power] THEN
   GEN_REWRITE_TAC (LAND_CONV o ONCE_DEPTH_CONV) [WORD_PMUL_SYM] THEN
   REFL_TAC);;
+
+(* ------------------------------------------------------------------------- *)
+(* Phase 2: the n = 1 (.Lodd_tail_v8) band, FULL nist_ghash postcondition.    *)
+(*                                                                           *)
+(* Control flow harvested from the live simulation (40 steps, hyps = 0):      *)
+(*   s3  : `b.cs` @0x004 falls through (16 < 64).                             *)
+(*   s18 : `b.lo` @0x044 IS taken -> PC = pc+0x110 = .Lodd_tail_v8, with      *)
+(*         Q0 = word_bytereverse xi, Q3 = word_bytereverse blk0,              *)
+(*         Q16 = rev64_128 blk0, Q20 = h_power h 0, Q22 = h_power h 1.        *)
+(*   s26 : the Karatsuba triple is formed and separable --                    *)
+(*         Q3 = xi' XOR blk0', Q0/Q2 = the lo/hi pmulls against h_power h 0.  *)
+(*   s40 : PC = pc+0x168, the `ret`; Q0 and [xi_p] both hold the reduce.      *)
+(*                                                                           *)
+(* The close is: AP_TERM off the outer word_bytereverse, then the four ins->  *)
+(* join folds + MID_FOLD + karatsuba_mid to reach the abstracted-atom shape,  *)
+(* then GHASH1_ALIGN to match build_GMULTn_fast 1's LHS, then that theorem to *)
+(* reach polyval_reduce_prop3 and GHASH1_SPEC_CHAIN to reach nist_ghash.      *)
+(*                                                                           *)
+(* Two constraints that are easy to rediscover the hard way:                  *)
+(*  - C_ARGUMENTS MUST be expanded in the opening REWRITE_TAC.  Left folded,  *)
+(*    `read X3 s = word 16` never reaches the goal, the `cmp x3,#0x40` at     *)
+(*    0x000 cannot resolve, and step 2 dies with the misleading message       *)
+(*    "ARM_CONV: can't find `read PC .. = ..` from ths".                      *)
+(*  - the ABI-shaped MAYCHANGE frame is load-bearing; the narrower            *)
+(*    per-register frame does NOT close (MONOTONE_MAYCHANGE_TAC fails on it). *)
+(*    Tightening it is a Phase-11 concern -- leg A demonstrably touches only  *)
+(*    Q0-Q7/Q16-Q22, so nothing is hidden, the theorem is merely weaker.      *)
+(* ------------------------------------------------------------------------- *)
+
+let GCM_GHASH_V8_LE1BLOCK = prove
+ (`!xi_p htbl_p in_p pc H h xi blk0.
+     h = ghash_twist H /\
+     nonoverlapping (word pc, LENGTH ghash_v8_lega_mc) (xi_p,16) /\
+     nonoverlapping (xi_p,16) (in_p,16) /\
+     nonoverlapping (xi_p,16) (htbl_p,96)
+     ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) ghash_v8_lega_mc /\
+               read PC s = word pc /\
+               C_ARGUMENTS [xi_p; htbl_p; in_p; word 16] s /\
+               read (memory :> bytes128 xi_p) s = xi /\
+               read (memory :> bytes128 in_p) s = blk0 /\
+               htable_mem_4 h htbl_p s)
+          (\s. read PC s = word (pc + 0x168) /\
+               read (memory :> bytes128 xi_p) s =
+               word_bytereverse
+                 (nist_ghash H (word_bytereverse xi) [word_bytereverse blk0]))
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                      Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
+                      Q29;Q30;Q31])`,
+  REWRITE_TAC[C_ARGUMENTS; htable_mem_4; fst GHASH_V8_LEGA_EXEC;
+              NONOVERLAPPING_CLAUSES] THEN
+  REPEAT STRIP_TAC THEN
+  ENSURES_INIT_TAC "s0" THEN
+  ARM_STEPS_TAC GHASH_V8_LEGA_EXEC (1--3) THEN
+  MAP_EVERY (fun n -> ARM_STEPS_TAC GHASH_V8_LEGA_EXEC [n] THEN Q128_NORM_TAC)
+            (4--40) THEN
+  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL
+   [AP_TERM_TAC THEN
+    REWRITE_TAC[INS128_TO_JOIN; INS_TO_JOIN; INS128_HI_TO_JOIN;
+                INS_HI_TO_JOIN; MID_FOLD; karatsuba_mid] THEN
+    REWRITE_TAC[GHASH1_ALIGN] THEN
+    REWRITE_TAC[snd(build_GMULTn_fast 1)] THEN
+    MATCH_MP_TAC GHASH1_SPEC_CHAIN THEN REFL_TAC;
+    REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+    REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC THEN ASM_REWRITE_TAC[]]);;
