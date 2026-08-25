@@ -2567,3 +2567,182 @@ let GCM_GHASH_V8_LEGB_TAIL = prove
     MATCH_MP_TAC GCM_GHASH_V8_LEGB_TAIL2;
     MATCH_MP_TAC GCM_GHASH_V8_LEGB_TAIL3] THEN
   ASM_REWRITE_TAC[] THEN ARITH_TAC);;
+
+(* ========================================================================= *)
+(* PHASE 9: recompose leg B.  ENTRY ; LOOP4X ; TAIL  ->  GCM_GHASH_V8_LEGB    *)
+(* for every len = 16*n with n >= 4.                                          *)
+(* ========================================================================= *)
+
+(* ------------------------------------------------------------------------- *)
+(* The k = 0 sibling entry: 0x170 -> 0x2d8 directly.                          *)
+(*                                                                           *)
+(* `GCM_GHASH_V8_LEGB_ENTRY` cannot cover k = 0.  At k = 0 the length         *)
+(* `16*n = 16*(4+r)` is 64/80/96/112, all STRICTLY LESS than 128, so the      *)
+(* `subs x3,x3,#0x80` at 0x200 leaves CF CLEAR and the `b.cc 0x2d8` at 0x204  *)
+(* IS TAKEN -- control never reaches 0x210.  ENTRY's postcondition is         *)
+(* `PC = pc + 0x210` and it assumes `1 <= k`, so it simply does not apply.    *)
+(*                                                                           *)
+(* Structurally this IS `GCM_GHASH_V8_LEGB_ENTRY` with the 0x204 guard        *)
+(* resolved the OTHER way and with the `b 0x210` at 0x208 never executed:     *)
+(* 38 steps instead of 39, and the two guard-folding facts become             *)
+(* `16 * (4 + r) < 128` (positively) rather than its negation.  Everything    *)
+(* else -- the four-block memory specialization, the 33 Q128_NORM_TAC steps,  *)
+(* the `nist_ghash`-nil degeneration of the Q0 clause at i = 0, and the       *)
+(* karatsuba_mid folds on Q30 -- is verbatim ENTRY.  38 steps, ~24 s.         *)
+(*                                                                           *)
+(* Note the postcondition is the SAME `ghash_v8_loop4x_inv ... n 0`, and      *)
+(* `..._LEGB_TAIL`'s precondition is the invariant at index k -- which at     *)
+(* k = 0 is exactly this.  So the k = 0 leg comes through the identical       *)
+(* `.Ltail4x` seam with no adapter.                                           *)
+(* ------------------------------------------------------------------------- *)
+
+let GCM_GHASH_V8_LEGB_ENTRY0 = prove
+ (`!xi_p htbl_p in_p pc H h xi (blk:num->int128) n r.
+     h = ghash_twist H /\
+     n = 4 + r /\ r < 4 /\ 16 * n < 2 EXP 64 /\
+     nonoverlapping (word pc, LENGTH ghash_v8_mc) (xi_p,16) /\
+     nonoverlapping (xi_p,16) (in_p,16 * n) /\
+     nonoverlapping (xi_p,16) (htbl_p,96)
+     ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) ghash_v8_mc /\
+               read PC s = word (pc + 0x170) /\
+               read X0 s = xi_p /\ read X1 s = htbl_p /\ read X2 s = in_p /\
+               read X3 s = word (16 * n) /\
+               read (memory :> bytes128 xi_p) s = xi /\
+               (!j. j < n
+                    ==> read (memory :> bytes128
+                               (word_add in_p (word (16 * j)))) s = blk j) /\
+               htable_mem_4 h htbl_p s)
+          (\s. read PC s = word (pc + 0x2d8) /\
+               ghash_v8_loop4x_inv pc xi_p htbl_p in_p H h xi blk n 0 s)
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                      Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
+                      Q29;Q30;Q31])`,
+  REWRITE_TAC[ghash_v8_loop4x_inv; ghash_acc_rev;
+              ghash_defer_lo; ghash_defer_hi; ghash_defer_mid] THEN
+  CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN
+  REWRITE_TAC[list_of_seq; MAP; nist_ghash; BYTEREVERSE128_INVOLUTION] THEN
+  REWRITE_TAC[htable_mem_4; fst GHASH_V8_EXEC; NONOVERLAPPING_CLAUSES] THEN
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `16 * n < 128` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  ENSURES_INIT_TAC "s0" THEN
+  SUBGOAL_THEN
+   `!j. j < 4
+        ==> read (memory :> bytes128 (word_add in_p (word (16 * j)))) s0 =
+            blk j`
+   (fun th -> MP_TAC(CONV_RULE (EXPAND_CASES_CONV THENC
+                                ONCE_DEPTH_CONV NUM_MULT_CONV) th)) THENL
+   [REPEAT STRIP_TAC THEN FIRST_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC;
+    REWRITE_TAC[WORD_ADD_0] THEN STRIP_TAC] THEN
+  ARM_STEPS_TAC GHASH_V8_EXEC (1--3) THEN
+  MAP_EVERY (fun m -> ARM_STEPS_TAC GHASH_V8_EXEC [m] THEN Q128_NORM_TAC)
+            (4--36) THEN
+  ARM_STEPS_TAC GHASH_V8_EXEC (37--38) THEN
+  SUBGOAL_THEN `val (word (16 * (4 + r)):int64) = 16 * (4 + r)`
+   ASSUME_TAC THENL
+   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  SUBGOAL_THEN `16 * (4 + r) < 128` ASSUME_TAC THENL
+   [ASM_ARITH_TAC; ALL_TAC] THEN
+  RULE_ASSUM_TAC(REWRITE_RULE
+   [ASSUME `val (word (16 * (4 + r)):int64) = 16 * (4 + r)`;
+    ASSUME `16 * (4 + r) < 128`]) THEN
+  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+  REPEAT CONJ_TAC THENL
+   [GEN_REWRITE_TAC ONCE_DEPTH_CONV [GSYM(ASSUME `n = 4 + r`)] THEN
+    FIRST_X_ASSUM MATCH_ACCEPT_TAC;
+    REWRITE_TAC[REV64_AS_BSWAP_BREV; MID_FOLD_BSWAP_LO; MID_FOLD_BSWAP_HI;
+                GSYM karatsuba_mid] THEN REFL_TAC;
+    REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+    REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC]);;
+
+(* ------------------------------------------------------------------------- *)
+(* Leg B, whole: 0x170 -> `ret` at 0x4c0, for every n >= 4.                    *)
+(*                                                                           *)
+(* `LEGB_RUNG` supplies the k/r decomposition (n = 4*(k+1) + r, r < 4) and    *)
+(* the composition then glues in TWO pieces at the 0x2d8 seam:                 *)
+(*                                                                           *)
+(*   0x170 -> 0x2d8   establishing `ghash_v8_loop4x_inv ... n k`               *)
+(*                     k = 0 : GCM_GHASH_V8_LEGB_ENTRY0 (the `b.cc` taken)     *)
+(*                     k >= 1: GCM_GHASH_V8_LEGB_LOOP4X (entry + the loop)     *)
+(*   0x2d8 -> 0x4c0   GCM_GHASH_V8_LEGB_TAIL (the four-way `.Ltail4x` cascade) *)
+(*                                                                           *)
+(* The seam needs NO adapter lemma in either leg: `LOOP4X`'s postcondition is  *)
+(* LITERALLY `..._TAIL`'s precondition, `ENTRY0` was stated to the identical   *)
+(* shape at index 0, `aligned_bytes_loaded` rides inside the invariant's first *)
+(* conjunct, and `..._TAIL` does NOT assume `1 <= k`.                          *)
+(*                                                                           *)
+(* FRAME: the two 0x170->0x2d8 theorems carry regs+flags+Q0..Q31 with NO       *)
+(* memory component (they write no memory), while `..._TAIL` additionally      *)
+(* carries `MAYCHANGE [memory :> bytes(xi_p,16)]` (the `st1` at 0x4bc).  So    *)
+(* the `ENSURES_FRAME_SUBSUMED` witness is the ASYMMETRIC pair                 *)
+(* `<regs+Q> ,, <regs+mem+Q>`, not the usual doubled `F ,, F`.                 *)
+(* `SUBSUMED_MAYCHANGE_TAC` discharges it in ~9 s after the ABI constant is    *)
+(* rewritten away (it is opaque to the subsumption machinery, exactly as at    *)
+(* `MAYCHANGE_IDEMPOT_TAC` -- see the note at the `.Loop4x` skeleton).         *)
+(*                                                                           *)
+(* SPELLING TRAP: `MATCH_MP_TAC` against `..._LOOP4X`/`..._TAIL`/`..._ENTRY0`  *)
+(* leaves ONLY `r` existentially quantified, not `k` -- `k` is pinned by the   *)
+(* invariant in the postcondition, so `MAP_EVERY EXISTS_TAC [k; r]` raises     *)
+(* `EXISTS_TAC: Goal not existentially quantified` on the second.  One         *)
+(* `EXISTS_TAC \`r:num\`` is what is wanted.                                    *)
+(* ------------------------------------------------------------------------- *)
+
+let GCM_GHASH_V8_LEGB = prove
+ (`!xi_p htbl_p in_p pc H h xi (blk:num->int128) n.
+     h = ghash_twist H /\ 4 <= n /\ 16 * n < 2 EXP 64 /\
+     nonoverlapping (word pc, LENGTH ghash_v8_mc) (xi_p,16) /\
+     nonoverlapping (xi_p,16) (in_p,16 * n) /\
+     nonoverlapping (xi_p,16) (htbl_p,96)
+     ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) ghash_v8_mc /\
+               read PC s = word (pc + 0x170) /\
+               read X0 s = xi_p /\ read X1 s = htbl_p /\ read X2 s = in_p /\
+               read X3 s = word (16 * n) /\
+               read (memory :> bytes128 xi_p) s = xi /\
+               (!j. j < n
+                    ==> read (memory :> bytes128
+                               (word_add in_p (word (16 * j)))) s = blk j) /\
+               htable_mem_4 h htbl_p s)
+          (\s. read PC s = word (pc + 0x4c0) /\
+               read (memory :> bytes128 xi_p) s =
+               word_bytereverse
+                 (nist_ghash H (word_bytereverse xi)
+                    (MAP word_bytereverse (list_of_seq blk n))))
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                      Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
+                      Q29;Q30;Q31])`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(MATCH_MP LEGB_RUNG (ASSUME `4 <= n`)) THEN
+  DISCH_THEN(X_CHOOSE_THEN `k:num` (X_CHOOSE_THEN `r:num` STRIP_ASSUME_TAC)) THEN
+  MATCH_MP_TAC ENSURES_FRAME_SUBSUMED THEN
+  EXISTS_TAC
+   `(MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+     MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
+                Q29;Q30;Q31]) ,,
+    (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+     MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
+     MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
+                Q29;Q30;Q31])` THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+    SUBSUMED_MAYCHANGE_TAC;
+    ALL_TAC] THEN
+  MATCH_MP_TAC ENSURES_TRANS THEN
+  EXISTS_TAC
+   `\s. read PC s = word (pc + 0x2d8) /\
+        ghash_v8_loop4x_inv pc xi_p htbl_p in_p H h xi blk n k s` THEN
+  CONJ_TAC THENL
+   [ASM_CASES_TAC `k = 0` THENL
+     [FIRST_X_ASSUM SUBST_ALL_TAC THEN
+      MATCH_MP_TAC GCM_GHASH_V8_LEGB_ENTRY0 THEN
+      EXISTS_TAC `r:num` THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
+      MATCH_MP_TAC GCM_GHASH_V8_LEGB_LOOP4X THEN
+      EXISTS_TAC `r:num` THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC];
+    MATCH_MP_TAC GCM_GHASH_V8_LEGB_TAIL THEN
+    EXISTS_TAC `r:num` THEN ASM_REWRITE_TAC[]]);;
