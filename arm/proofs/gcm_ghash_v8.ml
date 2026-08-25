@@ -698,7 +698,7 @@ let GCM_GHASH_V8_LE1BLOCK = prove
                  (nist_ghash H (word_bytereverse xi) [word_bytereverse blk0]))
           (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
            MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
-           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;
                       Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
                       Q29;Q30;Q31])`,
   REWRITE_TAC[C_ARGUMENTS; htable_mem_4; fst GHASH_V8_LEGA_EXEC;
@@ -848,7 +848,7 @@ let GCM_GHASH_V8_LE2BLOCK = prove
                     [word_bytereverse blk0; word_bytereverse blk1]))
           (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
            MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
-           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;
                       Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
                       Q29;Q30;Q31])`,
   REWRITE_TAC[C_ARGUMENTS; htable_mem_4; fst GHASH_V8_LEGA_EXEC;
@@ -990,7 +990,7 @@ let GCM_GHASH_V8_LE3BLOCK = prove
                      word_bytereverse blk2]))
           (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
            MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
-           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;
                       Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
                       Q29;Q30;Q31])`,
   REWRITE_TAC[C_ARGUMENTS; htable_mem_4; fst GHASH_V8_LEGA_EXEC;
@@ -1082,7 +1082,7 @@ let GCM_GHASH_V8_LEGA = prove
                     (MAP word_bytereverse (list_of_seq blk n))))
           (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
            MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
-           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;
                       Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
                       Q29;Q30;Q31])`,
   REPEAT GEN_TAC THEN STRIP_TAC THEN
@@ -1195,7 +1195,7 @@ let GCM_GHASH_V8_LEGB_PROLOGUE = prove
                      (word_pmul (karatsuba_mid (h_power h 0))
                                 (karatsuba_mid (word_bytereverse b3)))))
           (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;
                       Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
                       Q29;Q30;Q31])`,
   REWRITE_TAC[htable_mem_4; fst GHASH_V8_EXEC; NONOVERLAPPING_CLAUSES] THEN
@@ -1366,7 +1366,7 @@ let GCM_GHASH_V8_LEGB_ENTRY = prove
           (\s. read PC s = word (pc + 0x210) /\
                ghash_v8_loop4x_inv pc xi_p htbl_p in_p H h xi blk n 0 s)
           (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;
                       Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
                       Q29;Q30;Q31])`,
   REWRITE_TAC[ghash_v8_loop4x_inv; ghash_acc_rev;
@@ -1673,7 +1673,7 @@ let GCM_GHASH_V8_LEGB_LOOP4X = prove
           (\s. read PC s = word (pc + 0x2d8) /\
                ghash_v8_loop4x_inv pc xi_p htbl_p in_p H h xi blk n k s)
           (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;
                       Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
                       Q29;Q30;Q31])`,
   REPEAT GEN_TAC THEN STRIP_TAC THEN
@@ -1873,7 +1873,7 @@ let GCM_GHASH_V8_LEGB_TAIL0 = prove
                     (MAP word_bytereverse (list_of_seq blk n))))
           (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
            MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
-           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;
                       Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
                       Q29;Q30;Q31])`,
   REWRITE_TAC[ghash_v8_loop4x_inv; fst GHASH_V8_EXEC;
@@ -1970,7 +1970,7 @@ let GCM_GHASH_V8_LEGB_TAIL1 = prove
                     (MAP word_bytereverse (list_of_seq blk n))))
           (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
            MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
-           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;
                       Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
                       Q29;Q30;Q31])`,
   REWRITE_TAC[ghash_v8_loop4x_inv; fst GHASH_V8_EXEC;
@@ -2244,7 +2244,7 @@ let GCM_GHASH_V8_LEGB_TAIL2 = prove
                     (MAP word_bytereverse (list_of_seq blk n))))
           (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
            MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
-           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;
                       Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
                       Q29;Q30;Q31])`,
   REWRITE_TAC[ghash_v8_loop4x_inv; fst GHASH_V8_EXEC;
@@ -2473,7 +2473,7 @@ let GCM_GHASH_V8_LEGB_TAIL3 = prove
                     (MAP word_bytereverse (list_of_seq blk n))))
           (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
            MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
-           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;
                       Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
                       Q29;Q30;Q31])`,
   REWRITE_TAC[ghash_v8_loop4x_inv; fst GHASH_V8_EXEC;
@@ -2556,7 +2556,7 @@ let GCM_GHASH_V8_LEGB_TAIL = prove
                     (MAP word_bytereverse (list_of_seq blk n))))
           (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
            MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
-           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;
                       Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
                       Q29;Q30;Q31])`,
   REPEAT GEN_TAC THEN STRIP_TAC THEN
@@ -2616,7 +2616,7 @@ let GCM_GHASH_V8_LEGB_ENTRY0 = prove
           (\s. read PC s = word (pc + 0x2d8) /\
                ghash_v8_loop4x_inv pc xi_p htbl_p in_p H h xi blk n 0 s)
           (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;
                       Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
                       Q29;Q30;Q31])`,
   REWRITE_TAC[ghash_v8_loop4x_inv; ghash_acc_rev;
@@ -2712,7 +2712,7 @@ let GCM_GHASH_V8_LEGB = prove
                     (MAP word_bytereverse (list_of_seq blk n))))
           (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
            MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
-           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;
                       Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
                       Q29;Q30;Q31])`,
   REPEAT GEN_TAC THEN STRIP_TAC THEN
@@ -2721,12 +2721,12 @@ let GCM_GHASH_V8_LEGB = prove
   MATCH_MP_TAC ENSURES_FRAME_SUBSUMED THEN
   EXISTS_TAC
    `(MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-     MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+     MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;
                 Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
                 Q29;Q30;Q31]) ,,
     (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
      MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
-     MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+     MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;
                 Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
                 Q29;Q30;Q31])` THEN
   CONJ_TAC THENL
@@ -2797,7 +2797,7 @@ let GCM_GHASH_V8_LEGB_FRONT = prove
                                (word_add in_p (word (16 * j)))) s = blk j) /\
                htable_mem_4 h htbl_p s)
           (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;
                       Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
                       Q29;Q30;Q31])`,
   REWRITE_TAC[C_ARGUMENTS; htable_mem_4; fst GHASH_V8_EXEC;
@@ -2841,19 +2841,19 @@ let GCM_GHASH_V8_LEGB_FULL = prove
                     (MAP word_bytereverse (list_of_seq blk n))))
           (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
            MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
-           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;
                       Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
                       Q29;Q30;Q31])`,
   REPEAT GEN_TAC THEN STRIP_TAC THEN
   MATCH_MP_TAC ENSURES_FRAME_SUBSUMED THEN
   EXISTS_TAC
    `(MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-     MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+     MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;
                 Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
                 Q29;Q30;Q31]) ,,
     (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
      MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
-     MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+     MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;
                 Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
                 Q29;Q30;Q31])` THEN
   CONJ_TAC THENL
@@ -2921,7 +2921,7 @@ let GCM_GHASH_V8_LEGA_FULL = prove
                     (MAP word_bytereverse (list_of_seq blk n))))
           (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
            MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
-           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;
                       Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
                       Q29;Q30;Q31])`,
   REPEAT GEN_TAC THEN STRIP_TAC THEN
@@ -2987,7 +2987,7 @@ let GCM_GHASH_V8_CORRECT = prove
                     (MAP word_bytereverse (list_of_seq blk n))))
           (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
            MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
-           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;
                       Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
                       Q29;Q30;Q31])`,
   REPEAT GEN_TAC THEN STRIP_TAC THEN
@@ -3013,3 +3013,63 @@ let GCM_GHASH_V8_CORRECT = prove
      [GEN_TAC THEN REWRITE_TAC[] THEN MESON_TAC[];
       MATCH_MP_TAC GCM_GHASH_V8_LEGB_FULL THEN ASM_REWRITE_TAC[] THEN
       ASM_ARITH_TAC]]);;
+
+(* ========================================================================= *)
+(* PHASE 11: the leaf subroutine wrapper.                                     *)
+(* ========================================================================= *)
+
+(* ------------------------------------------------------------------------- *)
+(* `gcm_ghash_v8` is a LEAF with no stack frame and no callee-save spills, so  *)
+(* `ARM_ADD_RETURN_NOSTACK_TAC` applies directly.  Two non-obvious points.     *)
+(*                                                                           *)
+(* 1. The Q FRAME MUST EXCLUDE Q8..Q15, and that is why every frame in this    *)
+(*    file lists `Q0..Q7; Q16..Q31` rather than all of `Q0..Q31`.  The AArch64 *)
+(*    PCS makes the LOW halves of v8..v15 callee-saved, so                     *)
+(*    `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI` permits only                 *)
+(*    `Q8 :> tophalf ... Q15 :> tophalf` for those eight -- a core frame       *)
+(*    claiming the full `Q8..Q15` is NOT subsumed by the ABI frame, and the     *)
+(*    wrapper's final `MONOTONE_MAYCHANGE_TAC` fails with a bare               *)
+(*    `MATCH_MP_TAC: No match` that says nothing about which register is at     *)
+(*    fault.  The routine in fact touches only v0..v7 and v16..v31 (checked     *)
+(*    against `objdump`: no `v8`..`v15` operand appears anywhere in the 305    *)
+(*    instructions), so the narrower frame is not a weakening of anything --   *)
+(*    the wide frame was simply over-permissive.                               *)
+(*                                                                           *)
+(* 2. `LENGTH ghash_v8_mc` must be REWRITTEN to the literal 1220 in BOTH the   *)
+(*    goal and the transported core theorem.  With the symbolic `LENGTH` the   *)
+(*    tactic's own program-preservation check fails with                       *)
+(*    `could not prove that updates will not modify the program code` -- it    *)
+(*    cannot see that the store to `xi_p` misses the code region without a     *)
+(*    concrete size.                                                           *)
+(*                                                                           *)
+(* The two exit disjuncts of `GCM_GHASH_V8_CORRECT` cost nothing here: the     *)
+(* tactic steps the `ret` once per disjunct and both land on                    *)
+(* `read PC s = returnaddress`.                                                *)
+(* ------------------------------------------------------------------------- *)
+
+let GCM_GHASH_V8_SUBROUTINE_CORRECT = prove
+ (`!xi_p htbl_p in_p pc H h xi (blk:num->int128) n returnaddress.
+     h = ghash_twist H /\ 1 <= n /\ 16 * n < 2 EXP 64 /\
+     nonoverlapping (word pc, LENGTH ghash_v8_mc) (xi_p,16) /\
+     nonoverlapping (xi_p,16) (in_p,16 * n) /\
+     nonoverlapping (xi_p,16) (htbl_p,96)
+     ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) ghash_v8_mc /\
+               read PC s = word pc /\
+               read X30 s = returnaddress /\
+               C_ARGUMENTS [xi_p; htbl_p; in_p; word (16 * n)] s /\
+               read (memory :> bytes128 xi_p) s = xi /\
+               (!i. i < n
+                    ==> read (memory :> bytes128
+                               (word_add in_p (word (16 * i)))) s = blk i) /\
+               htable_mem_4 h htbl_p s)
+          (\s. read PC s = returnaddress /\
+               read (memory :> bytes128 xi_p) s =
+               word_bytereverse
+                 (nist_ghash H (word_bytereverse xi)
+                    (MAP word_bytereverse (list_of_seq blk n))))
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [memory :> bytes(xi_p:int64,16)])`,
+  REWRITE_TAC[fst GHASH_V8_EXEC] THEN
+  ARM_ADD_RETURN_NOSTACK_TAC GHASH_V8_EXEC
+    (REWRITE_RULE[fst GHASH_V8_EXEC] GCM_GHASH_V8_CORRECT));;
