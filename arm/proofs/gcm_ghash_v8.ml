@@ -1105,8 +1105,17 @@ let GCM_GHASH_V8_LEGA = prove
 (* accumulator at group i, deferred sums for group i+1).                       *)
 (*                                                                           *)
 (* This theorem stops one instruction BEFORE the `subs x3,x3,#0x80` at 0x200,  *)
-(* so it is exactly the i = 0 invariant instance Phase 6 needs; x3 is          *)
-(* deliberately not mentioned (the band bound belongs to the loop, not here).  *)
+(* so it is exactly the i = 0 invariant instance Phase 6 needs.                *)
+(*                                                                           *)
+(* SEAM STRENGTH: X3 is carried through as an opaque `c` and                   *)
+(* `aligned_bytes_loaded` is re-asserted in the POSTcondition.  Both are       *)
+(* needed to chain this band through `ENSURES_TRANS`.  The frame's             *)
+(* `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI` covers `MODIFIABLE_GPRS`, hence *)
+(* X3, so without the explicit conjunct nothing would be knowable about X3 at  *)
+(* the 0x200 seam -- and X3 is exactly what the `subs`/`b.cc` there uses to    *)
+(* decide `.Loop4x` vs `.Ltail4x` and how many iterations run.  The prologue   *)
+(* itself never touches X3 (the `subs` is at 0x200, outside the band), so `c`  *)
+(* passes through unchanged.                                                  *)
 (*                                                                           *)
 (* H-TABLE REGISTER MAP (the `ld1 ...,[x1],#48` at 0x174 post-increments x1,   *)
 (* so the `ld1 ...,[x1]` at 0x184 reads htbl_p + 48/64/80):                    *)
@@ -1128,22 +1137,25 @@ let GCM_GHASH_V8_LEGA = prove
 (* ------------------------------------------------------------------------- *)
 
 let GCM_GHASH_V8_LEGB_PROLOGUE = prove
- (`!xi_p htbl_p in_p pc h xi b0 b1 b2 b3.
+ (`!xi_p htbl_p in_p pc h xi b0 b1 b2 b3 c.
      nonoverlapping (word pc, LENGTH ghash_v8_mc) (xi_p,16)
      ==> ensures arm
           (\s. aligned_bytes_loaded s (word pc) ghash_v8_mc /\
                read PC s = word (pc + 0x170) /\
                read X0 s = xi_p /\ read X1 s = htbl_p /\ read X2 s = in_p /\
+               read X3 s = c /\
                read (memory :> bytes128 xi_p) s = xi /\
                read (memory :> bytes128 in_p) s = b0 /\
                read (memory :> bytes128 (word_add in_p (word 16))) s = b1 /\
                read (memory :> bytes128 (word_add in_p (word 32))) s = b2 /\
                read (memory :> bytes128 (word_add in_p (word 48))) s = b3 /\
                htable_mem_4 h htbl_p s)
-          (\s. read PC s = word (pc + 0x200) /\
+          (\s. aligned_bytes_loaded s (word pc) ghash_v8_mc /\
+               read PC s = word (pc + 0x200) /\
                read X0 s = xi_p /\
                read X1 s = word_add htbl_p (word 48) /\
                read X2 s = word_add in_p (word 64) /\
+               read X3 s = c /\
                read Q0 s = rev64_128 xi /\
                read Q4 s = rev64_128 b0 /\
                read Q19 s = word 257870231182273679357317742937744867328 /\
