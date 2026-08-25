@@ -1454,6 +1454,88 @@ let GCM_GHASH_V8_LEGB_ENTRY_ABL =
     GEN_TAC THEN REWRITE_TAC[ghash_v8_loop4x_inv] THEN MESON_TAC[]) in
   DISCH_ALL(MATCH_MP ENSURES_POSTCONDITION_THM (CONJ imp (UNDISCH ent)));;
 
+(* ------------------------------------------------------------------------- *)
+(* Phase 7 support: the counter/flag rung for the body's `subs x3,#0x40`.      *)
+(*                                                                           *)
+(* X3 enters the body as `word_sub (word (16*n)) (word (128 + 64*i))`; the    *)
+(* `subs` at 0x2d0 subtracts another 0x40 and the `b.cs` reads its carry, so  *)
+(* the body's flag obligation is exactly `64 <= val <that word> <=> i+1 < k`. *)
+(* Both `word_sub`s collapse to a single `word (a - b)` because `128+64*i` is *)
+(* genuinely <= `16*n` for `i < k` (from `n = 4*(k+1)+r`), which is what lets *)
+(* `VAL_WORD_EQ` discharge the `val`.                                         *)
+(* ------------------------------------------------------------------------- *)
+
+let LOOP4X_CF = prove
+ (`!k r i. i < k /\ r < 4 /\ 16 * (4 * (k + 1) + r) < 2 EXP 64
+           ==> (64 <= val (word_sub (word (16 * (4 * (k + 1) + r)))
+                                    (word (128 + 64 * i)) : int64) <=>
+                i + 1 < k)`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN
+   `word_sub (word (16 * (4 * (k + 1) + r))) (word (128 + 64 * i)) :int64 =
+    word (16 * (4 * (k + 1) + r) - (128 + 64 * i))`
+   SUBST1_TAC THENL
+   [REWRITE_TAC[WORD_SUB] THEN COND_CASES_TAC THEN
+    ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN
+   `val (word (16 * (4 * (k + 1) + r) - (128 + 64 * i)) : int64) =
+    16 * (4 * (k + 1) + r) - (128 + 64 * i)` SUBST1_TAC THENL
+   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  ASM_ARITH_TAC);;
+
+(* The three block indices the body's deferred-sum rebuild needs, so the
+   `ghash_defer_*` clauses at `4*(i+1)` line up with what the sim produces
+   for the newly-loaded blocks `4i+5 / 4i+6 / 4i+7`. *)
+
+let LOOP4X_DEFER_IDX = ARITH_RULE
+ `4 * (i + 1) + 1 = 4 * i + 5 /\
+  4 * (i + 1) + 2 = 4 * i + 6 /\
+  4 * (i + 1) + 3 = 4 * i + 7`;;
+
+(* ------------------------------------------------------------------------- *)
+(* Phase 7, part 1: the body's SIMULATION and nine of its ten postcondition   *)
+(* conjuncts.                                                                *)
+(*                                                                           *)
+(* The `ld1 {v4.2d-v7.2d},[x2],#64` at 0x214 loads the NEXT group's four      *)
+(* blocks, so four instances must be specialized out of the invariant's       *)
+(* quantified input-memory predicate BEFORE that step -- via `FIRST_ASSUM`-   *)
+(* style `SPEC`, never `FIRST_X_ASSUM`, because the quantified form has to    *)
+(* survive to the postcondition (the invariant re-asserts it at i+1).         *)
+(*                                                                           *)
+(* CRITICAL and easy to get wrong: the 4-register `ld1` emits its three high  *)
+(* addresses as a SINGLE `word_add in_p (word (64*(i+1) + 16))`, NOT as the   *)
+(* nested `word_add (word_add in_p (word (64*(i+1)))) (word 16)` that the      *)
+(* obvious spelling produces.  Supplying the nested form leaves Q5/Q6/Q7 as   *)
+(* unresolved `read (memory :> ...) s1` facts, which `DISCARD_OLDSTATE_TAC`   *)
+(* then ERASES on the next step -- silently, with no error, and the Q29/Q31/  *)
+(* Q30 rebuild obligations become unprovable 40 steps later.  Spell the       *)
+(* offsets FLAT.                                                             *)
+(* ------------------------------------------------------------------------- *)
+
+let LOOP4X_SETUP_BLK_TAC =
+  SUBGOAL_THEN
+   `read (memory :> bytes128 (word_add in_p (word (64 * (i+1))))) s1 =
+      blk (4*i+4) /\
+    read (memory :> bytes128 (word_add in_p (word (64 * (i+1) + 16)))) s1 =
+      blk (4*i+5) /\
+    read (memory :> bytes128 (word_add in_p (word (64 * (i+1) + 32)))) s1 =
+      blk (4*i+6) /\
+    read (memory :> bytes128 (word_add in_p (word (64 * (i+1) + 48)))) s1 =
+      blk (4*i+7)`
+   STRIP_ASSUME_TAC THENL
+   [REPEAT CONJ_TAC THEN
+    (fun (asl,w) ->
+       let jn = rand(rhs w) in
+       (MP_TAC(SPEC jn (ASSUME
+          `!j. j < n
+               ==> read (memory :> bytes128
+                          (word_add in_p (word (16 * j)))) s1 = blk j`)) THEN
+        ANTS_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+        DISCH_THEN(SUBST1_TAC o SYM) THEN AP_THM_TAC THEN AP_TERM_TAC THEN
+        AP_TERM_TAC THEN AP_TERM_TAC THEN CONV_TAC WORD_RULE) (asl,w));
+    ALL_TAC];;
+
 let GCM_GHASH_V8_LEGB_LOOP4X = prove
  (`!xi_p htbl_p in_p pc H h xi (blk:num->int128) n k r.
      h = ghash_twist H /\
@@ -1489,8 +1571,60 @@ let GCM_GHASH_V8_LEGB_LOOP4X = prove
     (* 2. loop ENTRY: 0x170 -> 0x210, from GCM_GHASH_V8_LEGB_ENTRY *)
     MATCH_MP_TAC GCM_GHASH_V8_LEGB_ENTRY_ABL THEN ASM_REWRITE_TAC[];
 
-    (* 3. the BODY, i -> i+1: Phase 7.  49 instructions + the b.cs. *)
-    CHEAT_TAC;
+    (* 3. the BODY, i -> i+1: Phase 7.  49 instructions + the b.cs.
+       Simulates in ~11 s (leg B's body has ONE reduce over ONE group, so
+       nothing accumulates across i and the terms stay in the low thousands
+       of chars rather than leg A's 205 KB).  After the final state and one
+       `REPEAT CONJ_TAC` there are exactly TEN conjuncts; nine close here.
+       The tenth -- the GHASH accumulator, `read Q0 = ghash_acc_rev ... at
+       4*(i+1)` -- is the open half and is BRIEF lesson 4's target. *)
+    REPEAT STRIP_TAC THEN
+    REWRITE_TAC[ghash_v8_loop4x_inv] THEN
+    ENSURES_INIT_TAC "s0" THEN
+    ARM_STEPS_TAC GHASH_V8_EXEC [1] THEN
+    LOOP4X_SETUP_BLK_TAC THEN
+    MAP_EVERY (fun m -> ARM_STEPS_TAC GHASH_V8_EXEC [m] THEN Q128_NORM_TAC)
+              (2--49) THEN
+    ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+    REWRITE_TAC[ghash_v8_loop4x_inv] THEN REPEAT CONJ_TAC THENL
+     [(* X2 advances one group *)
+      CONV_TAC WORD_RULE;
+
+      (* X3: the body's own `subs x3,#0x40` *)
+      CONV_TAC WORD_RULE;
+
+      (* the quantified input memory, with `n` folded back *)
+      GEN_REWRITE_TAC ONCE_DEPTH_CONV [GSYM(ASSUME `n = 4 * (k + 1) + r`)] THEN
+      FIRST_X_ASSUM MATCH_ACCEPT_TAC;
+
+      (* THE OPEN HALF: the GHASH accumulator at 4*(i+1).  See the comment
+         below the theorem for the exact remaining obligation. *)
+      CHEAT_TAC;
+
+      (* Q4 = the new group's block 4(i+1) *)
+      AP_TERM_TAC THEN AP_TERM_TAC THEN ARITH_TAC;
+
+      (* Q29/Q31/Q30: the deferred sums rebuilt from the newly loaded
+         v5/v6/v7.  Pre-reduce, so they close in folded vocabulary. *)
+      ASM_REWRITE_TAC[ghash_defer_lo] THEN
+      CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN
+      REWRITE_TAC[LOOP4X_DEFER_IDX] THEN REFL_TAC;
+
+      ASM_REWRITE_TAC[ghash_defer_hi] THEN
+      CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN
+      REWRITE_TAC[LOOP4X_DEFER_IDX] THEN REFL_TAC;
+
+      ASM_REWRITE_TAC[ghash_defer_mid] THEN
+      CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN
+      REWRITE_TAC[LOOP4X_DEFER_IDX] THEN
+      REWRITE_TAC[REV64_AS_BSWAP_BREV; MID_FOLD_BSWAP_LO; MID_FOLD_BSWAP_HI;
+                  GSYM karatsuba_mid] THEN REFL_TAC;
+
+      (* the flag fact the back-edge reads *)
+      MATCH_MP_TAC LOOP4X_CF THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
+
+      REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+      REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC];
 
     (* 4. the BACK-EDGE: b.cs @0x2d4, taken because CF holds for i < k *)
     REPEAT STRIP_TAC THEN
