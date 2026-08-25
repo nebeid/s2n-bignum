@@ -1211,3 +1211,300 @@ let GCM_GHASH_V8_LEGB_PROLOGUE = prove
   TRY(REWRITE_TAC[REV64_AS_BSWAP_BREV; MID_FOLD_BSWAP_LO; MID_FOLD_BSWAP_HI;
                   GSYM karatsuba_mid] THEN REFL_TAC) THEN
   TRY(CONV_TAC WORD_RULE));;
+
+(* ------------------------------------------------------------------------- *)
+(* Phase 6: the `.Loop4x` invariant, bootstrapped and FROZEN.                 *)
+(*                                                                           *)
+(* The loop is 0x210..0x2d0 (49 instructions) plus the `b.cs 0x210` back-edge *)
+(* at 0x2d4, i.e. 50 steps per iteration.  X3 counts DOWN, so this is a       *)
+(* flag-conditional back-edge and the right tactic is ENSURES_WHILE_PUP_TAC   *)
+(* with the CF fact as the "q" clause.                                        *)
+(*                                                                           *)
+(* LOOP COUNT.  `LEGB_RUNG` gives n = 4*(k+1) + r with r < 4.  X3 = 16n on    *)
+(* entry at 0x170; `subs x3,#0x80` at 0x200 leaves 16n - 128, and the         *)
+(* `b.cc 0x2d8` at 0x204 is taken iff 16n < 128 iff k = 0.  At the loop top   *)
+(* with index i, X3 = 16n - 128 - 64i = 64*(k-i-1) + 16r, so the             *)
+(* `subs x3,#0x40` at 0x2d0 sets CF (no borrow) iff i + 1 < k and the         *)
+(* `b.cs` back-edge is taken exactly then.  Hence the loop runs EXACTLY k     *)
+(* times and the "q" clause is `read CF s <=> i < k` -- note that at the      *)
+(* exit instance i = k it reduces to `k < k`, i.e. false, which is what makes *)
+(* the fall-through to `.Ltail4x` at 0x2d8 resolve.                           *)
+(*                                                                           *)
+(* THE INVARIANT IS TWO-INDEXED, and the assembly is what forces it: 0x214    *)
+(* loads the NEXT group's four blocks into v4..v7 near the TOP of the body    *)
+(* and the body rebuilds v29/v31/v30 from them.  So at the loop top with      *)
+(* index i the machine holds                                                  *)
+(*   Q0          the REDUCED accumulator over blocks 0..4i-1  (group i)       *)
+(*   Q4          rev64 (blk (4i)), loaded but NOT yet multiplied              *)
+(*   Q29/Q31/Q30 the DEFERRED Sum pl/ph/pm for blocks 4i+1, 4i+2, 4i+3        *)
+(*               against h_power h 2 / 1 / 0  (group i+1's products)          *)
+(* i.e. two clauses at DIFFERENT indices, exactly as the decrypt kernel's     *)
+(* pipelined two-stream invariant.                                            *)
+(*                                                                           *)
+(* Every loop CONSTANT is re-asserted explicitly -- nothing is inherited      *)
+(* across an ENSURES_WHILE step: the 0xc2 reduction constant in Q19, all six  *)
+(* H-table registers in their post-`ext` form (Q20/Q22/Q26/Q28 and the two    *)
+(* mid pairs Q21/Q27), X0/X1, the advanced input pointer X2, the counter X3,  *)
+(* `aligned_bytes_loaded`, and the QUANTIFIED input-memory predicate.  The    *)
+(* last one is the classic trap: it must be carried in the invariant, not     *)
+(* rederived, because the body reads blocks 4i+4..4i+7 from it.               *)
+(*                                                                           *)
+(* The four helper definitions below exist so the invariant term stays        *)
+(* readable and so the Phase-7 body proof can rewrite the deferred sums at    *)
+(* index 4*(i+1) without re-typing 300-char word_pmul trees.                  *)
+(* ------------------------------------------------------------------------- *)
+
+let ghash_defer_lo = new_definition
+ `ghash_defer_lo (h:int128) (blk:num->int128) (m:num) : int128 =
+    word_xor
+      (word_pmul (word_subword (h_power h 2) (0,64) : 64 word)
+                 (word_subword (word_bytereverse (blk (m+1))) (0,64) : 64 word))
+      (word_xor
+        (word_pmul (word_subword (h_power h 1) (0,64) : 64 word)
+                   (word_subword (word_bytereverse (blk (m+2))) (0,64) : 64 word))
+        (word_pmul (word_subword (h_power h 0) (0,64) : 64 word)
+                   (word_subword (word_bytereverse (blk (m+3))) (0,64) : 64 word)))`;;
+
+let ghash_defer_hi = new_definition
+ `ghash_defer_hi (h:int128) (blk:num->int128) (m:num) : int128 =
+    word_xor
+      (word_pmul (word_subword (h_power h 2) (64,64) : 64 word)
+                 (word_subword (word_bytereverse (blk (m+1))) (64,64) : 64 word))
+      (word_xor
+        (word_pmul (word_subword (h_power h 1) (64,64) : 64 word)
+                   (word_subword (word_bytereverse (blk (m+2))) (64,64) : 64 word))
+        (word_pmul (word_subword (h_power h 0) (64,64) : 64 word)
+                   (word_subword (word_bytereverse (blk (m+3))) (64,64) : 64 word)))`;;
+
+let ghash_defer_mid = new_definition
+ `ghash_defer_mid (h:int128) (blk:num->int128) (m:num) : int128 =
+    word_xor
+      (word_pmul (karatsuba_mid (h_power h 2))
+                 (karatsuba_mid (word_bytereverse (blk (m+1)))))
+      (word_xor
+        (word_pmul (karatsuba_mid (h_power h 1))
+                   (karatsuba_mid (word_bytereverse (blk (m+2)))))
+        (word_pmul (karatsuba_mid (h_power h 0))
+                   (karatsuba_mid (word_bytereverse (blk (m+3))))))`;;
+
+(* The running accumulator, in the machine's rev64 register form.  Stated
+   through the SAME `nist_ghash` vocabulary Phase 4 froze for leg A, so the
+   Phase-9/10 recompose does not have to translate. *)
+let ghash_acc_rev = new_definition
+ `ghash_acc_rev (H:int128) (xi:int128) (blk:num->int128) (m:num) : int128 =
+    rev64_128
+      (word_bytereverse
+        (nist_ghash H (word_bytereverse xi)
+                      (MAP word_bytereverse (list_of_seq blk m))))`;;
+
+let ghash_v8_loop4x_inv = new_definition
+ `ghash_v8_loop4x_inv (pc:num) (xi_p:int64) (htbl_p:int64) (in_p:int64)
+                      (H:int128) (h:int128) (xi:int128) (blk:num->int128)
+                      (n:num) (i:num) (s:armstate) <=>
+    aligned_bytes_loaded s (word pc) ghash_v8_mc /\
+    read X0 s = xi_p /\
+    read X1 s = word_add htbl_p (word 48) /\
+    read X2 s = word_add in_p (word (64 * (i + 1))) /\
+    read X3 s = word_sub (word (16 * n)) (word (128 + 64 * i)) /\
+    (!j. j < n
+         ==> read (memory :> bytes128 (word_add in_p (word (16 * j)))) s =
+             blk j) /\
+    read Q19 s = word 257870231182273679357317742937744867328 /\
+    read Q20 s = h_power h 0 /\
+    read Q22 s = h_power h 1 /\
+    read Q26 s = h_power h 2 /\
+    read Q28 s = h_power h 3 /\
+    read Q21 s = word_join (karatsuba_mid(h_power h 1) : 64 word)
+                           (karatsuba_mid(h_power h 0) : 64 word) /\
+    read Q27 s = word_join (karatsuba_mid(h_power h 3) : 64 word)
+                           (karatsuba_mid(h_power h 2) : 64 word) /\
+    read Q0 s = ghash_acc_rev H xi blk (4 * i) /\
+    read Q4 s = rev64_128 (blk (4 * i)) /\
+    read Q29 s = ghash_defer_lo h blk (4 * i) /\
+    read Q31 s = ghash_defer_hi h blk (4 * i) /\
+    read Q30 s = ghash_defer_mid h blk (4 * i)`;;
+
+(* ------------------------------------------------------------------------- *)
+(* The loop-ENTRY theorem: leg-B entry 0x170 -> the `.Loop4x` top 0x210.      *)
+(*                                                                           *)
+(* This is the Phase-5 prologue (36 steps) plus `subs x3,#0x80` @0x200, the   *)
+(* NOT-taken `b.cc 0x2d8` @0x204, and the `b 0x210` @0x208 -- 39 steps.  It   *)
+(* establishes the invariant at i = 0, so the Q0 clause degenerates:          *)
+(* `ghash_acc_rev H xi blk 0` = `rev64_128 (word_bytereverse (nist_ghash H    *)
+(* (word_bytereverse xi) []))` = `rev64_128 xi` by `nist_ghash`'s nil case    *)
+(* plus `BYTEREVERSE128_INVOLUTION`, which is what the sim actually produces. *)
+(*                                                                           *)
+(* Resolving the `b.cc` needs the guard discharged BEFORE the branch step:    *)
+(* the stepper emits `read PC s38 = if val (word (16*n)) < 128 then ... else`  *)
+(* and `VAL_WORD_EQ` (under `16 * n < 2 EXP 64`) plus `128 <= 16 * n` (from   *)
+(* `1 <= k`) fold it.  `RULE_ASSUM_TAC` with both facts collapses the         *)
+(* conditional so step 39 decodes at the right offset.                        *)
+(*                                                                           *)
+(* The four input blocks must be specialized OUT of the quantified memory     *)
+(* predicate before the `ld1 {v4-v7.2d},[x2],#64` at 0x194, via `FIRST_ASSUM` *)
+(* (NOT `FIRST_X_ASSUM`) so the quantified form survives to the postcondition *)
+(* -- the invariant re-asserts it.                                            *)
+(* ------------------------------------------------------------------------- *)
+
+let GCM_GHASH_V8_LEGB_ENTRY = prove
+ (`!xi_p htbl_p in_p pc H h xi (blk:num->int128) n k r.
+     h = ghash_twist H /\
+     n = 4 * (k + 1) + r /\ r < 4 /\ 1 <= k /\ 16 * n < 2 EXP 64 /\
+     nonoverlapping (word pc, LENGTH ghash_v8_mc) (xi_p,16) /\
+     nonoverlapping (xi_p,16) (in_p,16 * n) /\
+     nonoverlapping (xi_p,16) (htbl_p,96)
+     ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) ghash_v8_mc /\
+               read PC s = word (pc + 0x170) /\
+               read X0 s = xi_p /\ read X1 s = htbl_p /\ read X2 s = in_p /\
+               read X3 s = word (16 * n) /\
+               read (memory :> bytes128 xi_p) s = xi /\
+               (!j. j < n
+                    ==> read (memory :> bytes128
+                               (word_add in_p (word (16 * j)))) s = blk j) /\
+               htable_mem_4 h htbl_p s)
+          (\s. read PC s = word (pc + 0x210) /\
+               ghash_v8_loop4x_inv pc xi_p htbl_p in_p H h xi blk n 0 s)
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                      Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
+                      Q29;Q30;Q31])`,
+  REWRITE_TAC[ghash_v8_loop4x_inv; ghash_acc_rev;
+              ghash_defer_lo; ghash_defer_hi; ghash_defer_mid] THEN
+  CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN
+  REWRITE_TAC[list_of_seq; MAP; nist_ghash; BYTEREVERSE128_INVOLUTION] THEN
+  REWRITE_TAC[htable_mem_4; fst GHASH_V8_EXEC; NONOVERLAPPING_CLAUSES] THEN
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `128 <= 16 * n` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  ENSURES_INIT_TAC "s0" THEN
+  SUBGOAL_THEN
+   `!j. j < 4
+        ==> read (memory :> bytes128 (word_add in_p (word (16 * j)))) s0 =
+            blk j`
+   (fun th -> MP_TAC(CONV_RULE (EXPAND_CASES_CONV THENC
+                                ONCE_DEPTH_CONV NUM_MULT_CONV) th)) THENL
+   [REPEAT STRIP_TAC THEN FIRST_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC;
+    REWRITE_TAC[WORD_ADD_0] THEN STRIP_TAC] THEN
+  ARM_STEPS_TAC GHASH_V8_EXEC (1--3) THEN
+  MAP_EVERY (fun m -> ARM_STEPS_TAC GHASH_V8_EXEC [m] THEN Q128_NORM_TAC)
+            (4--36) THEN
+  ARM_STEPS_TAC GHASH_V8_EXEC (37--38) THEN
+  SUBGOAL_THEN
+   `val (word (16 * (4 * (k + 1) + r)):int64) = 16 * (4 * (k + 1) + r)`
+   ASSUME_TAC THENL
+   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  SUBGOAL_THEN `~(16 * (4 * (k + 1) + r) < 128)` ASSUME_TAC THENL
+   [ASM_ARITH_TAC; ALL_TAC] THEN
+  RULE_ASSUM_TAC(REWRITE_RULE
+   [ASSUME `val (word (16 * (4 * (k + 1) + r)):int64) = 16 * (4 * (k + 1) + r)`;
+    ASSUME `~(16 * (4 * (k + 1) + r) < 128)`]) THEN
+  ARM_STEPS_TAC GHASH_V8_EXEC [39] THEN
+  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+  REPEAT CONJ_TAC THENL
+   [GEN_REWRITE_TAC ONCE_DEPTH_CONV [GSYM(ASSUME `n = 4 * (k + 1) + r`)] THEN
+    FIRST_X_ASSUM MATCH_ACCEPT_TAC;
+    REWRITE_TAC[REV64_AS_BSWAP_BREV; MID_FOLD_BSWAP_LO; MID_FOLD_BSWAP_HI;
+                GSYM karatsuba_mid] THEN REFL_TAC;
+    REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+    REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC]);;
+
+(* ------------------------------------------------------------------------- *)
+(* Fire ENSURES_WHILE_PUP_TAC with the frozen invariant, closing FOUR of the  *)
+(* five subgoals and leaving ONLY the body (i -> i+1) as a CHEAT_TAC          *)
+(* placeholder.  Phase 7 replaces that one line and nothing else.             *)
+(*                                                                           *)
+(* TWO mechanical points that cost real time to find:                         *)
+(*  1. `MAYCHANGE_IDEMPOT_TAC`, which every ENSURES_WHILE_* tactic fires as   *)
+(*     its first conjunct, FAILS on `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_   *)
+(*     ABI` because that constant is opaque (`ASSIGNS_SEQ_ABSORB_CONV` /      *)
+(*     `EQ_MP` raise).  REWRITE it away BEFORE firing the loop tactic.  As a  *)
+(*     consequence the four subgoals carry the EXPANDED frame, which is why   *)
+(*     the entry theorem is transported in with the same rewrite applied.     *)
+(*  2. The loop tactic's postcondition prepends `aligned_bytes_loaded` to the *)
+(*     invariant, so the entry theorem (whose postcondition has it only       *)
+(*     INSIDE the invariant) needs one `ENSURES_POSTCONDITION_THM` lift.      *)
+(*     The implication is immediate from the invariant's own first conjunct.   *)
+(*                                                                           *)
+(* The back-edge and exit subgoals are each ONE step (the `b.cs` at 0x2d4,    *)
+(* taken and not-taken respectively; the exit's guard resolves because the    *)
+(* "q" clause at i = k reads `read CF s <=> k < k`, i.e. false, via LT_REFL). *)
+(* Both then leave only the quantified-memory conjunct, which needs the       *)
+(* `n = 4*(k+1)+r` substitution folded BACK (the sim carries the expanded     *)
+(* bound) before `MATCH_ACCEPT_TAC` will take it.                             *)
+(* ------------------------------------------------------------------------- *)
+
+(* The entry theorem, transported to the exact shape the loop tactic's first
+   subgoal wants: EXPANDED ABI frame, and `aligned_bytes_loaded` hoisted out of
+   the invariant into the postcondition's leading conjunct.  Derived as an
+   OCaml rule (no simulation) rather than restated, so the two can never
+   drift. *)
+
+let GCM_GHASH_V8_LEGB_ENTRY_ABL =
+  let ent = REWRITE_RULE[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI]
+   (SPECL [`xi_p:int64`;`htbl_p:int64`;`in_p:int64`;`pc:num`;`H:int128`;
+           `h:int128`;`xi:int128`;`blk:num->int128`;`n:num`;`k:num`;`r:num`]
+          GCM_GHASH_V8_LEGB_ENTRY) in
+  let imp = prove
+   (`!s. (read PC s = word (pc + 0x210) /\
+          ghash_v8_loop4x_inv pc xi_p htbl_p in_p H h xi blk n 0 s)
+         ==> aligned_bytes_loaded s (word pc) ghash_v8_mc /\
+             read PC s = word (pc + 0x210) /\
+             ghash_v8_loop4x_inv pc xi_p htbl_p in_p H h xi blk n 0 s`,
+    GEN_TAC THEN REWRITE_TAC[ghash_v8_loop4x_inv] THEN MESON_TAC[]) in
+  DISCH_ALL(MATCH_MP ENSURES_POSTCONDITION_THM (CONJ imp (UNDISCH ent)));;
+
+let GCM_GHASH_V8_LEGB_LOOP4X = prove
+ (`!xi_p htbl_p in_p pc H h xi (blk:num->int128) n k r.
+     h = ghash_twist H /\
+     n = 4 * (k + 1) + r /\ r < 4 /\ 1 <= k /\ 16 * n < 2 EXP 64 /\
+     nonoverlapping (word pc, LENGTH ghash_v8_mc) (xi_p,16) /\
+     nonoverlapping (xi_p,16) (in_p,16 * n) /\
+     nonoverlapping (xi_p,16) (htbl_p,96)
+     ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) ghash_v8_mc /\
+               read PC s = word (pc + 0x170) /\
+               read X0 s = xi_p /\ read X1 s = htbl_p /\ read X2 s = in_p /\
+               read X3 s = word (16 * n) /\
+               read (memory :> bytes128 xi_p) s = xi /\
+               (!j. j < n
+                    ==> read (memory :> bytes128
+                               (word_add in_p (word (16 * j)))) s = blk j) /\
+               htable_mem_4 h htbl_p s)
+          (\s. read PC s = word (pc + 0x2d8) /\
+               ghash_v8_loop4x_inv pc xi_p htbl_p in_p H h xi blk n k s)
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                      Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
+                      Q29;Q30;Q31])`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+  ENSURES_WHILE_PUP_TAC `k:num` `pc + 0x210` `pc + 0x2d4`
+    `\i s. ghash_v8_loop4x_inv pc xi_p htbl_p in_p H h xi blk n i s /\
+           (read CF s <=> i < k)` THEN
+  REPEAT CONJ_TAC THENL
+   [(* 1. k is nonzero *)
+    ASM_ARITH_TAC;
+
+    (* 2. loop ENTRY: 0x170 -> 0x210, from GCM_GHASH_V8_LEGB_ENTRY *)
+    MATCH_MP_TAC GCM_GHASH_V8_LEGB_ENTRY_ABL THEN ASM_REWRITE_TAC[];
+
+    (* 3. the BODY, i -> i+1: Phase 7.  49 instructions + the b.cs. *)
+    CHEAT_TAC;
+
+    (* 4. the BACK-EDGE: b.cs @0x2d4, taken because CF holds for i < k *)
+    REPEAT STRIP_TAC THEN
+    REWRITE_TAC[ghash_v8_loop4x_inv] THEN
+    ENSURES_INIT_TAC "s0" THEN
+    ARM_STEPS_TAC GHASH_V8_EXEC [1] THEN
+    ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+    GEN_REWRITE_TAC ONCE_DEPTH_CONV [GSYM(ASSUME `n = 4 * (k + 1) + r`)] THEN
+    FIRST_X_ASSUM MATCH_ACCEPT_TAC;
+
+    (* 5. the EXIT: b.cs @0x2d4 falls through to .Ltail4x @0x2d8 *)
+    REWRITE_TAC[LT_REFL; ghash_v8_loop4x_inv] THEN
+    ENSURES_INIT_TAC "s0" THEN
+    ARM_STEPS_TAC GHASH_V8_EXEC [1] THEN
+    ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+    GEN_REWRITE_TAC ONCE_DEPTH_CONV [GSYM(ASSUME `n = 4 * (k + 1) + r`)] THEN
+    FIRST_X_ASSUM MATCH_ACCEPT_TAC]);;
