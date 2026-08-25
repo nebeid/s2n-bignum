@@ -2053,3 +2053,239 @@ let GCM_GHASH_V8_LEGB_TAIL1 = prove
 
     REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
     REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC THEN ASM_REWRITE_TAC[]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* Phase 8 shared support for the STAGED tails (r = 1,2,3).                   *)
+(*                                                                           *)
+(* `ACC_CUTPOINT_TAC st` asserts, at state `st`, that the machine's Q0 is      *)
+(* EXACTLY `ghash_acc_rev H xi blk (4*(k+1))` -- i.e. that the inline group-k   *)
+(* reduce each staged tail performs computes the same thing one `.Loop4x` body *)
+(* iteration does.  It is the Phase-7 accumulator close verbatim.  Firing it   *)
+(* mid-band and then DISCARDING every >400-char assumption is what keeps the   *)
+(* remaining steps cheap: without the cut-point the two reduces compose into   *)
+(* one term and the stage-2 align never matches.                              *)
+(*                                                                           *)
+(* `ACC_STEP2` / `ACC_STEP3` are the 2- and 3-block analogues of              *)
+(* `LOOP4X_ACC_STEP4`: they peel r blocks off the spec-side `list_of_seq` fold *)
+(* so the residual is a single opaque accumulator.  Stated at `m+r` in terms   *)
+(* of `m` so the tail's `r` fresh blocks come out as an explicit r-element     *)
+(* list, which is exactly what the r-block spec chain consumes.                *)
+(*                                                                           *)
+(* `GHASH2_SPEC_CHAIN_GEN` is `GHASH2_SPEC_CHAIN` over an OPAQUE accumulator   *)
+(* (the same generalization `GHASH1_SPEC_CHAIN_GEN` is of `GHASH1_SPEC_CHAIN`) *)
+(* -- required because a staged tail's stage-2 accumulator is the stage-1      *)
+(* reduce output, not `word_bytereverse xi`.                                   *)
+(*                                                                           *)
+(* `GHASH2_ALIGN_NOFLIP` is `GHASH2_ALIGN` WITHOUT its `l_fix` outer-XOR flip. *)
+(* THIS IS A REAL DISTINCTION, not redundancy: leg A's n = 2 band reduces at    *)
+(* 0xbc/0xe4 and emits the byteswap summand FIRST, whereas `.Ltwo`'s reduce at  *)
+(* 0x40c..0x424 emits it in the n = 1 order.  Measured by the v122 atom-        *)
+(* abstraction diff: with the flipped version the abstracted goal and          *)
+(* `build_GMULTn_fast 2`'s LHS are both 460 chars and STRUCTURALLY IDENTICAL,   *)
+(* yet `term_match` fails -- the flip has to be absent.                        *)
+(* ------------------------------------------------------------------------- *)
+
+let ACC_STEP2 = prove
+ (`!H xi blk m.
+     nist_ghash H (word_bytereverse xi)
+       (MAP word_bytereverse (list_of_seq blk (m+2))) =
+     nist_ghash H
+       (nist_ghash H (word_bytereverse xi)
+          (MAP word_bytereverse (list_of_seq blk m)))
+       [word_bytereverse (blk m); word_bytereverse (blk (m+1))]`,
+  REPEAT GEN_TAC THEN
+  REWRITE_TAC[ARITH_RULE `m+2 = SUC(SUC m)`; ARITH_RULE `m+1 = SUC m`] THEN
+  REWRITE_TAC[list_of_seq; MAP_APPEND; MAP] THEN
+  REWRITE_TAC[GSYM APPEND_ASSOC] THEN
+  REWRITE_TAC[NIST_GHASH_APPEND] THEN
+  REWRITE_TAC[APPEND] THEN
+  REWRITE_TAC[NIST_GHASH_CONS; nist_ghash]);;
+
+let ACC_STEP3 = prove
+ (`!H xi blk m.
+     nist_ghash H (word_bytereverse xi)
+       (MAP word_bytereverse (list_of_seq blk (m+3))) =
+     nist_ghash H
+       (nist_ghash H (word_bytereverse xi)
+          (MAP word_bytereverse (list_of_seq blk m)))
+       [word_bytereverse (blk m); word_bytereverse (blk (m+1));
+        word_bytereverse (blk (m+2))]`,
+  REPEAT GEN_TAC THEN
+  REWRITE_TAC[ARITH_RULE `m+3 = SUC(SUC(SUC m))`; ARITH_RULE `m+1 = SUC m`;
+              ARITH_RULE `m+2 = SUC(SUC m)`] THEN
+  REWRITE_TAC[list_of_seq; MAP_APPEND; MAP] THEN
+  REWRITE_TAC[GSYM APPEND_ASSOC] THEN
+  REWRITE_TAC[NIST_GHASH_APPEND] THEN
+  REWRITE_TAC[APPEND] THEN
+  REWRITE_TAC[NIST_GHASH_CONS; nist_ghash]);;
+
+let GHASH2_SPEC_CHAIN_GEN = prove
+ (`!(H:int128) (h:int128) (acc:int128) (blk0:int128) (blk1:int128).
+     h = ghash_twist H
+     ==> polyval_reduce_prop3
+           (word_xor
+             (word_pmul (h_power h 0) (word_bytereverse blk1))
+             (word_pmul (h_power h 1)
+                        (word_xor acc (word_bytereverse blk0)))) =
+         nist_ghash H acc [word_bytereverse blk0; word_bytereverse blk1]`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(SPECL [`H:int128`; `h:int128`; `word_bytereverse(acc:int128)`;
+                `blk0:int128`; `blk1:int128`] GHASH2_SPEC_CHAIN) THEN
+  ASM_REWRITE_TAC[BYTEREVERSE128_INVOLUTION]);;
+
+let GHASH2_ALIGN_NOFLIP =
+  let sums = [`word_xor (p2:int128) (p1:int128)`;
+              `word_xor (p4:int128) (p3:int128)`;
+              `word_xor (p6:int128) (p5:int128)`] in
+  let base = SPECL sums GHASH1_ALIGN in
+  let r_fix = CONV_RULE (RAND_CONV(TOP_DEPTH_CONV
+                (REWR_CONV GHASH2_MID_UNCANON))) base in
+  GENL [`p1:int128`;`p2:int128`;`p3:int128`;`p4:int128`;`p5:int128`;`p6:int128`]
+       r_fix;;
+
+let ACC_CUTPOINT_TAC st =
+  SUBGOAL_THEN (subst [mk_var(st,`:armstate`),`s:armstate`]
+                 `read Q0 (s:armstate) = ghash_acc_rev H xi blk (4 * (k+1))`)
+   ASSUME_TAC THENL
+   [ASM_REWRITE_TAC[] THEN
+    REWRITE_TAC[ghash_acc_rev; ARITH_RULE `4 * (k + 1) = 4 * k + 4`] THEN
+    REWRITE_TAC[LOOP4X_ACC_STEP4] THEN
+    ABBREV_TAC `AC:int128 = nist_ghash H (word_bytereverse xi)
+                  (MAP word_bytereverse (list_of_seq blk (4 * k)))` THEN
+    REWRITE_TAC[GSYM REV64_AS_BSWAP_BREV] THEN
+    REWRITE_TAC[REV64_XOR_AS_BSWAP; BYTESWAP128_INVOLUTION] THEN
+    ABBREV_TAC `DL:int128 = ghash_defer_lo (ghash_twist H) blk (4 * k)` THEN
+    ABBREV_TAC `DH:int128 = ghash_defer_hi (ghash_twist H) blk (4 * k)` THEN
+    ABBREV_TAC `DM:int128 = ghash_defer_mid (ghash_twist H) blk (4 * k)` THEN
+    GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [REV64_AS_BSWAP_BREV] THEN
+    GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV)
+                    [BYTEREVERSE128_INVOLUTION] THEN
+    AP_TERM_TAC THEN
+    REWRITE_TAC[INS128_TO_JOIN; INS_TO_JOIN; INS128_HI_TO_JOIN;
+                INS_HI_TO_JOIN; MID_FOLD_BSWAP_LO; MID_FOLD_BSWAP_HI;
+                karatsuba_mid] THEN
+    REWRITE_TAC[GHASH1_ALIGN] THEN
+    MAP_EVERY EXPAND_TAC ["DL"; "DH"; "DM"] THEN
+    REWRITE_TAC[ghash_defer_lo; ghash_defer_hi; ghash_defer_mid;
+                karatsuba_mid] THEN
+    CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN
+    GEN_REWRITE_TAC (LAND_CONV o TOP_DEPTH_CONV) [MIDSUM4] THEN
+    GEN_REWRITE_TAC (LAND_CONV o TOP_DEPTH_CONV) [RESUM4] THEN
+    REWRITE_TAC[snd(build_GMULTn_fast 4)] THEN
+    REWRITE_TAC[XOR4_REASSOC_GEN] THEN
+    MATCH_MP_TAC GHASH4_SPEC_CHAIN_GEN THEN REFL_TAC;
+    ALL_TAC];;
+
+(* Specialize one input block out of the invariant's quantified memory
+   predicate.  `off` is the FLAT byte offset from `in_p` (the s157 finding:
+   multi-register `ld1` emits its high addresses with the offsets already
+   summed, so a nested `word_add (word_add ..) ..` spelling does not match and
+   the high registers are silently erased by DISCARD_OLDSTATE_TAC). *)
+
+let SETUP_BLK_TAC st off idx =
+  SUBGOAL_THEN
+   (subst [mk_var(st,`:armstate`),`s:armstate`; off,`off:num`; idx,`idx:num`]
+     `read (memory :> bytes128 (word_add in_p (word off))) (s:armstate) =
+        (blk:num->int128) idx`)
+   ASSUME_TAC THENL
+   [MP_TAC(SPEC idx (ASSUME
+       (subst [mk_var(st,`:armstate`),`s:armstate`]
+         `!j. j < n
+              ==> read (memory :> bytes128
+                         (word_add in_p (word (16 * j)))) (s:armstate) =
+                  (blk:num->int128) j`))) THEN
+    ANTS_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+    DISCH_THEN(SUBST1_TAC o SYM) THEN AP_THM_TAC THEN AP_TERM_TAC THEN
+    AP_TERM_TAC THEN AP_TERM_TAC THEN CONV_TAC WORD_RULE;
+    ALL_TAC];;
+
+(* ------------------------------------------------------------------------- *)
+(* Phase 8, r = 2: the `.Ltwo` -> `.Ldone4x` band, 0x2d8 -> 0x4c0.            *)
+(*                                                                           *)
+(* Dispatch: `adds` leaves X3 = word 32, so `b.eq` @0x300 falls through,      *)
+(* `cmp x3,#0x20` sets EQ, `b.cc` @0x308 falls through and `b.eq` @0x30c is   *)
+(* TAKEN -> `.Ltwo` @0x3b0.  The 2-register `ld1 {v4.2d-v5.2d},[x2]` @0x3bc   *)
+(* reads blocks 4k+4 and 4k+5 from `[x2] = in_p + 64*(k+1)` with NO post-     *)
+(* increment, so both offsets are supplied FLAT.                              *)
+(*                                                                           *)
+(* The group-k reduce completes at s31 (offset 0x3f0's `ext v0`), which is    *)
+(* the `ACC_CUTPOINT_TAC` site.  Stage 2 is then leg A's n = 2 close with     *)
+(* `GHASH2_ALIGN_NOFLIP` (see its comment for why the flip must be absent)     *)
+(* and `GHASH2_SPEC_CHAIN_GEN`.  Note `REV64_AS_BSWAP_BREV` MUST be in the    *)
+(* ins->join rewrite list here, as leg A's n = 2 band has it: the block-1     *)
+(* Karatsuba mid operand arrives as `word_xor (brev b) (rev64_128 b)` and     *)
+(* `MID_FOLD_BSWAP_LO` only matches the `byteswap128`-spelled form.  Without  *)
+(* it exactly ONE of the eight abstracted atoms differs and                    *)
+(* `build_GMULTn_fast 2` silently does not fire.                              *)
+(* ------------------------------------------------------------------------- *)
+
+let TAIL2_X3 = prove
+ (`!k. word_add (word_sub (word (16 * (4 * (k + 1) + 2))) (word (128 + 64 * k)))
+                (word 64) : int64 = word 32`,
+  GEN_TAC THEN
+  REWRITE_TAC[ARITH_RULE `16 * (4 * (k+1) + 2) = (64 * k + 64) + 32`;
+              ARITH_RULE `128 + 64 * k = 64 * k + 128`] THEN
+  CONV_TAC WORD_RULE);;
+
+let GCM_GHASH_V8_LEGB_TAIL2 = prove
+ (`!xi_p htbl_p in_p pc H h xi (blk:num->int128) n k.
+     h = ghash_twist H /\
+     n = 4 * (k + 1) + 2 /\ 16 * n < 2 EXP 64 /\
+     nonoverlapping (word pc, LENGTH ghash_v8_mc) (xi_p,16) /\
+     nonoverlapping (xi_p,16) (in_p,16 * n) /\
+     nonoverlapping (xi_p,16) (htbl_p,96)
+     ==> ensures arm
+          (\s. read PC s = word (pc + 0x2d8) /\
+               ghash_v8_loop4x_inv pc xi_p htbl_p in_p H h xi blk n k s)
+          (\s. read PC s = word (pc + 0x4c0) /\
+               read (memory :> bytes128 xi_p) s =
+               word_bytereverse
+                 (nist_ghash H (word_bytereverse xi)
+                    (MAP word_bytereverse (list_of_seq blk n))))
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                      Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
+                      Q29;Q30;Q31])`,
+  REWRITE_TAC[ghash_v8_loop4x_inv; fst GHASH_V8_EXEC;
+              NONOVERLAPPING_CLAUSES] THEN
+  REPEAT STRIP_TAC THEN
+  ENSURES_INIT_TAC "s0" THEN
+  MAP_EVERY (fun m -> ARM_STEPS_TAC GHASH_V8_EXEC [m] THEN Q128_NORM_TAC)
+            (1--10) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[TAIL2_X3]) THEN
+  ARM_STEPS_TAC GHASH_V8_EXEC (11--13) THEN
+  SETUP_BLK_TAC "s13" `64 * (k+1)` `4*k+4` THEN
+  SETUP_BLK_TAC "s13" `64 * (k+1) + 16` `4*k+5` THEN
+  MAP_EVERY (fun m -> ARM_STEPS_TAC GHASH_V8_EXEC [m] THEN Q128_NORM_TAC)
+            (14--31) THEN
+  ACC_CUTPOINT_TAC "s31" THEN
+  REPEAT(FIRST_X_ASSUM(K ALL_TAC o check (fun th ->
+    String.length(string_of_term(concl th)) > 400))) THEN
+  MAP_EVERY (fun m -> ARM_STEPS_TAC GHASH_V8_EXEC [m] THEN Q128_NORM_TAC)
+            (32--60) THEN
+  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN CONJ_TAC THENL
+   [ASM_REWRITE_TAC[ARITH_RULE `4 * (k + 1) + 2 = (4 * (k+1)) + 2`] THEN
+    REWRITE_TAC[ACC_STEP2] THEN
+    ABBREV_TAC `A2:int128 = nist_ghash H (word_bytereverse xi)
+                  (MAP word_bytereverse (list_of_seq blk (4 * (k+1))))` THEN
+    REWRITE_TAC[ghash_acc_rev] THEN
+    ABBREV_TAC `A3:int128 = nist_ghash H (word_bytereverse xi)
+                  (MAP word_bytereverse (list_of_seq blk (4 * (k+1))))` THEN
+    REWRITE_TAC[REV64_XOR_AS_BSWAP; BYTESWAP128_INVOLUTION] THEN
+    GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [REV64_AS_BSWAP_BREV] THEN
+    GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV)
+                    [BYTEREVERSE128_INVOLUTION] THEN
+    AP_TERM_TAC THEN
+    REWRITE_TAC[INS128_TO_JOIN; INS_TO_JOIN; INS128_HI_TO_JOIN;
+                INS_HI_TO_JOIN; REV64_AS_BSWAP_BREV;
+                MID_FOLD_BSWAP_LO; MID_FOLD_BSWAP_HI; karatsuba_mid] THEN
+    REWRITE_TAC[GHASH2_ALIGN_NOFLIP] THEN
+    REWRITE_TAC[snd(build_GMULTn_fast 2)] THEN
+    REWRITE_TAC[ARITH_RULE `4 * (k + 1) + 1 = 4 * k + 5`;
+                ARITH_RULE `4 * (k + 1) = 4 * k + 4`] THEN
+    ASM_REWRITE_TAC[] THEN
+    MATCH_MP_TAC GHASH2_SPEC_CHAIN_GEN THEN REFL_TAC;
+
+    REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+    REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC THEN ASM_REWRITE_TAC[]]);;
