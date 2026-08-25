@@ -505,15 +505,18 @@ let Q128_NORM_TAC =
               fst(dest_const(fst(strip_comb f))) = "read")) with _ -> false)
     then CONV_RULE(RAND_CONV core) th else th);;
 
-(* Cut-point for the store tail.  The `rev64 v0` at 0x15c re-expands whatever
-   is in Q0 into a 64-way byte tree, so its cost is quadratic in the size of
-   the accumulator term rather than in the instruction count.  At n = 3 the
-   accumulator entering the tail is the SECOND staged reduce, 186 KB of term,
-   and that one step plus its normalizer measured 766 s of the band's 805 s
-   (MEASURED, refiner session 163).  Abbreviating Q0 to an opaque atom first
-   makes the same three steps cost 9 s; `EXPAND_TAC` restores the term for the
-   algebra close, which needs it spelled out.  Nothing about the proof changes
-   except which shape the stepper walks. *)
+(* Cut-point for the store tails.  Every band ends `rev64 v0` + `ext` + `st1`,
+   and `rev64` re-expands its operand into a 64-way byte tree, so that step's
+   cost tracks the operand TERM SIZE, not the instruction count.  The
+   accumulator arriving there is the last staged reduce -- 186 KB of term at
+   n = 3 -- and the resulting blowup was, MEASURED (refiner session 163),
+   766 s of GCM_GHASH_V8_LE3BLOCK's 805 s, 64 s of LEGB_TAIL3's 82 s and 48 s
+   of LEGB_TAIL2's 60 s.  Abbreviating Q0 to an opaque atom across those steps
+   makes them ~2 s.
+   `UNABBREV_READ_TAC` then puts the term back for the algebra close, which
+   does need it spelled out.  It must SUBST rather than `EXPAND_TAC`: the
+   closes run `ASM_REWRITE_TAC`, which would otherwise use the surviving
+   `<bigterm> = acc` assumption to fold the term straight back up. *)
 let ABBREV_READ_TAC vname reg : tactic =
   fun ((asl,_) as g) ->
     let hit = find (fun c ->
@@ -524,6 +527,12 @@ let ABBREV_READ_TAC vname reg : tactic =
          | _ -> false))
       (map (concl o snd) asl) in
     ABBREV_TAC (mk_eq(mk_var(vname, type_of(rhs hit)), rhs hit)) g;;
+
+let UNABBREV_READ_TAC vname : tactic =
+  FIRST_X_ASSUM(fun th ->
+    let c = concl th in
+    if is_eq c && is_var(rhs c) && fst(dest_var(rhs c)) = vname
+    then SUBST_ALL_TAC(SYM th) else failwith "UNABBREV_READ_TAC");;
 
 (* ------------------------------------------------------------------------- *)
 (* Algebra-close ingredients for the n = 1 band's GHASH postcondition.        *)
@@ -2517,7 +2526,11 @@ let GCM_GHASH_V8_LEGB_TAIL3 = prove
   REPEAT(FIRST_X_ASSUM(K ALL_TAC o check (fun th ->
     String.length(string_of_term(concl th)) > 5000))) THEN
   MAP_EVERY (fun m -> ARM_STEPS_TAC GHASH_V8_EXEC [m] THEN Q128_NORM_TAC)
-            (40--69) THEN
+            (40--67) THEN
+  ABBREV_READ_TAC "accT3" `Q0` THEN
+  MAP_EVERY (fun m -> ARM_STEPS_TAC GHASH_V8_EXEC [m] THEN Q128_NORM_TAC)
+            (68--69) THEN
+  UNABBREV_READ_TAC "accT3" THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN CONJ_TAC THENL
    [ASM_REWRITE_TAC[ARITH_RULE `4 * (k + 1) + 3 = (4 * (k+1)) + 3`] THEN
     REWRITE_TAC[ACC_STEP3] THEN
