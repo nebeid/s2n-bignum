@@ -1091,3 +1091,111 @@ let GCM_GHASH_V8_LEGA = prove
     LEGA_CASE_TAC 0 GCM_GHASH_V8_LE1BLOCK;
     LEGA_CASE_TAC 1 GCM_GHASH_V8_LE2BLOCK;
     LEGA_CASE_TAC 2 GCM_GHASH_V8_LE3BLOCK]);;
+
+(* ------------------------------------------------------------------------- *)
+(* Phase 5: the leg-B prologue (0x170 -> 0x200, 36 steps).                    *)
+(*                                                                           *)
+(* Leg B is entered by the `b.cs` at 0x004 when len >= 64.  The prologue      *)
+(* loads Xi and the six H-table slots, loads the first four input blocks      *)
+(* (x2 += 64), and computes the DEFERRED partial products                     *)
+(*   Q29 = Sum pl,  Q31 = Sum ph,  Q30 = Sum pm                               *)
+(* for H*I3 + H^2*I2 + H^3*I1, leaving H^4*(Xi + I0) to `.Loop4x` -- which is  *)
+(* why Q0 = rev64 Xi and Q4 = rev64 I0 are still live and unmultiplied here.   *)
+(* That staggering is what makes the `.Loop4x` invariant TWO-INDEXED (reduced  *)
+(* accumulator at group i, deferred sums for group i+1).                       *)
+(*                                                                           *)
+(* This theorem stops one instruction BEFORE the `subs x3,x3,#0x80` at 0x200,  *)
+(* so it is exactly the i = 0 invariant instance Phase 6 needs; x3 is          *)
+(* deliberately not mentioned (the band bound belongs to the loop, not here).  *)
+(*                                                                           *)
+(* H-TABLE REGISTER MAP (the `ld1 ...,[x1],#48` at 0x174 post-increments x1,   *)
+(* so the `ld1 ...,[x1]` at 0x184 reads htbl_p + 48/64/80):                    *)
+(*   Q20 <- htbl_p+0   Q21 <- htbl_p+16 (mid pair, NOT ext'd)  Q22 <- +32      *)
+(*   Q26 <- htbl_p+48  Q27 <- htbl_p+64 (mid pair, NOT ext'd)  Q28 <- +80      *)
+(* The `ext #8` on Q20/Q22/Q26/Q28 cancels the `htable_mem_4` byteswap, which  *)
+(* is why those four read as bare `h_power h k`.                               *)
+(*                                                                           *)
+(* Cost: the whole prologue sims in ~12s and the harvested register terms are  *)
+(* only 300-360 chars -- two orders of magnitude cheaper than leg A's bands,   *)
+(* because nothing has been reduced yet.  The Q30 close needs no new lemma:    *)
+(* `REV64_AS_BSWAP_BREV` + `MID_FOLD_BSWAP_{LO,HI}` + `GSYM karatsuba_mid`     *)
+(* folds both lanes of `x XOR rev64 x` to `karatsuba_mid (word_bytereverse b)`.*)
+(*                                                                           *)
+(* GOTCHA: the second `word_subword` argument of each `word_pmul` needs an     *)
+(* explicit `: 64 word` annotation in the STATEMENT.  Without it HOL leaves    *)
+(* the type generic and the conjunct fails to close against an otherwise       *)
+(* character-identical simulated term.                                         *)
+(* ------------------------------------------------------------------------- *)
+
+let GCM_GHASH_V8_LEGB_PROLOGUE = prove
+ (`!xi_p htbl_p in_p pc h xi b0 b1 b2 b3.
+     nonoverlapping (word pc, LENGTH ghash_v8_mc) (xi_p,16)
+     ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) ghash_v8_mc /\
+               read PC s = word (pc + 0x170) /\
+               read X0 s = xi_p /\ read X1 s = htbl_p /\ read X2 s = in_p /\
+               read (memory :> bytes128 xi_p) s = xi /\
+               read (memory :> bytes128 in_p) s = b0 /\
+               read (memory :> bytes128 (word_add in_p (word 16))) s = b1 /\
+               read (memory :> bytes128 (word_add in_p (word 32))) s = b2 /\
+               read (memory :> bytes128 (word_add in_p (word 48))) s = b3 /\
+               htable_mem_4 h htbl_p s)
+          (\s. read PC s = word (pc + 0x200) /\
+               read X0 s = xi_p /\
+               read X1 s = word_add htbl_p (word 48) /\
+               read X2 s = word_add in_p (word 64) /\
+               read Q0 s = rev64_128 xi /\
+               read Q4 s = rev64_128 b0 /\
+               read Q19 s = word 257870231182273679357317742937744867328 /\
+               read Q20 s = h_power h 0 /\
+               read Q22 s = h_power h 1 /\
+               read Q26 s = h_power h 2 /\
+               read Q28 s = h_power h 3 /\
+               read Q21 s = word_join (karatsuba_mid(h_power h 1) : 64 word)
+                                      (karatsuba_mid(h_power h 0) : 64 word) /\
+               read Q27 s = word_join (karatsuba_mid(h_power h 3) : 64 word)
+                                      (karatsuba_mid(h_power h 2) : 64 word) /\
+               read Q29 s =
+                 word_xor
+                   (word_pmul (word_subword (h_power h 2) (0,64) : 64 word)
+                              (word_subword (word_bytereverse b1) (0,64) : 64 word))
+                   (word_xor
+                     (word_pmul (word_subword (h_power h 1) (0,64) : 64 word)
+                                (word_subword (word_bytereverse b2) (0,64) : 64 word))
+                     (word_pmul (word_subword (h_power h 0) (0,64) : 64 word)
+                                (word_subword (word_bytereverse b3) (0,64) : 64 word))) /\
+               read Q31 s =
+                 word_xor
+                   (word_pmul (word_subword (h_power h 2) (64,64) : 64 word)
+                              (word_subword (word_bytereverse b1) (64,64) : 64 word))
+                   (word_xor
+                     (word_pmul (word_subword (h_power h 1) (64,64) : 64 word)
+                                (word_subword (word_bytereverse b2) (64,64) : 64 word))
+                     (word_pmul (word_subword (h_power h 0) (64,64) : 64 word)
+                                (word_subword (word_bytereverse b3) (64,64) : 64 word))) /\
+               read Q30 s =
+                 word_xor
+                   (word_pmul (karatsuba_mid (h_power h 2))
+                              (karatsuba_mid (word_bytereverse b1)))
+                   (word_xor
+                     (word_pmul (karatsuba_mid (h_power h 1))
+                                (karatsuba_mid (word_bytereverse b2)))
+                     (word_pmul (karatsuba_mid (h_power h 0))
+                                (karatsuba_mid (word_bytereverse b3)))))
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                      Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
+                      Q29;Q30;Q31])`,
+  REWRITE_TAC[htable_mem_4; fst GHASH_V8_EXEC; NONOVERLAPPING_CLAUSES] THEN
+  REPEAT STRIP_TAC THEN
+  ENSURES_INIT_TAC "s0" THEN
+  ARM_STEPS_TAC GHASH_V8_EXEC (1--3) THEN
+  MAP_EVERY (fun n -> ARM_STEPS_TAC GHASH_V8_EXEC [n] THEN Q128_NORM_TAC)
+            (4--36) THEN
+  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+  REPEAT CONJ_TAC THEN
+  TRY(REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+      REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC THEN ASM_REWRITE_TAC[]) THEN
+  TRY(REWRITE_TAC[REV64_AS_BSWAP_BREV; MID_FOLD_BSWAP_LO; MID_FOLD_BSWAP_HI;
+                  GSYM karatsuba_mid] THEN REFL_TAC) THEN
+  TRY(CONV_TAC WORD_RULE));;
