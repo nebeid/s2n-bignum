@@ -2524,3 +2524,46 @@ let GCM_GHASH_V8_LEGB_TAIL3 = prove
 
     REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
     REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC THEN ASM_REWRITE_TAC[]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* Phase 8, unification: one tail theorem for every r < 4.                    *)
+(*                                                                           *)
+(* Far cheaper than leg A's `LEGA_CASE_TAC`: the tails' precondition is the   *)
+(* uniform `ghash_v8_loop4x_inv`, not an INDEXED memory predicate, so there   *)
+(* is no `!i. i < k ==> P i` to expand and hence none of leg A's left-nested  *)
+(* CONJ re-bracketing.  Each band matches by `MATCH_MP_TAC` directly.         *)
+(*                                                                           *)
+(* The one residue is r = 0, where `n = 4*(k+1) + 0` must be reconciled with  *)
+(* `GCM_GHASH_V8_LEGB_TAIL0`'s `n = 4*(k+1)`: HOL does not reduce `+ 0`       *)
+(* automatically here, so a trailing `ARITH_TAC` is required.  It is a no-op  *)
+(* on the other three branches, which `ASM_REWRITE_TAC` has already closed.   *)
+(* ------------------------------------------------------------------------- *)
+
+let GCM_GHASH_V8_LEGB_TAIL = prove
+ (`!xi_p htbl_p in_p pc H h xi (blk:num->int128) n k r.
+     h = ghash_twist H /\
+     n = 4 * (k + 1) + r /\ r < 4 /\ 16 * n < 2 EXP 64 /\
+     nonoverlapping (word pc, LENGTH ghash_v8_mc) (xi_p,16) /\
+     nonoverlapping (xi_p,16) (in_p,16 * n) /\
+     nonoverlapping (xi_p,16) (htbl_p,96)
+     ==> ensures arm
+          (\s. read PC s = word (pc + 0x2d8) /\
+               ghash_v8_loop4x_inv pc xi_p htbl_p in_p H h xi blk n k s)
+          (\s. read PC s = word (pc + 0x4c0) /\
+               read (memory :> bytes128 xi_p) s =
+               word_bytereverse
+                 (nist_ghash H (word_bytereverse xi)
+                    (MAP word_bytereverse (list_of_seq blk n))))
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                      Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
+                      Q29;Q30;Q31])`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN `r = 0 \/ r = 1 \/ r = 2 \/ r = 3` STRIP_ASSUME_TAC THENL
+   [ASM_ARITH_TAC;
+    MATCH_MP_TAC GCM_GHASH_V8_LEGB_TAIL0;
+    MATCH_MP_TAC GCM_GHASH_V8_LEGB_TAIL1;
+    MATCH_MP_TAC GCM_GHASH_V8_LEGB_TAIL2;
+    MATCH_MP_TAC GCM_GHASH_V8_LEGB_TAIL3] THEN
+  ASM_REWRITE_TAC[] THEN ARITH_TAC);;
