@@ -505,6 +505,26 @@ let Q128_NORM_TAC =
               fst(dest_const(fst(strip_comb f))) = "read")) with _ -> false)
     then CONV_RULE(RAND_CONV core) th else th);;
 
+(* Cut-point for the store tail.  The `rev64 v0` at 0x15c re-expands whatever
+   is in Q0 into a 64-way byte tree, so its cost is quadratic in the size of
+   the accumulator term rather than in the instruction count.  At n = 3 the
+   accumulator entering the tail is the SECOND staged reduce, 186 KB of term,
+   and that one step plus its normalizer measured 766 s of the band's 805 s
+   (MEASURED, refiner session 163).  Abbreviating Q0 to an opaque atom first
+   makes the same three steps cost 9 s; `EXPAND_TAC` restores the term for the
+   algebra close, which needs it spelled out.  Nothing about the proof changes
+   except which shape the stepper walks. *)
+let ABBREV_READ_TAC vname reg : tactic =
+  fun ((asl,_) as g) ->
+    let hit = find (fun c ->
+        is_eq c &&
+        (match strip_comb (lhs c) with
+           (f,[r;_]) -> (try fst(dest_const f) = "read" with Failure _ -> false)
+                        && r = reg
+         | _ -> false))
+      (map (concl o snd) asl) in
+    ABBREV_TAC (mk_eq(mk_var(vname, type_of(rhs hit)), rhs hit)) g;;
+
 (* ------------------------------------------------------------------------- *)
 (* Algebra-close ingredients for the n = 1 band's GHASH postcondition.        *)
 (*                                                                           *)
@@ -999,8 +1019,12 @@ let GCM_GHASH_V8_LE3BLOCK = prove
   ENSURES_INIT_TAC "s0" THEN
   ARM_STEPS_TAC GHASH_V8_LEGA_EXEC (1--3) THEN
   MAP_EVERY (fun n -> ARM_STEPS_TAC GHASH_V8_LEGA_EXEC [n] THEN Q128_NORM_TAC)
-            (4--88) THEN
-  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL
+            (4--85) THEN
+  ABBREV_READ_TAC "acc3" `Q0` THEN
+  MAP_EVERY (fun n -> ARM_STEPS_TAC GHASH_V8_LEGA_EXEC [n] THEN Q128_NORM_TAC)
+            (86--88) THEN
+  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+  EXPAND_TAC "acc3" THEN REPEAT CONJ_TAC THENL
    [AP_TERM_TAC THEN
     REWRITE_TAC[INS128_TO_JOIN; INS_TO_JOIN; INS128_HI_TO_JOIN;
                 INS_HI_TO_JOIN; REV64_AS_BSWAP_BREV;
