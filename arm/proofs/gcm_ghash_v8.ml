@@ -1684,11 +1684,14 @@ let GCM_GHASH_V8_LEGB_LOOP4X = prove
       REWRITE_TAC[REV64_AS_BSWAP_BREV; MID_FOLD_BSWAP_LO; MID_FOLD_BSWAP_HI;
                   GSYM karatsuba_mid] THEN REFL_TAC;
 
-      (* the flag fact the back-edge reads *)
-      MATCH_MP_TAC LOOP4X_CF THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
-
-      REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
-      REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC];
+      (* the flag fact the back-edge reads.  NOTE there is no MAYCHANGE
+         conjunct here: the skeleton already rewrote
+         `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI` away before firing the
+         loop tactic, so `ENSURES_FINAL_STATE_TAC` discharges the frame itself
+         and this branch list has NINE entries, not ten.  (Developing the body
+         as a standalone `ensures` with the OPAQUE ABI constant gives ten and
+         then fails here with a spurious extra branch.) *)
+      MATCH_MP_TAC LOOP4X_CF THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC];
 
     (* 4. the BACK-EDGE: b.cs @0x2d4, taken because CF holds for i < k *)
     REPEAT STRIP_TAC THEN
