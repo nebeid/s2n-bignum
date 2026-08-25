@@ -10,13 +10,13 @@
 (*   leg B (0x170..0x4cc)  len >= 64: the 4-blocks-per-pass .Loop4x with its  *)
 (*                         .Ltail4x / .Lone / .Ltwo / .Lthree cascade.        *)
 (*                                                                           *)
-(* NOTE (decode gap, leg B only): four of the 305 instruction words are       *)
-(* 3-/4-register LD1 multiple-structure forms that arm/proofs/decode.ml does  *)
-(* NOT model (0x4cdf6c34 @0x174, 0x4c406c3a @0x184, 0x4cdf2c44 @0x194+0x214,  *)
-(* 0x4c406c44 @0x31c); only the 1-reg (0b0111) and 2-reg (0b1010 ->           *)
-(* arm_ldstp_2q) forms exist, upstream included.  ARM_MK_EXEC_RULE RAISES on  *)
-(* the full byte list, so this file builds its EXEC rule over the leg-A       *)
-(* SLICE (0, 0x170) via mk_sublist_of_mc.  All 92 leg-A words decode cleanly. *)
+(* NOTE (decode gap, leg B only -- RESOLVED): four of the 305 instruction     *)
+(* words are 3-/4-register LD1 multiple-structure forms (0x4cdf6c34 @0x174,   *)
+(* 0x4c406c3a @0x184, 0x4cdf2c44 @0x194+0x214, 0x4c406c44 @0x31c) that        *)
+(* arm/proofs/decode.ml did not model; arm_LDP3/arm_LDP4 + arm_ldstp_3q/_4q   *)
+(* were added on branch arm-ld1-multi-reg (merged at 5ef3e6289).  Both EXEC   *)
+(* rules are built below: the leg-A SLICE (0, 0x170) that leg A is stated     *)
+(* against, and the full-object GHASH_V8_EXEC that leg B needs.               *)
 (* ========================================================================= *)
 
 needs "arm/proofs/base.ml";;
@@ -349,6 +349,13 @@ let GHASH_V8_LENGTH = prove
 let ghash_v8_lega_mc_def, ghash_v8_lega_mc, GHASH_V8_LEGA_EXEC =
   mk_sublist_of_mc "ghash_v8_lega_mc" ghash_v8_mc (`0`,`0x170`)
     GHASH_V8_LENGTH;;
+
+(* Full-object EXEC, for leg B (0x170..0x4cc).  This requires the 3-/4-register
+   LD1/ST1 multiple-structure models added on branch arm-ld1-multi-reg
+   (arm_LDP3/arm_LDP4 + arm_ldstp_3q/arm_ldstp_4q, decode.ml, merged at
+   5ef3e6289); before that merge ARM_MK_EXEC_RULE RAISED on the full byte list.
+   The leg-A slice above is KEPT: all of leg A is stated against it. *)
+let GHASH_V8_EXEC = ARM_MK_EXEC_RULE ghash_v8_mc;;
 
 (* ------------------------------------------------------------------------- *)
 (* Spec vocabulary, lifted with provenance so this file's closure stays at    *)
