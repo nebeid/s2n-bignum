@@ -1484,6 +1484,70 @@ let LOOP4X_CF = prove
     ALL_TAC] THEN
   ASM_ARITH_TAC);;
 
+(* ------------------------------------------------------------------------- *)
+(* Phase 7 support: the FOUR-block spec chain, i.e. the `.Loop4x` analogue of  *)
+(* `GHASH2_SPEC_CHAIN` / `GHASH3_SPEC_CHAIN`.                                 *)
+(*                                                                           *)
+(* The body's single fused reduce absorbs four blocks at once against          *)
+(* H^4/H^3/H^2/H, so `GHASH_POLYVAL_ACC_4` (the single-reduce four-block form) *)
+(* is the right shape -- unlike n = 3 on leg A, which was two STAGED reduces   *)
+(* and therefore needed the cascade instead.  Stated over an OPAQUE `acc` (not *)
+(* `word_bytereverse xi`) so it applies at any loop index, which is what the   *)
+(* symbolic-in-`i` accumulator needs.                                          *)
+(*                                                                           *)
+(* One spelling note: the final `WORD_PMUL_SYM` must be aimed at the RAND      *)
+(* (the `ghash_polyval_acc` side, which writes the H-power SECOND), not the    *)
+(* LAND as `GHASH2_SPEC_CHAIN` does -- at four blocks the LAND-directed        *)
+(* version rewrites only the first product and `REFL_TAC` then fails.          *)
+(* ------------------------------------------------------------------------- *)
+
+let GHASH4_SPEC_CHAIN_GEN = prove
+ (`!(H:int128) (h:int128) (acc:int128) b0 b1 b2 b3.
+     h = ghash_twist H
+     ==> polyval_reduce_prop3
+           (word_xor
+             (word_pmul (h_power h 3)
+                        (word_xor acc (word_bytereverse b0)))
+             (word_xor
+               (word_pmul (h_power h 2) (word_bytereverse b1))
+               (word_xor
+                 (word_pmul (h_power h 1) (word_bytereverse b2))
+                 (word_pmul (h_power h 0) (word_bytereverse b3))))) =
+         nist_ghash H acc [word_bytereverse b0; word_bytereverse b1;
+                           word_bytereverse b2; word_bytereverse b3]`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[NIST_GHASH_IS_POLYVAL] THEN
+  ASM_REWRITE_TAC[GHASH_POLYVAL_ACC_4] THEN
+  REWRITE_TAC[h_power; ARITH_RULE `1 = SUC 0`; ARITH_RULE `2 = SUC(SUC 0)`;
+              ARITH_RULE `3 = SUC(SUC(SUC 0))`; polyval_dot] THEN
+  REWRITE_TAC[h_power] THEN
+  GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [WORD_PMUL_SYM] THEN
+  REFL_TAC);;
+
+(* The four-block unroll of `ghash_acc_rev`'s inner `nist_ghash`: index
+   `m + 4` in terms of index `m`.  `list_of_seq` appends RIGHTWARD, so this is
+   `NIST_GHASH_APPEND` applied four times; it is the lesson-4(a) vehicle for
+   re-attaching the accumulator after the reduce close. *)
+
+let LOOP4X_ACC_STEP4 = prove
+ (`!H xi blk m.
+     nist_ghash H (word_bytereverse xi)
+       (MAP word_bytereverse (list_of_seq blk (m+4))) =
+     nist_ghash H
+       (nist_ghash H (word_bytereverse xi)
+          (MAP word_bytereverse (list_of_seq blk m)))
+       [word_bytereverse (blk m); word_bytereverse (blk (m+1));
+        word_bytereverse (blk (m+2)); word_bytereverse (blk (m+3))]`,
+  REPEAT GEN_TAC THEN
+  REWRITE_TAC[ARITH_RULE `m+4 = SUC(SUC(SUC(SUC m)))`;
+              ARITH_RULE `m+1 = SUC m`; ARITH_RULE `m+2 = SUC(SUC m)`;
+              ARITH_RULE `m+3 = SUC(SUC(SUC m))`] THEN
+  REWRITE_TAC[list_of_seq; MAP_APPEND; MAP] THEN
+  REWRITE_TAC[GSYM APPEND_ASSOC] THEN
+  REWRITE_TAC[NIST_GHASH_APPEND] THEN
+  REWRITE_TAC[APPEND] THEN
+  REWRITE_TAC[NIST_GHASH_CONS; nist_ghash]);;
+
 (* The three block indices the body's deferred-sum rebuild needs, so the
    `ghash_defer_*` clauses at `4*(i+1)` line up with what the sim produces
    for the newly-loaded blocks `4i+5 / 4i+6 / 4i+7`. *)
