@@ -2746,3 +2746,270 @@ let GCM_GHASH_V8_LEGB = prove
       EXISTS_TAC `r:num` THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC];
     MATCH_MP_TAC GCM_GHASH_V8_LEGB_TAIL THEN
     EXISTS_TAC `r:num` THEN ASM_REWRITE_TAC[]]);;
+
+(* ========================================================================= *)
+(* PHASE 10: unify both legs.  One GCM_GHASH_V8_CORRECT for every n >= 1.      *)
+(* ========================================================================= *)
+
+(* ------------------------------------------------------------------------- *)
+(* The leg-B front prefix: the two dispatch instructions at 0x000/0x004.      *)
+(*                                                                           *)
+(*   0x000  cmp   x3, #0x40                                                   *)
+(*   0x004  b.cs  0x170        TAKEN for 16*n >= 64, i.e. n >= 4              *)
+(*                                                                           *)
+(* Two steps, ~4 s.  The `cmp` writes only flags, so every input fact passes  *)
+(* through untouched and the postcondition is the precondition of             *)
+(* `GCM_GHASH_V8_LEGB` verbatim (X0..X3 spelled out rather than as            *)
+(* `C_ARGUMENTS`, which is the same thing after the rewrite).                 *)
+(*                                                                           *)
+(* The guard folds exactly as in `..._LEGB_ENTRY0`: the stepper emits          *)
+(* `read CF s1 <=> 64 <= val (word (16 * n))`, and `VAL_WORD_EQ` under         *)
+(* `16 * n < 2 EXP 64` plus `64 <= 16 * n` (from `4 <= n`) collapses it        *)
+(* before step 2 decodes.                                                     *)
+(*                                                                           *)
+(* `H` is deliberately absent from the statement: nothing in this band touches *)
+(* the accumulator, so quantifying over it would only leave the composition    *)
+(* with a spurious `?H'. ghash_twist H = ghash_twist H'` obligation.           *)
+(* ------------------------------------------------------------------------- *)
+
+let GCM_GHASH_V8_LEGB_FRONT = prove
+ (`!xi_p htbl_p in_p pc h xi (blk:num->int128) n.
+     4 <= n /\ 16 * n < 2 EXP 64 /\
+     nonoverlapping (word pc, LENGTH ghash_v8_mc) (xi_p,16) /\
+     nonoverlapping (xi_p,16) (in_p,16 * n) /\
+     nonoverlapping (xi_p,16) (htbl_p,96)
+     ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) ghash_v8_mc /\
+               read PC s = word pc /\
+               C_ARGUMENTS [xi_p; htbl_p; in_p; word (16 * n)] s /\
+               read (memory :> bytes128 xi_p) s = xi /\
+               (!j. j < n
+                    ==> read (memory :> bytes128
+                               (word_add in_p (word (16 * j)))) s = blk j) /\
+               htable_mem_4 h htbl_p s)
+          (\s. aligned_bytes_loaded s (word pc) ghash_v8_mc /\
+               read PC s = word (pc + 0x170) /\
+               read X0 s = xi_p /\ read X1 s = htbl_p /\ read X2 s = in_p /\
+               read X3 s = word (16 * n) /\
+               read (memory :> bytes128 xi_p) s = xi /\
+               (!j. j < n
+                    ==> read (memory :> bytes128
+                               (word_add in_p (word (16 * j)))) s = blk j) /\
+               htable_mem_4 h htbl_p s)
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                      Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
+                      Q29;Q30;Q31])`,
+  REWRITE_TAC[C_ARGUMENTS; htable_mem_4; fst GHASH_V8_EXEC;
+              NONOVERLAPPING_CLAUSES] THEN
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `64 <= 16 * n` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  ENSURES_INIT_TAC "s0" THEN
+  ARM_STEPS_TAC GHASH_V8_EXEC [1] THEN
+  SUBGOAL_THEN `val (word (16 * n):int64) = 16 * n` ASSUME_TAC THENL
+   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `val (word (16 * n):int64) = 16 * n`;
+                             ASSUME `64 <= 16 * n`]) THEN
+  ARM_STEPS_TAC GHASH_V8_EXEC [2] THEN
+  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+  REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC);;
+
+(* Leg B from the function ENTRY: FRONT ; LEGB, same asymmetric frame witness
+   as Phase 9 (FRONT writes no memory).  Exits at the leg-B `ret`, 0x4c0. *)
+
+let GCM_GHASH_V8_LEGB_FULL = prove
+ (`!xi_p htbl_p in_p pc H h xi (blk:num->int128) n.
+     h = ghash_twist H /\ 4 <= n /\ 16 * n < 2 EXP 64 /\
+     nonoverlapping (word pc, LENGTH ghash_v8_mc) (xi_p,16) /\
+     nonoverlapping (xi_p,16) (in_p,16 * n) /\
+     nonoverlapping (xi_p,16) (htbl_p,96)
+     ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) ghash_v8_mc /\
+               read PC s = word pc /\
+               C_ARGUMENTS [xi_p; htbl_p; in_p; word (16 * n)] s /\
+               read (memory :> bytes128 xi_p) s = xi /\
+               (!j. j < n
+                    ==> read (memory :> bytes128
+                               (word_add in_p (word (16 * j)))) s = blk j) /\
+               htable_mem_4 h htbl_p s)
+          (\s. read PC s = word (pc + 0x4c0) /\
+               read (memory :> bytes128 xi_p) s =
+               word_bytereverse
+                 (nist_ghash H (word_bytereverse xi)
+                    (MAP word_bytereverse (list_of_seq blk n))))
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                      Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
+                      Q29;Q30;Q31])`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC ENSURES_FRAME_SUBSUMED THEN
+  EXISTS_TAC
+   `(MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+     MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
+                Q29;Q30;Q31]) ,,
+    (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+     MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
+     MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
+                Q29;Q30;Q31])` THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+    SUBSUMED_MAYCHANGE_TAC;
+    ALL_TAC] THEN
+  MATCH_MP_TAC ENSURES_TRANS THEN
+  EXISTS_TAC
+   `\s. aligned_bytes_loaded s (word pc) ghash_v8_mc /\
+        read PC s = word (pc + 0x170) /\
+        read X0 s = xi_p /\ read X1 s = htbl_p /\ read X2 s = in_p /\
+        read X3 s = word (16 * n) /\
+        read (memory :> bytes128 xi_p) s = xi /\
+        (!j. j < n
+             ==> read (memory :> bytes128
+                        (word_add in_p (word (16 * j)))) s = blk j) /\
+        htable_mem_4 h htbl_p s` THEN
+  CONJ_TAC THENL
+   [MATCH_MP_TAC GCM_GHASH_V8_LEGB_FRONT THEN ASM_REWRITE_TAC[];
+    MATCH_MP_TAC GCM_GHASH_V8_LEGB THEN ASM_REWRITE_TAC[]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* Leg A, transported from the 368-byte SLICE to the full 1220-byte object.    *)
+(*                                                                           *)
+(* All of leg A is stated against `ghash_v8_lega_mc = SUB_LIST (0,368)         *)
+(* ghash_v8_mc` (the slice existed because `ARM_MK_EXEC_RULE` used to raise on *)
+(* the full byte list -- see the header note).  The transport is a pure        *)
+(* PRECONDITION WEAKENING, no simulation: the second conjunct of               *)
+(* `ALIGNED_BYTES_LOADED_SUB_LIST` (arm/proofs/instruction.ml) gives            *)
+(* `aligned_bytes_loaded s pc l ==> aligned_bytes_loaded s pc (SUB_LIST(0,n) l)`*)
+(* at the SAME base address, so no `4 divides m` side condition arises.        *)
+(*                                                                           *)
+(* The only other obligation is `nonoverlapping (word pc, LENGTH              *)
+(* ghash_v8_lega_mc)` from `nonoverlapping (word pc, LENGTH ghash_v8_mc)`,     *)
+(* i.e. 368 from 1220.  `NONOVERLAPPING_TAC` does NOT do this (it raises       *)
+(* `tryfind` -- it is for concrete disjointness, not for shrinking a region);  *)
+(* what works is expanding `nonoverlapping_modulo` and one                     *)
+(* `MESON_TAC[ARITH_RULE \`!i. i < 368 ==> i < 1220\`]`.                        *)
+(* ------------------------------------------------------------------------- *)
+
+let GHASH_V8_LEGA_LENGTH = prove
+ (`LENGTH ghash_v8_lega_mc = 368`,
+  REWRITE_TAC[ghash_v8_lega_mc_def] THEN
+  MP_TAC GHASH_V8_LENGTH THEN SIMP_TAC[LENGTH_SUB_LIST] THEN ARITH_TAC);;
+
+let GCM_GHASH_V8_LEGA_FULL = prove
+ (`!xi_p htbl_p in_p pc H h xi (blk:num->int128) n.
+     h = ghash_twist H /\ 1 <= n /\ n <= 3 /\
+     nonoverlapping (word pc, LENGTH ghash_v8_mc) (xi_p,16) /\
+     nonoverlapping (xi_p,16) (in_p,16 * n) /\
+     nonoverlapping (xi_p,16) (htbl_p,96)
+     ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) ghash_v8_mc /\
+               read PC s = word pc /\
+               C_ARGUMENTS [xi_p; htbl_p; in_p; word (16 * n)] s /\
+               read (memory :> bytes128 xi_p) s = xi /\
+               (!i. i < n
+                    ==> read (memory :> bytes128
+                               (word_add in_p (word (16 * i)))) s = blk i) /\
+               htable_mem_4 h htbl_p s)
+          (\s. read PC s = word (pc + 0x168) /\
+               read (memory :> bytes128 xi_p) s =
+               word_bytereverse
+                 (nist_ghash H (word_bytereverse xi)
+                    (MAP word_bytereverse (list_of_seq blk n))))
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                      Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
+                      Q29;Q30;Q31])`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC ENSURES_PRECONDITION_THM THEN
+  EXISTS_TAC
+   `\s. aligned_bytes_loaded s (word pc) ghash_v8_lega_mc /\
+        read PC s = word pc /\
+        C_ARGUMENTS [xi_p; htbl_p; in_p; word (16 * n)] s /\
+        read (memory :> bytes128 xi_p) s = xi /\
+        (!i. i < n
+             ==> read (memory :> bytes128
+                        (word_add in_p (word (16 * i)))) s = blk i) /\
+        htable_mem_4 h htbl_p s` THEN
+  CONJ_TAC THENL
+   [GEN_TAC THEN REWRITE_TAC[ghash_v8_lega_mc_def] THEN
+    STRIP_TAC THEN ASM_REWRITE_TAC[] THEN
+    MATCH_MP_TAC(CONJUNCT2 ALIGNED_BYTES_LOADED_SUB_LIST) THEN
+    ASM_REWRITE_TAC[];
+    MATCH_MP_TAC GCM_GHASH_V8_LEGA THEN ASM_REWRITE_TAC[] THEN
+    MP_TAC(ASSUME
+      `nonoverlapping (word pc, LENGTH ghash_v8_mc) (xi_p:int64,16)`) THEN
+    REWRITE_TAC[GHASH_V8_LENGTH; GHASH_V8_LEGA_LENGTH; NONOVERLAPPING_CLAUSES;
+                nonoverlapping_modulo] THEN
+    MESON_TAC[ARITH_RULE `!i. i < 368 ==> i < 1220`]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* GCM_GHASH_V8_CORRECT: the whole routine, every len = 16*n with n >= 1.      *)
+(*                                                                           *)
+(* `ASM_CASES` on `n <= 3` and each leg is one `MATCH_MP_TAC`.  The routine    *)
+(* has TWO `ret`s -- 0x168 (leg A, `.Ldone_v8`) and 0x4c0 (leg B,             *)
+(* `.Ldone4x`) -- so the exit PC is stated as a DISJUNCTION, which is the      *)
+(* standard s2n-bignum shape for a multiple-exit core theorem (cf.            *)
+(* `BIGNUM_ADD_CORRECT`'s three disjuncts).  Each leg proves one disjunct and  *)
+(* `ENSURES_POSTCONDITION_THM` weakens it to the disjunction; the resulting    *)
+(* implication is one `MESON_TAC`.  Phase 11's `ARM_ADD_RETURN_NOSTACK_TAC`    *)
+(* collapses both disjuncts to `read PC s = returnaddress` anyway, so nothing  *)
+(* downstream has to case-split on which `ret` fired.                          *)
+(*                                                                           *)
+(* `16 * n < 2 EXP 64` is needed only by leg B (leg A's n <= 3 makes it        *)
+(* vacuous), but it is carried uniformly so the statement is one clause.       *)
+(* ------------------------------------------------------------------------- *)
+
+let GCM_GHASH_V8_CORRECT = prove
+ (`!xi_p htbl_p in_p pc H h xi (blk:num->int128) n.
+     h = ghash_twist H /\ 1 <= n /\ 16 * n < 2 EXP 64 /\
+     nonoverlapping (word pc, LENGTH ghash_v8_mc) (xi_p,16) /\
+     nonoverlapping (xi_p,16) (in_p,16 * n) /\
+     nonoverlapping (xi_p,16) (htbl_p,96)
+     ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) ghash_v8_mc /\
+               read PC s = word pc /\
+               C_ARGUMENTS [xi_p; htbl_p; in_p; word (16 * n)] s /\
+               read (memory :> bytes128 xi_p) s = xi /\
+               (!i. i < n
+                    ==> read (memory :> bytes128
+                               (word_add in_p (word (16 * i)))) s = blk i) /\
+               htable_mem_4 h htbl_p s)
+          (\s. (read PC s = word (pc + 0x168) \/
+                read PC s = word (pc + 0x4c0)) /\
+               read (memory :> bytes128 xi_p) s =
+               word_bytereverse
+                 (nist_ghash H (word_bytereverse xi)
+                    (MAP word_bytereverse (list_of_seq blk n))))
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                      Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
+                      Q29;Q30;Q31])`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  ASM_CASES_TAC `n <= 3` THENL
+   [MATCH_MP_TAC ENSURES_POSTCONDITION_THM THEN
+    EXISTS_TAC
+     `\s. read PC s = word (pc + 0x168) /\
+          read (memory :> bytes128 xi_p) s =
+          word_bytereverse
+            (nist_ghash H (word_bytereverse xi)
+               (MAP word_bytereverse (list_of_seq blk n)))` THEN
+    CONJ_TAC THENL
+     [GEN_TAC THEN REWRITE_TAC[] THEN MESON_TAC[];
+      MATCH_MP_TAC GCM_GHASH_V8_LEGA_FULL THEN ASM_REWRITE_TAC[]];
+    MATCH_MP_TAC ENSURES_POSTCONDITION_THM THEN
+    EXISTS_TAC
+     `\s. read PC s = word (pc + 0x4c0) /\
+          read (memory :> bytes128 xi_p) s =
+          word_bytereverse
+            (nist_ghash H (word_bytereverse xi)
+               (MAP word_bytereverse (list_of_seq blk n)))` THEN
+    CONJ_TAC THENL
+     [GEN_TAC THEN REWRITE_TAC[] THEN MESON_TAC[];
+      MATCH_MP_TAC GCM_GHASH_V8_LEGB_FULL THEN ASM_REWRITE_TAC[] THEN
+      ASM_ARITH_TAC]]);;
