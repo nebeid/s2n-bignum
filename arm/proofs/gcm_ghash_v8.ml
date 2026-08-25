@@ -516,7 +516,15 @@ let Q128_NORM_TAC =
    `UNABBREV_READ_TAC` then puts the term back for the algebra close, which
    does need it spelled out.  It must SUBST rather than `EXPAND_TAC`: the
    closes run `ASM_REWRITE_TAC`, which would otherwise use the surviving
-   `<bigterm> = acc` assumption to fold the term straight back up. *)
+   `<bigterm> = acc` assumption to fold the term straight back up.
+   The two leg-B tails must ALSO re-fire `Q128_NORM_TAC` right after the
+   restore: with the atom in place the normalizer never saw the byte tree, so
+   `rev64_128 (byteswap128 X)` is still unfolded when the term comes back, the
+   close's `REV64_AS_BSWAP_BREV` rewrite has nothing to match, and the failure
+   surfaces much later as a bare `Failure "AP_TERM_TAC"`.  On LEGB_TAIL3 that
+   was caught by the COLD gate AFTER the proof had passed twice warm -- a warm
+   re-prove inherits rewrite state that hides it, so only a cold load is
+   evidence for this edit. *)
 let ABBREV_READ_TAC vname reg : tactic =
   fun ((asl,_) as g) ->
     let hit = find (fun c ->
@@ -2534,7 +2542,7 @@ let GCM_GHASH_V8_LEGB_TAIL3 = prove
   ABBREV_READ_TAC "accT3" `Q0` THEN
   MAP_EVERY (fun m -> ARM_STEPS_TAC GHASH_V8_EXEC [m] THEN Q128_NORM_TAC)
             (68--69) THEN
-  UNABBREV_READ_TAC "accT3" THEN
+  UNABBREV_READ_TAC "accT3" THEN Q128_NORM_TAC THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN CONJ_TAC THENL
    [ASM_REWRITE_TAC[ARITH_RULE `4 * (k + 1) + 3 = (4 * (k+1)) + 3`] THEN
     REWRITE_TAC[ACC_STEP3] THEN
