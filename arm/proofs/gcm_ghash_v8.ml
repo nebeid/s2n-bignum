@@ -2289,3 +2289,238 @@ let GCM_GHASH_V8_LEGB_TAIL2 = prove
 
     REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
     REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC THEN ASM_REWRITE_TAC[]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* Phase 8, r = 3: the `.Lthree` -> `.Ldone4x` band, 0x2d8 -> 0x4c0.          *)
+(*                                                                           *)
+(* Dispatch: `adds` leaves X3 = word 48, so all three of `b.eq` @0x300,       *)
+(* `b.cc` @0x308 and `b.eq` @0x30c FALL THROUGH to `.Lthree` @0x310.  The     *)
+(* 3-register `ld1 {v4.2d-v6.2d},[x2]` @0x31c reads blocks 4k+4, 4k+5, 4k+6   *)
+(* from `[x2] = in_p + 64*(k+1)` with no post-increment, so all three offsets *)
+(* are supplied FLAT (the s157 trap).                                        *)
+(*                                                                           *)
+(* The group-k reduce completes at s39 (offset 0x374's `ext v0`), the         *)
+(* `ACC_CUTPOINT_TAC` site.  Unlike r = 1 and r = 2, `.Lthree` folds its      *)
+(* three blocks against H^2/H/H^0 in ONE `.Ldone4x` reduce, so stage 2 is a   *)
+(* single three-block close and `build_GMULTn_fast 3` is the right shape.     *)
+(*                                                                           *)
+(* THE DISCARD THRESHOLD MUST BE 5000, NOT the 400 that r = 1 / r = 2 use.    *)
+(* `.Lthree` carries three fresh blocks, so at `>400` the blanket discard     *)
+(* erases a LIVE pre-reduce register fact and step 40 dies `Failure           *)
+(* "tryfind"`.  At `>5000` only the 6004-char raw Q0 goes.                    *)
+(*                                                                           *)
+(* THE ALIGN GAP IS TWO SEPARATE RE-NESTINGS, not one, and the ORDER matters. *)
+(* `GHASH1_ALIGN` fires on the machine side with the three summed atoms       *)
+(* LEFT-nested exactly as the assembly builds them -- do NOT try to pre-bake  *)
+(* right-nested sums into its instantiation.  What differs from               *)
+(* `build_GMULTn_fast 3` is then only summand ORDER, in two places:           *)
+(*   (a) `MIDSUM3L` (the 3-block analogue of `MIDSUM4`) fixes the mid         *)
+(*       accumulator's bracketing;                                           *)
+(*   (b) `RESUM3_LO`/`RESUM3_HI` rotate the goal's lo and hi product sums so    *)
+(*       the H^2 (accumulator) product comes FIRST, matching the spec -- the    *)
+(*       assembly puts it LAST because the deferred H/H^0 products are          *)
+(*       computed first and the fresh accumulator product is XORed in after.    *)
+(* Measured: 12 differing subterms -> 4 after (a) -> 0 after (b), i.e.        *)
+(* `aconv`-IDENTICAL at 9520 chars both sides.  That is the FIFTH time the    *)
+(* v123 `aconv`-against-an-existing-align-lemma check has predicted the close *)
+(* for free, and no new BITBLAST was needed here either.                      *)
+(*                                                                           *)
+(* One last shape note: after `build_GMULTn_fast 3` the reduce argument is    *)
+(* LEFT-nested (`word_xor (word_xor P2 P1) P0`) while                         *)
+(* `GHASH3_SPEC_CHAIN_GEN` states it right-nested, so one                     *)
+(* `XOR3_RENEST_GEN` aimed at the LAND's RAND is required before              *)
+(* `MATCH_MP_TAC` -- without it `MATCH_MP_TAC` reports an opaque `No match`.  *)
+(* `XOR3_RENEST_GEN` must be over `(N)word` for the same reason               *)
+(* `XOR4_REASSOC_GEN` is (the s158 finding).                                  *)
+(* ------------------------------------------------------------------------- *)
+
+let TAIL3_X3 = prove
+ (`!k. word_add (word_sub (word (16 * (4 * (k + 1) + 3))) (word (128 + 64 * k)))
+                (word 64) : int64 = word 48`,
+  GEN_TAC THEN
+  REWRITE_TAC[ARITH_RULE `16 * (4 * (k+1) + 3) = (64 * k + 64) + 48`;
+              ARITH_RULE `128 + 64 * k = 64 * k + 128`] THEN
+  CONV_TAC WORD_RULE);;
+
+(* `GHASH3_SPEC_CHAIN` (above) states the STAGED two-reduce form and is the
+   wrong shape for `.Lthree`, which reduces once over three blocks.  This is
+   the `GHASH4_SPEC_CHAIN_GEN` mould at three blocks, over an OPAQUE `acc`.
+   `WORD_PMUL_SYM` is aimed at the RAND as at four blocks (NOT the LAND as
+   `GHASH2_SPEC_CHAIN` does), and at three blocks one extra explicit
+   commutation of the H^2 power is needed because `polyval_dot` associates the
+   two squarings the other way round. *)
+
+let GHASH3_SPEC_CHAIN_GEN = prove
+ (`!(H:int128) (h:int128) (acc:int128) b0 b1 b2.
+     h = ghash_twist H
+     ==> polyval_reduce_prop3
+           (word_xor
+             (word_pmul (h_power h 2)
+                        (word_xor acc (word_bytereverse b0)))
+             (word_xor
+               (word_pmul (h_power h 1) (word_bytereverse b1))
+               (word_pmul (h_power h 0) (word_bytereverse b2)))) =
+         nist_ghash H acc [word_bytereverse b0; word_bytereverse b1;
+                           word_bytereverse b2]`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[NIST_GHASH_IS_POLYVAL] THEN
+  ASM_REWRITE_TAC[GHASH_POLYVAL_ACC_3] THEN
+  REWRITE_TAC[h_power; ARITH_RULE `1 = SUC 0`; ARITH_RULE `2 = SUC(SUC 0)`;
+              polyval_dot] THEN
+  REWRITE_TAC[h_power] THEN
+  GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [WORD_PMUL_SYM] THEN
+  SUBGOAL_THEN
+   `polyval_reduce_prop3
+      (word_pmul
+        (polyval_reduce_prop3 (word_pmul (ghash_twist H) (ghash_twist H)))
+        (ghash_twist H)) =
+    polyval_reduce_prop3
+      (word_pmul (ghash_twist H)
+        (polyval_reduce_prop3 (word_pmul (ghash_twist H) (ghash_twist H))))`
+   SUBST1_TAC THENL
+   [AP_TERM_TAC THEN MATCH_ACCEPT_TAC WORD_PMUL_SYM; ALL_TAC] THEN
+  REFL_TAC);;
+
+(* The 3-block analogue of `MIDSUM4`: the machine's mid accumulator XORs the
+   two DEFERRED per-block mid partials first and the fresh accumulator mid
+   partial last, where the spec brackets them per-block. Pure XOR-ACI. *)
+
+let MIDSUM3L = prove
+ (`!m0 m1 m2 l0 l1 l2 h0 h1 h2:int128.
+     word_xor (word_xor (word_xor (word_xor m1 m2) m0)
+                        (word_xor (word_xor l1 l2) l0))
+              (word_xor (word_xor h1 h2) h0) =
+     word_xor (word_xor (word_xor m0 l0) h0)
+       (word_xor (word_xor (word_xor m1 l1) h1)
+                 (word_xor (word_xor m2 l2) h2))`,
+  REPEAT GEN_TAC THEN CONV_TAC WORD_RULE);;
+
+(* The accumulator-last rotation of the lo and hi product sums, aimed at the
+   GOAL's two sum sites.
+
+   THE PATTERN MUST BE PINNED DOWN TO THE `word_subword` OPERANDS, and the lo
+   and hi cases must be SEPARATE lemmas with their lane offsets baked in.  Every
+   looser formulation over-fires and was measured to do so:
+     - a bare `!a b c:(N)word. word_xor (word_xor a b) c = ...` under
+       `TOP_DEPTH_CONV` re-nests the deep Karatsuba mid sums too (s159: diff
+       9657 -> 10054 chars, the align stops matching entirely);
+     - restricting to `word_pmul` operands is still too loose -- the mid sums
+       are `word_pmul (karatsuba_mid ...) (word_subword ...)` applications and
+       match as well;
+     - pre-baking the rotation into `build_GMULTn_fast 3`'s LHS instead of the
+       goal has the identical problem from the other side (LHS 5258 -> 5181
+       chars, three extra sites).
+   Requiring BOTH operands of every product to be `word_subword _ (o,64)` at a
+   FIXED `o` is what finally isolates exactly the two sites: the mid sums'
+   H-side operand is a `karatsuba_mid`, not a `word_subword`, and their two lane
+   offsets are mixed.  A single lemma with `o` as a variable does not parse in
+   the `word_subword` index position, hence the pair. *)
+
+let RESUM3_LO = prove
+ (`!(a2:int128) (x2:int128) (a1:int128) (x1:int128) (a0:int128) (x0:int128).
+     word_xor
+       (word_xor (word_pmul (word_subword a1 (0,64):int64)
+                            (word_subword x1 (0,64):int64) :int128)
+                 (word_pmul (word_subword a0 (0,64):int64)
+                            (word_subword x0 (0,64):int64) :int128))
+       (word_pmul (word_subword a2 (0,64):int64)
+                  (word_subword x2 (0,64):int64) :int128) =
+     word_xor
+       (word_pmul (word_subword a2 (0,64):int64)
+                  (word_subword x2 (0,64):int64) :int128)
+       (word_xor (word_pmul (word_subword a1 (0,64):int64)
+                            (word_subword x1 (0,64):int64) :int128)
+                 (word_pmul (word_subword a0 (0,64):int64)
+                            (word_subword x0 (0,64):int64) :int128))`,
+  REPEAT GEN_TAC THEN CONV_TAC WORD_RULE);;
+
+let RESUM3_HI = prove
+ (`!(a2:int128) (x2:int128) (a1:int128) (x1:int128) (a0:int128) (x0:int128).
+     word_xor
+       (word_xor (word_pmul (word_subword a1 (64,64):int64)
+                            (word_subword x1 (64,64):int64) :int128)
+                 (word_pmul (word_subword a0 (64,64):int64)
+                            (word_subword x0 (64,64):int64) :int128))
+       (word_pmul (word_subword a2 (64,64):int64)
+                  (word_subword x2 (64,64):int64) :int128) =
+     word_xor
+       (word_pmul (word_subword a2 (64,64):int64)
+                  (word_subword x2 (64,64):int64) :int128)
+       (word_xor (word_pmul (word_subword a1 (64,64):int64)
+                            (word_subword x1 (64,64):int64) :int128)
+                 (word_pmul (word_subword a0 (64,64):int64)
+                            (word_subword x0 (64,64):int64) :int128))`,
+  REPEAT GEN_TAC THEN CONV_TAC WORD_RULE);;
+
+let XOR3_RENEST_GEN = prove
+ (`!a b c:(N)word. word_xor (word_xor a b) c = word_xor a (word_xor b c)`,
+  REPEAT GEN_TAC THEN CONV_TAC WORD_RULE);;
+
+let GCM_GHASH_V8_LEGB_TAIL3 = prove
+ (`!xi_p htbl_p in_p pc H h xi (blk:num->int128) n k.
+     h = ghash_twist H /\
+     n = 4 * (k + 1) + 3 /\ 16 * n < 2 EXP 64 /\
+     nonoverlapping (word pc, LENGTH ghash_v8_mc) (xi_p,16) /\
+     nonoverlapping (xi_p,16) (in_p,16 * n) /\
+     nonoverlapping (xi_p,16) (htbl_p,96)
+     ==> ensures arm
+          (\s. read PC s = word (pc + 0x2d8) /\
+               ghash_v8_loop4x_inv pc xi_p htbl_p in_p H h xi blk n k s)
+          (\s. read PC s = word (pc + 0x4c0) /\
+               read (memory :> bytes128 xi_p) s =
+               word_bytereverse
+                 (nist_ghash H (word_bytereverse xi)
+                    (MAP word_bytereverse (list_of_seq blk n))))
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                      Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
+                      Q29;Q30;Q31])`,
+  REWRITE_TAC[ghash_v8_loop4x_inv; fst GHASH_V8_EXEC;
+              NONOVERLAPPING_CLAUSES] THEN
+  REPEAT STRIP_TAC THEN
+  ENSURES_INIT_TAC "s0" THEN
+  MAP_EVERY (fun m -> ARM_STEPS_TAC GHASH_V8_EXEC [m] THEN Q128_NORM_TAC)
+            (1--10) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[TAIL3_X3]) THEN
+  ARM_STEPS_TAC GHASH_V8_EXEC (11--13) THEN
+  SETUP_BLK_TAC "s13" `64 * (k+1)` `4*k+4` THEN
+  SETUP_BLK_TAC "s13" `64 * (k+1) + 16` `4*k+5` THEN
+  SETUP_BLK_TAC "s13" `64 * (k+1) + 32` `4*k+6` THEN
+  MAP_EVERY (fun m -> ARM_STEPS_TAC GHASH_V8_EXEC [m] THEN Q128_NORM_TAC)
+            (14--39) THEN
+  ACC_CUTPOINT_TAC "s39" THEN
+  REPEAT(FIRST_X_ASSUM(K ALL_TAC o check (fun th ->
+    String.length(string_of_term(concl th)) > 5000))) THEN
+  MAP_EVERY (fun m -> ARM_STEPS_TAC GHASH_V8_EXEC [m] THEN Q128_NORM_TAC)
+            (40--69) THEN
+  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN CONJ_TAC THENL
+   [ASM_REWRITE_TAC[ARITH_RULE `4 * (k + 1) + 3 = (4 * (k+1)) + 3`] THEN
+    REWRITE_TAC[ACC_STEP3] THEN
+    ABBREV_TAC `A2:int128 = nist_ghash H (word_bytereverse xi)
+                  (MAP word_bytereverse (list_of_seq blk (4 * (k+1))))` THEN
+    REWRITE_TAC[ghash_acc_rev] THEN
+    ABBREV_TAC `A3:int128 = nist_ghash H (word_bytereverse xi)
+                  (MAP word_bytereverse (list_of_seq blk (4 * (k+1))))` THEN
+    REWRITE_TAC[REV64_XOR_AS_BSWAP; BYTESWAP128_INVOLUTION] THEN
+    GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [REV64_AS_BSWAP_BREV] THEN
+    GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV)
+                    [BYTEREVERSE128_INVOLUTION] THEN
+    AP_TERM_TAC THEN
+    REWRITE_TAC[INS128_TO_JOIN; INS_TO_JOIN; INS128_HI_TO_JOIN;
+                INS_HI_TO_JOIN; REV64_AS_BSWAP_BREV;
+                MID_FOLD_BSWAP_LO; MID_FOLD_BSWAP_HI; karatsuba_mid] THEN
+    REWRITE_TAC[GHASH1_ALIGN] THEN
+    GEN_REWRITE_TAC (LAND_CONV o TOP_DEPTH_CONV) [MIDSUM3L] THEN
+    GEN_REWRITE_TAC (LAND_CONV o TOP_DEPTH_CONV) [RESUM3_LO; RESUM3_HI] THEN
+    REWRITE_TAC[snd(build_GMULTn_fast 3)] THEN
+    REWRITE_TAC[ARITH_RULE `4 * (k + 1) + 1 = 4 * k + 5`;
+                ARITH_RULE `4 * (k + 1) + 2 = 4 * k + 6`;
+                ARITH_RULE `4 * (k + 1) = 4 * k + 4`] THEN
+    ASM_REWRITE_TAC[] THEN
+    GEN_REWRITE_TAC (LAND_CONV o RAND_CONV o ONCE_DEPTH_CONV)
+                    [XOR3_RENEST_GEN] THEN
+    MATCH_MP_TAC GHASH3_SPEC_CHAIN_GEN THEN REFL_TAC;
+
+    REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+    REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC THEN ASM_REWRITE_TAC[]]);;
