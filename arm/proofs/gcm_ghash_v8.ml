@@ -1410,9 +1410,9 @@ let GCM_GHASH_V8_LEGB_ENTRY = prove
     REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC]);;
 
 (* ------------------------------------------------------------------------- *)
-(* Fire ENSURES_WHILE_PUP_TAC with the frozen invariant, closing FOUR of the  *)
-(* five subgoals and leaving ONLY the body (i -> i+1) as a CHEAT_TAC          *)
-(* placeholder.  Phase 7 replaces that one line and nothing else.             *)
+(* Fire ENSURES_WHILE_PUP_TAC with the frozen invariant.  All FIVE subgoals   *)
+(* are now proved: Phase 6 closed the four cheap ones and Phase 7 closed the  *)
+(* body (i -> i+1), which is the third of the five.                           *)
 (*                                                                           *)
 (* TWO mechanical points that cost real time to find:                         *)
 (*  1. `MAYCHANGE_IDEMPOT_TAC`, which every ENSURES_WHILE_* tactic fires as   *)
@@ -1548,6 +1548,59 @@ let LOOP4X_ACC_STEP4 = prove
   REWRITE_TAC[APPEND] THEN
   REWRITE_TAC[NIST_GHASH_CONS; nist_ghash]);;
 
+(* ------------------------------------------------------------------------- *)
+(* Phase 7 support: the four re-bracketings the accumulator close needs.       *)
+(*                                                                           *)
+(* All four are pure XOR-ACI (`WORD_RULE`, no BITBLAST).  They exist because  *)
+(* the machine and `build_GMULTn_fast 4` accumulate the same four products in *)
+(* different orders: the assembly XORs the DEFERRED sum (blocks 4i+1..4i+3,   *)
+(* computed last iteration) with the FRESH H^4 product, so its block-0 term   *)
+(* lands on the RIGHT, while the spec puts block 0 (the highest H power)       *)
+(* leftmost and nests rightward.  `RESUM4` rotates the lo/hi sums; `MIDSUM4`  *)
+(* does the same for the mid accumulator, which additionally interleaves the  *)
+(* three per-block mid/lo/hi partials that Karatsuba subtracts.               *)
+(*                                                                           *)
+(* `XOR4_REASSOC_GEN` must be stated over `(N)word`, NOT `int128`: the reduce  *)
+(* argument it re-brackets sits under a `word_join ... : 256 word`, so an      *)
+(* int128-only version silently fails to match and `MATCH_MP_TAC` then reports *)
+(* the opaque `No match`.                                                     *)
+(* ------------------------------------------------------------------------- *)
+
+let RESUM4 = prove
+ (`!x0 x1 x2 x3:int128.
+     word_xor (word_xor x1 (word_xor x2 x3)) x0 =
+     word_xor x0 (word_xor x1 (word_xor x2 x3))`,
+  REPEAT GEN_TAC THEN CONV_TAC WORD_RULE);;
+
+let MIDSUM4 = prove
+ (`!m0 m1 m2 m3 l0 l1 l2 l3 h0 h1 h2 h3:int128.
+     word_xor
+       (word_xor (word_xor (word_xor m1 (word_xor m2 m3)) m0)
+                 (word_xor (word_xor l1 (word_xor l2 l3)) l0))
+       (word_xor (word_xor h1 (word_xor h2 h3)) h0) =
+     word_xor (word_xor (word_xor m0 l0) h0)
+       (word_xor (word_xor (word_xor m1 l1) h1)
+         (word_xor (word_xor (word_xor m2 l2) h2)
+                   (word_xor (word_xor m3 l3) h3)))`,
+  REPEAT GEN_TAC THEN CONV_TAC WORD_RULE);;
+
+let XOR4_REASSOC_GEN = prove
+ (`!a b c d:(N)word. word_xor (word_xor (word_xor a b) c) d =
+                     word_xor a (word_xor b (word_xor c d))`,
+  REPEAT GEN_TAC THEN CONV_TAC WORD_RULE);;
+
+(* The machine's accumulator register carries `rev64_128` of the byte-reversed
+   running value, and the body's `eor v16,v4,v0` XORs it with `rev64_128` of
+   the raw block.  `rev64_128` distributes over XOR and is `byteswap128 o
+   word_bytereverse`, so the pair collapses to `byteswap128` of the spec-side
+   operand -- which is exactly what the reduce's `ext v0,v0,v0,#8` then undoes.
+   One 128-bit BITBLAST. *)
+
+let REV64_XOR_AS_BSWAP = prove
+ (`!a b:int128. word_xor (rev64_128 (word_bytereverse a)) (rev64_128 b) =
+                byteswap128 (word_xor a (word_bytereverse b))`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[byteswap128; rev64_128] THEN BITBLAST_TAC);;
+
 (* The three block indices the body's deferred-sum rebuild needs, so the
    `ghash_defer_*` clauses at `4*(i+1)` line up with what the sim produces
    for the newly-loaded blocks `4i+5 / 4i+6 / 4i+7`. *)
@@ -1636,12 +1689,15 @@ let GCM_GHASH_V8_LEGB_LOOP4X = prove
     MATCH_MP_TAC GCM_GHASH_V8_LEGB_ENTRY_ABL THEN ASM_REWRITE_TAC[];
 
     (* 3. the BODY, i -> i+1: Phase 7.  49 instructions + the b.cs.
-       Simulates in ~11 s (leg B's body has ONE reduce over ONE group, so
+       Simulates in ~14 s (leg B's body has ONE reduce over ONE group, so
        nothing accumulates across i and the terms stay in the low thousands
        of chars rather than leg A's 205 KB).  After the final state and one
-       `REPEAT CONJ_TAC` there are exactly TEN conjuncts; nine close here.
-       The tenth -- the GHASH accumulator, `read Q0 = ghash_acc_rev ... at
-       4*(i+1)` -- is the open half and is BRIEF lesson 4's target. *)
+       `REPEAT CONJ_TAC` there are exactly NINE conjuncts -- see the note on
+       the last branch: the skeleton already rewrote the opaque ABI constant
+       away, so `ENSURES_FINAL_STATE_TAC` discharges the frame itself and
+       there is no tenth MAYCHANGE branch.  The fourth of the nine is the
+       GHASH accumulator, `read Q0 = ghash_acc_rev ... at 4*(i+1)`, which is
+       BRIEF lesson 4's target and is closed in place below. *)
     REPEAT STRIP_TAC THEN
     REWRITE_TAC[ghash_v8_loop4x_inv] THEN
     ENSURES_INIT_TAC "s0" THEN
@@ -1661,9 +1717,49 @@ let GCM_GHASH_V8_LEGB_LOOP4X = prove
       GEN_REWRITE_TAC ONCE_DEPTH_CONV [GSYM(ASSUME `n = 4 * (k + 1) + r`)] THEN
       FIRST_X_ASSUM MATCH_ACCEPT_TAC;
 
-      (* THE OPEN HALF: the GHASH accumulator at 4*(i+1).  See the comment
-         below the theorem for the exact remaining obligation. *)
-      CHEAT_TAC;
+      (* THE GHASH ACCUMULATOR at 4*(i+1) -- BRIEF lesson 4, both halves.
+         (a) re-attach: `LOOP4X_ACC_STEP4` peels the four blocks off the
+             spec side and `ABBREV_TAC` makes the residual running value an
+             OPAQUE `AC` (6029 -> 6204 chars), so the reduce close never sees
+             the loop index.  `REV64_XOR_AS_BSWAP` then collapses the
+             machine's `rev64` pair into `byteswap128` of the spec operand,
+             and abbreviating the three deferred sums brings the goal to
+             4290 chars -- at which point it is SHAPE-IDENTICAL to leg A's
+             single-reduce close.
+         (b) attach at the INPUT accumulators: `GHASH1_ALIGN` applies with
+             its three variables instantiated at the three SUMS (exactly the
+             n = 2 / n = 3 reuse), so NO new align lemma and no new BITBLAST
+             at the reduce.  Expanding the deferred sums and rotating with
+             MIDSUM4 / RESUM4 then makes the machine term `aconv`-IDENTICAL
+             to `build_GMULTn_fast 4`'s LHS (verified: 12319 chars, both
+             sides), and `GHASH4_SPEC_CHAIN_GEN` lands in `nist_ghash`.
+         The only genuinely new algebra is four XOR-ACI re-bracketings. *)
+      REWRITE_TAC[ARITH_RULE `4 * (i + 1) = 4 * i + 4`] THEN
+      REWRITE_TAC[ghash_acc_rev] THEN
+      REWRITE_TAC[LOOP4X_ACC_STEP4] THEN
+      ABBREV_TAC `AC:int128 = nist_ghash H (word_bytereverse xi)
+                    (MAP word_bytereverse (list_of_seq blk (4 * i)))` THEN
+      REWRITE_TAC[REV64_XOR_AS_BSWAP; BYTESWAP128_INVOLUTION] THEN
+      ABBREV_TAC `DL:int128 = ghash_defer_lo (ghash_twist H) blk (4 * i)` THEN
+      ABBREV_TAC `DH:int128 = ghash_defer_hi (ghash_twist H) blk (4 * i)` THEN
+      ABBREV_TAC `DM:int128 = ghash_defer_mid (ghash_twist H) blk (4 * i)` THEN
+      GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [REV64_AS_BSWAP_BREV] THEN
+      GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV)
+                      [BYTEREVERSE128_INVOLUTION] THEN
+      AP_TERM_TAC THEN
+      REWRITE_TAC[INS128_TO_JOIN; INS_TO_JOIN; INS128_HI_TO_JOIN;
+                  INS_HI_TO_JOIN; MID_FOLD_BSWAP_LO; MID_FOLD_BSWAP_HI;
+                  karatsuba_mid] THEN
+      REWRITE_TAC[GHASH1_ALIGN] THEN
+      MAP_EVERY EXPAND_TAC ["DL"; "DH"; "DM"] THEN
+      REWRITE_TAC[ghash_defer_lo; ghash_defer_hi; ghash_defer_mid;
+                  karatsuba_mid] THEN
+      CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN
+      GEN_REWRITE_TAC (LAND_CONV o TOP_DEPTH_CONV) [MIDSUM4] THEN
+      GEN_REWRITE_TAC (LAND_CONV o TOP_DEPTH_CONV) [RESUM4] THEN
+      REWRITE_TAC[snd(build_GMULTn_fast 4)] THEN
+      REWRITE_TAC[XOR4_REASSOC_GEN] THEN
+      MATCH_MP_TAC GHASH4_SPEC_CHAIN_GEN THEN REFL_TAC;
 
       (* Q4 = the new group's block 4(i+1) *)
       AP_TERM_TAC THEN AP_TERM_TAC THEN ARITH_TAC;
