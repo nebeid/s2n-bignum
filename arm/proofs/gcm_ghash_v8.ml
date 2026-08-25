@@ -1805,3 +1805,114 @@ let GCM_GHASH_V8_LEGB_LOOP4X = prove
     ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
     GEN_REWRITE_TAC ONCE_DEPTH_CONV [GSYM(ASSUME `n = 4 * (k + 1) + r`)] THEN
     FIRST_X_ASSUM MATCH_ACCEPT_TAC]);;
+
+(* ========================================================================= *)
+(* PHASE 8: `.Ltail4x` + the .Lone/.Ltwo/.Lthree/.Ldone4x cascade.            *)
+(*                                                                           *)
+(* `.Loop4x` exits at i = k with X3 = word_sub (word (16*n)) (word (128+64*k)) *)
+(* and X2 = in_p + 64*(k+1).  `.Ltail4x`'s `adds x3,x3,#0x40` @0x2fc leaves   *)
+(* exactly `word (16*r)`, which makes the four-way dispatch arithmetic:       *)
+(*                                                                           *)
+(*   0x300  b.eq 0x484   16r = 0   -> r = 0, .Ldone4x  (single reduce)        *)
+(*   0x304  cmp x3,#0x20                                                     *)
+(*   0x308  b.cc 0x430   16r < 32  -> r = 1, .Lone     (staged)               *)
+(*   0x30c  b.eq 0x3b0   16r = 32  -> r = 2, .Ltwo     (staged)               *)
+(*   fallthru 0x310      16r = 48  -> r = 3, .Lthree   (staged)               *)
+(*                                                                           *)
+(* Only r = 0 is a single reduce; the other three do the group-k reduce INLINE *)
+(* and hand it to `.Ldone4x` as the accumulator for a SECOND reduce over the  *)
+(* r remaining blocks (leg A's n = 3 shape).  None of the three tails post-   *)
+(* increments x2: they all read from [x2] = in_p + 64*(k+1).                  *)
+(* ------------------------------------------------------------------------- *)
+
+(* The r = 0 counter rung.  With n = 4*(k+1) the `adds` restores X3 to exactly
+   zero, so the `b.eq` at 0x300 is taken and the whole band is 26 steps:
+   9 (`.Ltail4x` head) + 1 (`adds`) + 1 (`b.eq`) + 15 (`.Ldone4x`). *)
+
+let TAIL0_ZERO = prove
+ (`!k. word_add (word_sub (word (16 * 4 * (k + 1))) (word (128 + 64 * k)))
+                (word 64) : int64 = word 0`,
+  GEN_TAC THEN REWRITE_TAC[ARITH_RULE `16 * 4 * (k+1) = 64 * k + 64`;
+                           ARITH_RULE `128 + 64 * k = 64 * k + 128`] THEN
+  CONV_TAC WORD_RULE);;
+
+(* ------------------------------------------------------------------------- *)
+(* Phase 8, r = 0: the `.Ltail4x` -> `.Ldone4x` band, 0x2d8 -> 0x4c0.         *)
+(*                                                                           *)
+(* This is the FIRST leg-B theorem whose frame contains a memory component:   *)
+(* `st1 {v0.2d},[x0]` @0x4bc writes the 16 bytes at xi_p.                     *)
+(*                                                                           *)
+(* The algebra close is the Phase-7 accumulator close VERBATIM, with the loop *)
+(* index specialized to k -- same abbreviations, same `GHASH1_ALIGN` reuse,    *)
+(* same MIDSUM4/RESUM4 rotation, same `build_GMULTn_fast 4`.  That is expected:*)
+(* `.Ltail4x`+`.Ldone4x` computes exactly what one `.Loop4x` body computes,    *)
+(* minus the next group's load and the deferred-sum rebuild.  Measured: the    *)
+(* goal shrinks 6106 -> 4283 chars under the abbreviations (Phase 7 saw 4290)  *)
+(* and the machine LHS reaches 12319 chars, `aconv`-identical to Phase 7's.    *)
+(*                                                                           *)
+(* One new rung, `TAIL0_ZERO`: the sim leaves X3 as the un-normalized          *)
+(* `word_add (word_sub ...) (word 64)` and the `b.eq` guard reads `val` of it, *)
+(* so it must be folded to `word 0` (and `VAL_WORD_0` applied) BEFORE step 11  *)
+(* or the branch does not resolve.                                            *)
+(* ------------------------------------------------------------------------- *)
+
+let GCM_GHASH_V8_LEGB_TAIL0 = prove
+ (`!xi_p htbl_p in_p pc H h xi (blk:num->int128) n k.
+     h = ghash_twist H /\
+     n = 4 * (k + 1) /\ 16 * n < 2 EXP 64 /\
+     nonoverlapping (word pc, LENGTH ghash_v8_mc) (xi_p,16) /\
+     nonoverlapping (xi_p,16) (in_p,16 * n) /\
+     nonoverlapping (xi_p,16) (htbl_p,96)
+     ==> ensures arm
+          (\s. read PC s = word (pc + 0x2d8) /\
+               ghash_v8_loop4x_inv pc xi_p htbl_p in_p H h xi blk n k s)
+          (\s. read PC s = word (pc + 0x4c0) /\
+               read (memory :> bytes128 xi_p) s =
+               word_bytereverse
+                 (nist_ghash H (word_bytereverse xi)
+                    (MAP word_bytereverse (list_of_seq blk n))))
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [memory :> bytes(xi_p:int64,16)] ,,
+           MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q7;Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15;
+                      Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;
+                      Q29;Q30;Q31])`,
+  REWRITE_TAC[ghash_v8_loop4x_inv; fst GHASH_V8_EXEC;
+              NONOVERLAPPING_CLAUSES] THEN
+  REPEAT STRIP_TAC THEN
+  ENSURES_INIT_TAC "s0" THEN
+  MAP_EVERY (fun m -> ARM_STEPS_TAC GHASH_V8_EXEC [m] THEN Q128_NORM_TAC)
+            (1--10) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[TAIL0_ZERO; VAL_WORD_0]) THEN
+  ARM_STEPS_TAC GHASH_V8_EXEC [11] THEN
+  MAP_EVERY (fun m -> ARM_STEPS_TAC GHASH_V8_EXEC [m] THEN Q128_NORM_TAC)
+            (12--26) THEN
+  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN CONJ_TAC THENL
+   [ASM_REWRITE_TAC[ARITH_RULE `4 * (k + 1) = 4 * k + 4`] THEN
+    REWRITE_TAC[ghash_acc_rev] THEN
+    REWRITE_TAC[LOOP4X_ACC_STEP4] THEN
+    ABBREV_TAC `AC:int128 = nist_ghash H (word_bytereverse xi)
+                  (MAP word_bytereverse (list_of_seq blk (4 * k)))` THEN
+    REWRITE_TAC[REV64_XOR_AS_BSWAP; BYTESWAP128_INVOLUTION] THEN
+    ABBREV_TAC `DL:int128 = ghash_defer_lo (ghash_twist H) blk (4 * k)` THEN
+    ABBREV_TAC `DH:int128 = ghash_defer_hi (ghash_twist H) blk (4 * k)` THEN
+    ABBREV_TAC `DM:int128 = ghash_defer_mid (ghash_twist H) blk (4 * k)` THEN
+    GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [REV64_AS_BSWAP_BREV] THEN
+    GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV)
+                    [BYTEREVERSE128_INVOLUTION] THEN
+    AP_TERM_TAC THEN
+    REWRITE_TAC[INS128_TO_JOIN; INS_TO_JOIN; INS128_HI_TO_JOIN;
+                INS_HI_TO_JOIN; MID_FOLD_BSWAP_LO; MID_FOLD_BSWAP_HI;
+                karatsuba_mid] THEN
+    REWRITE_TAC[GHASH1_ALIGN] THEN
+    MAP_EVERY EXPAND_TAC ["DL"; "DH"; "DM"] THEN
+    REWRITE_TAC[ghash_defer_lo; ghash_defer_hi; ghash_defer_mid;
+                karatsuba_mid] THEN
+    CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN
+    GEN_REWRITE_TAC (LAND_CONV o TOP_DEPTH_CONV) [MIDSUM4] THEN
+    GEN_REWRITE_TAC (LAND_CONV o TOP_DEPTH_CONV) [RESUM4] THEN
+    REWRITE_TAC[snd(build_GMULTn_fast 4)] THEN
+    REWRITE_TAC[XOR4_REASSOC_GEN] THEN
+    MATCH_MP_TAC GHASH4_SPEC_CHAIN_GEN THEN REFL_TAC;
+
+    REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+    REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC THEN ASM_REWRITE_TAC[]]);;
