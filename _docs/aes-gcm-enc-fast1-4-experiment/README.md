@@ -123,18 +123,51 @@ The earlier decrypt experiment reached the same code-size warning by a
 different route. Eight exact-size decrypt bodies grew `.text` from 4,968 to
 12,376 bytes (2.49x) and delivered approximately -47/-43/-44/-41/-36/-30/-24/
 -10% at 16 through 128 bytes on G4. Truncating at four bodies cost 7,312 bytes
-(1.47x) and retained the first four gains only. The chosen decrypt design did
-better: a shared one-block cascade for 1--4 blocks is 5,960 bytes (1.20x);
-after ordering work its 64-byte gain versus the pre-fused kernel was
+(1.47x) and retained the first four gains only. The current PR uses a shared
+one-block cascade for 1--4 blocks at 5,960 bytes
+(1.20x); after ordering work its 64-byte gain versus the pre-fused kernel was
 -21.9/-27.2/-31.0% on G3/G4/G5, with larger lengths unchanged.
 
 | direction/design | `.text` | growth | accelerated sizes | key result |
 |---|---:|---:|---|---|
 | encrypt full per-size | 11,848 B | 2.54x original | 16--112 B | best fixed-size speed |
 | **encrypt compact per-size** | **8,624 B** | **1.85x original** | **16--64 B** | full speed at retained sizes; still beats 4x at 80--112 B |
-| decrypt full per-size | 12,376 B | 2.49x | 16--128 B | rejected on shape/code size |
+| decrypt full per-size | 12,376 B | 2.49x | 16--128 B | largest code/proof cost |
 | decrypt truncated per-size C=4 | 7,312 B | 1.47x | 16--64 B | clean partial-adoption curve |
-| **decrypt chosen shared 1--4** | **5,960 B** | **1.20x** | **16--64 B** | much better code reuse |
+| decrypt current shared 1--4 | 5,960 B | 1.20x | 16--64 B | shared code across four sizes |
+
+### Decrypt equivalent of the compact encrypt experiment
+
+The direct decrypt analogue of compact encrypt `fast1`--`fast4` is the measured
+`t4` variant: four separate exact-size bodies for 16, 32, 48, and 64 bytes,
+with all larger lengths left on the existing path. Its `.text` is 7,312 bytes,
+or 1.47x the 4,968-byte pre-fusion kernel. The retained bodies reproduce the
+full eight-body variant's gains, while lengths above the 64-byte cutoff remain
+within the measurement floor.
+
+| bytes | G3 / V1 vs pre-fusion | G4 / V2 vs pre-fusion | G5 / V3 vs pre-fusion |
+|---:|---:|---:|---:|
+| 16 | -46.7% | -47.0% | -46.3% |
+| 32 | -43.9% | -42.9% | -42.4% |
+| 48 | -43.5% | -43.6% | -44.8% |
+| 64 | -41.3% | -40.9% | -42.0% |
+
+The current PR's shared 1--4-block path is 5,960 bytes. In the PR's in-tree
+rerun, the separate-body implementation measured the following additional
+change relative to that path at the four retained sizes:
+
+| bytes | G3 / V1 | G4 / V2 | G5 / V3 |
+|---:|---:|---:|---:|
+| 16 | -7.26% | -2.92% | -0.70% |
+| 32 | -3.44% | -5.58% | -2.87% |
+| 48 | -7.93% | -8.04% | -5.03% |
+| 64 | -14.09% | -12.11% | -4.90% |
+
+These in-tree incremental percentages come from the eight-body object, whose
+first four bodies are the same exact-size design. The separately measured
+four-body truncation established that removing bodies 5--8 does not perturb
+the retained fixed-length gains. The four-body object adds 1,352 bytes over
+the shared-path object and does not target 80 bytes or above.
 
 Decrypt can GHASH input ciphertext while AES produces plaintext, which made a
 shared cascade effective. Encrypt must GHASH ciphertext produced by AES, so
