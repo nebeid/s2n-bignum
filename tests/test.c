@@ -17356,6 +17356,162 @@ int test_wycheproof_gcm_256_decrypt_wb(void)
 #endif
 }
 
+// ---------------------------------------------------------------------------
+// GHASH (gcm_ghash_v8_s2n)
+//
+// The 1:1 C counterpart is aws-lc's gcm_ghash_nohw, already present VERBATIM in
+// ref_gcm_nohw.c (included above). Both compute the same GHASH over the same
+// bytes; they differ only in key-table format, so the differential test builds
+// Htable twice from the same H: gcm_init_nohw for the reference and
+// gcm_init_v8_c (ref_gcm_v8table.c) for the assembly.
+//
+// The assembly has two length-selected paths (len < 64, and the 4x path with
+// four length-selected tails), so coverage is driven by block count rather than
+// by random lengths alone.
+// ---------------------------------------------------------------------------
+
+#ifndef __x86_64__
+
+#define GHASH_MAXBLOCKS 255
+#define GHASH_CANARY 0x5a
+
+// One differential comparison at n blocks on caller-supplied H / Xi / input.
+// Guarded buffers: Xi sits between canary bytes and the input is followed by
+// canaries, so a write outside Xi is caught. (The len < 64 path deliberately
+// RE-READS the last input block; that is within inp[0..len) and not an
+// overread, which is why only writes past inp[len] are asserted.)
+static int ghash_v8_diff_one(const uint8_t Hbytes[16], const uint8_t Xi_in[16],
+                             const uint8_t *inp, size_t n)
+{ uint64_t H[2] = { CRYPTO_load_u64_be(Hbytes), CRYPTO_load_u64_be(Hbytes + 8) };
+  size_t len = n * 16;
+  int i, bad = 0;
+
+  u128 Ht_nohw[16]; memset(Ht_nohw, 0, sizeof Ht_nohw);
+  gcm_init_nohw(Ht_nohw, H);
+  uint8_t xi_ref[16]; memcpy(xi_ref, Xi_in, 16);
+  gcm_ghash_nohw(xi_ref, Ht_nohw, inp, len);
+
+  uint64_t Ht_v8[2 * 16]; memset(Ht_v8, 0, sizeof Ht_v8);
+  gcm_init_v8_c(Ht_v8, H);
+
+  static uint8_t guarded[48];
+  memset(guarded, GHASH_CANARY, sizeof guarded);
+  memcpy(guarded + 16, Xi_in, 16);
+  static uint8_t inbuf[GHASH_MAXBLOCKS * 16 + 16];
+  memcpy(inbuf, inp, len);
+  memset(inbuf + len, GHASH_CANARY, 16);
+
+  gcm_ghash_v8_s2n(guarded + 16, Ht_v8, inbuf, len);
+
+  if (memcmp(guarded + 16, xi_ref, 16) != 0)
+   { printf("### Disparity: gcm_ghash_v8_s2n Xi mismatch at n=%zu\n", n);
+     printf("    H  =");  for (i=0;i<16;++i) printf("%02x", Hbytes[i]);
+     printf("\n    Xin="); for (i=0;i<16;++i) printf("%02x", Xi_in[i]);
+     printf("\n    asm="); for (i=0;i<16;++i) printf("%02x", guarded[16+i]);
+     printf("\n    ref="); for (i=0;i<16;++i) printf("%02x", xi_ref[i]);
+     printf("\n");
+     bad = 1; }
+  for (i = 0; i < 16; ++i)
+   if (guarded[i] != GHASH_CANARY || guarded[32+i] != GHASH_CANARY)
+    { printf("### Disparity: gcm_ghash_v8_s2n wrote outside Xi at n=%zu\n", n);
+      bad = 1; break; }
+  for (i = 0; i < 16; ++i)
+   if (inbuf[len+i] != GHASH_CANARY)
+    { printf("### Disparity: gcm_ghash_v8_s2n wrote past inp[len] at n=%zu\n", n);
+      bad = 1; break; }
+  return bad;
+}
+
+static int ghash_v8_diff_random(size_t n)
+{ uint8_t Hbytes[16], Xi_in[16];
+  static uint8_t inp[GHASH_MAXBLOCKS * 16];
+  random_bytes(Hbytes, 16);
+  random_bytes(Xi_in, 16);
+  random_bytes(inp, n * 16);
+  return ghash_v8_diff_one(Hbytes, Xi_in, inp, n);
+}
+
+#endif
+
+int test_gcm_ghash_v8(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+  // Every distinct trace through the assembly, by block count:
+  //   1,2,3        the len < 64 path
+  //   4,5,6,7      the 4x path with zero .Loop4x iterations, all four tails
+  //                (.Ldone4x, .Lone, .Ltwo, .Lthree)
+  //   8,9,10,11    one .Loop4x iteration, all four tails again
+  //   16,17,64,255 multiple .Loop4x iterations
+  static const size_t fixed[] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+                                  16, 17, 64, 255 };
+  size_t i;
+  uint64_t t;
+
+  printf("Testing gcm_ghash_v8_s2n against reference with %d cases\n", tests);
+
+  for (i = 0; i < sizeof(fixed)/sizeof(fixed[0]); ++i)
+   if (ghash_v8_diff_random(fixed[i])) return 1;
+
+  // Randomized sweep: fresh H / Xi / input at every block count 1..32.
+  for (t = 0; t < (uint64_t)tests; ++t)
+   { size_t n = 1 + (size_t)(rand() % 32);
+     if (ghash_v8_diff_random(n)) return 1;
+     if (VERBOSE) printf("OK: gcm_ghash_v8_s2n n=%zu\n", n);
+   }
+  printf("All OK\n");
+  return 0;
+#endif
+}
+
+int test_known_values_gcm_ghash_v8(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+  int failures = 0, successes = 0;
+  printf("Testing known value cases for gcm_ghash_v8_s2n\n");
+
+  // Each vector's Xi_out was computed by the verbatim gcm_ghash_nohw reference
+  // (see the provenance note in the header); here the ASSEMBLY must reproduce it.
+#define GHASH_KAT(N, HHEX, XIHEX, INHEX, OUTHEX)                               \
+  do {                                                                         \
+    uint8_t _H[16], _xi[16], _want[16];                                        \
+    static uint8_t _in[GHASH_MAXBLOCKS * 16];                                  \
+    uint64_t _Ht[2 * 16], _h[2];                                               \
+    int _i;                                                                    \
+    assign_bytearray_from_hexstring(_H, HHEX, 16);                             \
+    assign_bytearray_from_hexstring(_xi, XIHEX, 16);                           \
+    assign_bytearray_from_hexstring(_want, OUTHEX, 16);                        \
+    assign_bytearray_from_hexstring(_in, INHEX, (N) * 16);                     \
+    _h[0] = CRYPTO_load_u64_be(_H); _h[1] = CRYPTO_load_u64_be(_H + 8);        \
+    memset(_Ht, 0, sizeof _Ht);                                                \
+    gcm_init_v8_c(_Ht, _h);                                                    \
+    gcm_ghash_v8_s2n(_xi, _Ht, _in, (size_t)(N) * 16);                             \
+    if (memcmp(_xi, _want, 16) != 0)                                           \
+     { printf("Failed gcm_ghash_v8_s2n KAT at n=%d\n      got ", (N));             \
+       for (_i=0;_i<16;++_i) printf("%02x", _xi[_i]);                          \
+       printf("\n expected ");                                                 \
+       for (_i=0;_i<16;++_i) printf("%02x", _want[_i]);                        \
+       printf("\n"); ++failures; }                                             \
+    else ++successes;                                                          \
+  } while (0);
+
+#include "known_value_tests_ghash_v8.h"
+#undef GHASH_KAT
+
+  if (failures != 0)
+   { printf("Failed %d known value tests, passed %d\n", failures, successes);
+     return failures;
+   }
+  else
+   { printf("Successfully passed %d known value tests\n", successes);
+     return 0;
+   }
+#endif
+}
+
 
 // ****************************************************************************
 // Analogous testing of relevant functions against TweetNaCl as reference
@@ -18296,6 +18452,8 @@ int main(int argc, char *argv[])
     functionaltest(aes&&sha3,"aesv8_gcm_8x_dec_256_wb whole-blocks guard",test_aesv8_gcm_8x_dec_256_wb_guard);
     functionaltest(aes&&sha3,"known value tests for aesv8_gcm_8x_dec_256_wb",test_known_values_gcm_256_decrypt_wb);
     functionaltest(aes&&sha3,"Wycheproof vectors for aesv8_gcm_8x_dec_256_wb",test_wycheproof_gcm_256_decrypt_wb);
+    functionaltest(aes,"gcm_ghash_v8_s2n",test_gcm_ghash_v8);
+    functionaltest(aes,"known value tests for gcm_ghash_v8_s2n",test_known_values_gcm_ghash_v8);
   }
 
   if (extrastrigger) function_to_test = "_";

@@ -4506,6 +4506,26 @@ let subroutine_signatures = [
    ])
 );
 
+("gcm_ghash_v8_s2n",
+  ([(*args*)
+     ("xi", "uint8_t[static 16]", (*is const?*)"false");
+     ("htable", "uint64_t[static 32]", (*is const?*)"true");
+     ("inp", "uint8_t*", (*is const?*)"true");
+     ("len", "size_t", (*is const?*)"false");
+   ],
+   "void",
+   [(* input buffers *)
+    ("xi", "16"(* num elems *), 1(* elem bytesize *));
+    ("htable", "32"(* num elems *), 8(* elem bytesize *));
+    ("inp", "len"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("xi", "16"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
 ("mldsa_intt_arm",
   ([(*args*)
      ("a", "int32_t[static 256]", (*is const?*)"false");
