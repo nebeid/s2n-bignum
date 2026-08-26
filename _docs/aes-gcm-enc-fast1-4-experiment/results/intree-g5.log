@@ -1,0 +1,710 @@
+# host=ip-172-31-42-229
+# rounds=10 inner_reps=1000 pinned_cpu=3
+# date=2026-08-26T15:28:28Z
+# base source=baseline text=5008 offset=0xf824c object_sha256=0150dab43e6828f0e966503094486c635d8892e5935ae2a7fbf74791173f6827 binary_sha256=b974dbd9c662637e52fe86b7a17f89b0cdc458d858ff4bb6fb360e35aff7caf7
+# compact source=compact-fast1-4 text=8624 offset=0xf824c object_sha256=78605a647e192cc843d63e5ce89ba72ccd1788acc748f900edc54a9aad6b15d3 binary_sha256=2525df5aed12ca377f39908f33b710a1e0be61391734f3ffb895e0b8fab82760
+# full source=full-fast1-7 text=11848 offset=0xf824c object_sha256=c0034938052f6e36b47a8c81705da228fca4b6886ce2bce180b4f172acf779ce binary_sha256=8d0e4225eede5039c1679bb4d6774e4c59580fc09296879fdcc3d67b255cf0d2
+# fullAA source=full-fast1-7 text=11848 offset=0xf824c object_sha256=c0034938052f6e36b47a8c81705da228fca4b6886ce2bce180b4f172acf779ce binary_sha256=8d0e4225eede5039c1679bb4d6774e4c59580fc09296879fdcc3d67b255cf0d2
+ROUND 1 compact
+---------------------------------------------------------------------------------
+Timings in nanoseconds (ns) per call of function, average across input values.
+var = coefficient of variation (stddev / mean) across input values, as percentage.
+corr = correlation coefficient versus the bit density of input values.
+ops/sec = average number of operations per second = 10^9 / average timing.
+ARITHMEAN = arithmetic mean of all average function times, in nanoseconds.
+GEOMEAN = geometric mean of all average function times, in nanoseconds.
+Default repetitions per function = 5 (outer) * 65 (bit densities) * 1000 (inner) = 3250000
+---------------------------------------------------------------------------------
+
+aesv8_gcm_8x_enc_256 (16 bytes) :    15.7 ns each (var  4.2%, corr -0.00) =   63675549 ops/sec
+aesv8_gcm_8x_enc_256 (32 bytes) :    17.2 ns each (var  3.3%, corr  0.02) =   58046080 ops/sec
+aesv8_gcm_8x_enc_256 (48 bytes) :    20.3 ns each (var  2.6%, corr -0.01) =   49309665 ops/sec
+aesv8_gcm_8x_enc_256 (64 bytes) :    22.1 ns each (var  2.0%, corr -0.03) =   45302481 ops/sec
+aesv8_gcm_8x_enc_256 (80 bytes) :    27.8 ns each (var  2.3%, corr -0.04) =   35987155 ops/sec
+aesv8_gcm_8x_enc_256 (96 bytes) :    28.2 ns each (var  1.9%, corr  0.03) =   35418483 ops/sec
+aesv8_gcm_8x_enc_256 (112 bytes):    29.1 ns each (var  3.1%, corr -0.11) =   34409741 ops/sec
+aesv8_gcm_8x_enc_256 (128 bytes):    27.6 ns each (var  2.5%, corr -0.01) =   36211699 ops/sec
+aesv8_gcm_8x_enc_256 (192 bytes):    43.3 ns each (var  1.6%, corr -0.01) =   23084026 ops/sec
+aesv8_gcm_8x_enc_256 (256 bytes):    44.3 ns each (var  1.6%, corr  0.04) =   22580421 ops/sec
+aesv8_gcm_8x_enc_256 (512 bytes):    77.4 ns each (var  1.1%, corr -0.04) =   12913736 ops/sec
+aesv8_gcm_8x_enc_256 (1024 bytes):   148.1 ns each (var  2.8%, corr -0.01) =    6750153 ops/sec
+aesv8_gcm_8x_enc_256 (4096 bytes):   557.0 ns each (var  2.0%, corr  0.08) =    1795288 ops/sec
+aesv8_gcm_8x_enc_256_org (16 bytes):    26.6 ns each (var  2.4%, corr -0.09) =   37611388 ops/sec
+aesv8_gcm_8x_enc_256_org (32 bytes):    27.7 ns each (var  2.8%, corr -0.02) =   36135201 ops/sec
+aesv8_gcm_8x_enc_256_org (48 bytes):    28.7 ns each (var  2.2%, corr  0.05) =   34796574 ops/sec
+aesv8_gcm_8x_enc_256_org (64 bytes):    29.7 ns each (var  3.0%, corr -0.04) =   33654344 ops/sec
+aesv8_gcm_8x_enc_256_org (80 bytes):    30.5 ns each (var  2.6%, corr -0.06) =   32735697 ops/sec
+aesv8_gcm_8x_enc_256_org (96 bytes):    31.4 ns each (var  2.1%, corr -0.02) =   31812843 ops/sec
+aesv8_gcm_8x_enc_256_org (112 bytes):    32.3 ns each (var  1.9%, corr -0.02) =   30931760 ops/sec
+aesv8_gcm_8x_enc_256_org (128 bytes):    39.0 ns each (var  1.7%, corr  0.06) =   25665324 ops/sec
+aesv8_gcm_8x_enc_256_org (192 bytes):    46.2 ns each (var  1.4%, corr -0.05) =   21632055 ops/sec
+aesv8_gcm_8x_enc_256_org (256 bytes):    55.6 ns each (var  1.3%, corr  0.05) =   17980636 ops/sec
+aesv8_gcm_8x_enc_256_org (512 bytes):    89.5 ns each (var  1.0%, corr -0.13) =   11170688 ops/sec
+aesv8_gcm_8x_enc_256_org (1024 bytes):   160.9 ns each (var  3.3%, corr -0.07) =    6216014 ops/sec
+aesv8_gcm_8x_enc_256_org (4096 bytes):   569.1 ns each (var  1.7%, corr  0.09) =    1757036 ops/sec
+ARITHMEAN ( 26 tests)    :   85.6 ns
+GEOMEAN   ( 26 tests)    :   45.8 ns
+ROUND 1 full
+---------------------------------------------------------------------------------
+Timings in nanoseconds (ns) per call of function, average across input values.
+var = coefficient of variation (stddev / mean) across input values, as percentage.
+corr = correlation coefficient versus the bit density of input values.
+ops/sec = average number of operations per second = 10^9 / average timing.
+ARITHMEAN = arithmetic mean of all average function times, in nanoseconds.
+GEOMEAN = geometric mean of all average function times, in nanoseconds.
+Default repetitions per function = 5 (outer) * 65 (bit densities) * 1000 (inner) = 3250000
+---------------------------------------------------------------------------------
+
+aesv8_gcm_8x_enc_256 (16 bytes) :    15.7 ns each (var  3.3%, corr -0.01) =   63737988 ops/sec
+aesv8_gcm_8x_enc_256 (32 bytes) :    17.2 ns each (var  3.4%, corr -0.12) =   58025353 ops/sec
+aesv8_gcm_8x_enc_256 (48 bytes) :    20.3 ns each (var  2.9%, corr  0.04) =   49220051 ops/sec
+aesv8_gcm_8x_enc_256 (64 bytes) :    22.1 ns each (var  2.1%, corr  0.02) =   45252019 ops/sec
+aesv8_gcm_8x_enc_256 (80 bytes) :    23.7 ns each (var  2.7%, corr  0.03) =   42229730 ops/sec
+aesv8_gcm_8x_enc_256 (96 bytes) :    25.0 ns each (var  4.0%, corr  0.02) =   40014775 ops/sec
+aesv8_gcm_8x_enc_256 (112 bytes):    26.5 ns each (var  2.6%, corr  0.05) =   37720520 ops/sec
+aesv8_gcm_8x_enc_256 (128 bytes):    27.6 ns each (var  2.6%, corr  0.04) =   36171397 ops/sec
+aesv8_gcm_8x_enc_256 (192 bytes):    43.2 ns each (var  2.0%, corr -0.06) =   23161345 ops/sec
+aesv8_gcm_8x_enc_256 (256 bytes):    44.2 ns each (var  1.5%, corr -0.00) =   22607123 ops/sec
+aesv8_gcm_8x_enc_256 (512 bytes):    77.4 ns each (var  1.1%, corr -0.24) =   12916302 ops/sec
+aesv8_gcm_8x_enc_256 (1024 bytes):   148.5 ns each (var  3.2%, corr  0.01) =    6733699 ops/sec
+aesv8_gcm_8x_enc_256 (4096 bytes):   555.9 ns each (var  1.1%, corr -0.24) =    1798795 ops/sec
+aesv8_gcm_8x_enc_256_org (16 bytes):    26.5 ns each (var  2.5%, corr  0.02) =   37676791 ops/sec
+aesv8_gcm_8x_enc_256_org (32 bytes):    27.7 ns each (var  2.3%, corr -0.01) =   36103088 ops/sec
+aesv8_gcm_8x_enc_256_org (48 bytes):    28.8 ns each (var  2.2%, corr -0.06) =   34699979 ops/sec
+aesv8_gcm_8x_enc_256_org (64 bytes):    29.7 ns each (var  2.8%, corr  0.09) =   33703204 ops/sec
+aesv8_gcm_8x_enc_256_org (80 bytes):    30.6 ns each (var  2.9%, corr  0.00) =   32673168 ops/sec
+aesv8_gcm_8x_enc_256_org (96 bytes):    31.5 ns each (var  2.2%, corr -0.04) =   31772412 ops/sec
+aesv8_gcm_8x_enc_256_org (112 bytes):    32.3 ns each (var  2.0%, corr  0.11) =   30931760 ops/sec
+aesv8_gcm_8x_enc_256_org (128 bytes):    39.0 ns each (var  1.6%, corr -0.02) =   25673434 ops/sec
+aesv8_gcm_8x_enc_256_org (192 bytes):    46.2 ns each (var  1.4%, corr  0.05) =   21645022 ops/sec
+aesv8_gcm_8x_enc_256_org (256 bytes):    55.6 ns each (var  1.4%, corr -0.04) =   17976658 ops/sec
+aesv8_gcm_8x_enc_256_org (512 bytes):    89.6 ns each (var  1.0%, corr -0.02) =   11163398 ops/sec
+aesv8_gcm_8x_enc_256_org (1024 bytes):   160.6 ns each (var  3.5%, corr  0.06) =    6227691 ops/sec
+aesv8_gcm_8x_enc_256_org (4096 bytes):   569.4 ns each (var  1.4%, corr  0.16) =    1756105 ops/sec
+ARITHMEAN ( 26 tests)    :   85.2 ns
+GEOMEAN   ( 26 tests)    :   45.1 ns
+ROUND 1 fullAA
+---------------------------------------------------------------------------------
+Timings in nanoseconds (ns) per call of function, average across input values.
+var = coefficient of variation (stddev / mean) across input values, as percentage.
+corr = correlation coefficient versus the bit density of input values.
+ops/sec = average number of operations per second = 10^9 / average timing.
+ARITHMEAN = arithmetic mean of all average function times, in nanoseconds.
+GEOMEAN = geometric mean of all average function times, in nanoseconds.
+Default repetitions per function = 5 (outer) * 65 (bit densities) * 1000 (inner) = 3250000
+---------------------------------------------------------------------------------
+
+aesv8_gcm_8x_enc_256 (16 bytes) :    15.7 ns each (var  3.8%, corr  0.03) =   63775510 ops/sec
+aesv8_gcm_8x_enc_256 (32 bytes) :    17.1 ns each (var  2.7%, corr -0.06) =   58337821 ops/sec
+aesv8_gcm_8x_enc_256 (48 bytes) :    20.3 ns each (var  2.7%, corr  0.02) =   49287231 ops/sec
+aesv8_gcm_8x_enc_256 (64 bytes) :    22.1 ns each (var  2.1%, corr  0.00) =   45252019 ops/sec
+aesv8_gcm_8x_enc_256 (80 bytes) :    23.6 ns each (var  2.3%, corr -0.04) =   42328731 ops/sec
+aesv8_gcm_8x_enc_256 (96 bytes) :    25.0 ns each (var  2.1%, corr  0.03) =   39975400 ops/sec
+aesv8_gcm_8x_enc_256 (112 bytes):    26.4 ns each (var  2.3%, corr  0.00) =   37821483 ops/sec
+aesv8_gcm_8x_enc_256 (128 bytes):    27.6 ns each (var  2.3%, corr -0.07) =   36203632 ops/sec
+aesv8_gcm_8x_enc_256 (192 bytes):    43.1 ns each (var  1.4%, corr  0.02) =   23177863 ops/sec
+aesv8_gcm_8x_enc_256 (256 bytes):    44.3 ns each (var  1.5%, corr  0.01) =   22588268 ops/sec
+aesv8_gcm_8x_enc_256 (512 bytes):    77.4 ns each (var  1.1%, corr  0.01) =   12913223 ops/sec
+aesv8_gcm_8x_enc_256 (1024 bytes):   148.0 ns each (var  2.4%, corr -0.01) =    6758410 ops/sec
+aesv8_gcm_8x_enc_256 (4096 bytes):   557.1 ns each (var  1.5%, corr  0.04) =    1795094 ops/sec
+aesv8_gcm_8x_enc_256_org (16 bytes):    26.6 ns each (var  2.6%, corr -0.00) =   37646241 ops/sec
+aesv8_gcm_8x_enc_256_org (32 bytes):    27.6 ns each (var  2.5%, corr -0.01) =   36223807 ops/sec
+aesv8_gcm_8x_enc_256_org (48 bytes):    28.8 ns each (var  2.4%, corr  0.11) =   34744494 ops/sec
+aesv8_gcm_8x_enc_256_org (64 bytes):    29.6 ns each (var  2.0%, corr  0.05) =   33804868 ops/sec
+aesv8_gcm_8x_enc_256_org (80 bytes):    30.6 ns each (var  2.2%, corr -0.06) =   32712632 ops/sec
+aesv8_gcm_8x_enc_256_org (96 bytes):    31.5 ns each (var  2.1%, corr  0.07) =   31750684 ops/sec
+aesv8_gcm_8x_enc_256_org (112 bytes):    32.4 ns each (var  2.0%, corr -0.07) =   30911166 ops/sec
+aesv8_gcm_8x_enc_256_org (128 bytes):    39.0 ns each (var  1.9%, corr  0.02) =   25641026 ops/sec
+aesv8_gcm_8x_enc_256_org (192 bytes):    46.2 ns each (var  1.4%, corr  0.02) =   21636376 ops/sec
+aesv8_gcm_8x_enc_256_org (256 bytes):    55.7 ns each (var  1.8%, corr -0.08) =   17943905 ops/sec
+aesv8_gcm_8x_enc_256_org (512 bytes):    89.5 ns each (var  1.0%, corr  0.07) =   11168769 ops/sec
+aesv8_gcm_8x_enc_256_org (1024 bytes):   160.3 ns each (var  3.4%, corr  0.00) =    6239413 ops/sec
+aesv8_gcm_8x_enc_256_org (4096 bytes):   569.0 ns each (var  1.4%, corr -0.01) =    1757502 ops/sec
+ARITHMEAN ( 26 tests)    :   85.2 ns
+GEOMEAN   ( 26 tests)    :   45.1 ns
+ROUND 1 base
+---------------------------------------------------------------------------------
+Timings in nanoseconds (ns) per call of function, average across input values.
+var = coefficient of variation (stddev / mean) across input values, as percentage.
+corr = correlation coefficient versus the bit density of input values.
+ops/sec = average number of operations per second = 10^9 / average timing.
+ARITHMEAN = arithmetic mean of all average function times, in nanoseconds.
+GEOMEAN = geometric mean of all average function times, in nanoseconds.
+Default repetitions per function = 5 (outer) * 65 (bit densities) * 1000 (inner) = 3250000
+---------------------------------------------------------------------------------
+
+aesv8_gcm_8x_enc_256 (16 bytes) :    24.5 ns each (var  2.7%, corr -0.02) =   40752351 ops/sec
+aesv8_gcm_8x_enc_256 (32 bytes) :    25.8 ns each (var  2.5%, corr -0.03) =   38782816 ops/sec
+aesv8_gcm_8x_enc_256 (48 bytes) :    26.6 ns each (var  2.4%, corr -0.05) =   37554888 ops/sec
+aesv8_gcm_8x_enc_256 (64 bytes) :    28.1 ns each (var  1.8%, corr  0.00) =   35593035 ops/sec
+aesv8_gcm_8x_enc_256 (80 bytes) :    28.6 ns each (var  2.4%, corr -0.07) =   34953753 ops/sec
+aesv8_gcm_8x_enc_256 (96 bytes) :    29.0 ns each (var  1.9%, corr -0.05) =   34424319 ops/sec
+aesv8_gcm_8x_enc_256 (112 bytes):    29.8 ns each (var  2.4%, corr  0.01) =   33574380 ops/sec
+aesv8_gcm_8x_enc_256 (128 bytes):    28.4 ns each (var  2.4%, corr -0.01) =   35218899 ops/sec
+aesv8_gcm_8x_enc_256 (192 bytes):    44.4 ns each (var  1.6%, corr -0.06) =   22531891 ops/sec
+aesv8_gcm_8x_enc_256 (256 bytes):    44.9 ns each (var  1.5%, corr -0.03) =   22266374 ops/sec
+aesv8_gcm_8x_enc_256 (512 bytes):    78.1 ns each (var  1.1%, corr  0.06) =   12811416 ops/sec
+aesv8_gcm_8x_enc_256 (1024 bytes):   148.4 ns each (var  2.7%, corr -0.02) =    6740545 ops/sec
+aesv8_gcm_8x_enc_256 (4096 bytes):   556.5 ns each (var  1.6%, corr -0.01) =    1797040 ops/sec
+aesv8_gcm_8x_enc_256_org (16 bytes):    26.5 ns each (var  2.7%, corr  0.11) =   37711766 ops/sec
+aesv8_gcm_8x_enc_256_org (32 bytes):    27.6 ns each (var  2.5%, corr -0.01) =   36167371 ops/sec
+aesv8_gcm_8x_enc_256_org (48 bytes):    28.9 ns each (var  2.2%, corr -0.02) =   34659273 ops/sec
+aesv8_gcm_8x_enc_256_org (64 bytes):    29.7 ns each (var  2.4%, corr  0.15) =   33647376 ops/sec
+aesv8_gcm_8x_enc_256_org (80 bytes):    30.5 ns each (var  2.6%, corr  0.03) =   32762097 ops/sec
+aesv8_gcm_8x_enc_256_org (96 bytes):    31.5 ns each (var  2.3%, corr -0.05) =   31738281 ops/sec
+aesv8_gcm_8x_enc_256_org (112 bytes):    32.4 ns each (var  2.1%, corr -0.06) =   30896473 ops/sec
+aesv8_gcm_8x_enc_256_org (128 bytes):    38.9 ns each (var  1.6%, corr -0.03) =   25679520 ops/sec
+aesv8_gcm_8x_enc_256_org (192 bytes):    46.3 ns each (var  4.4%, corr -0.09) =   21598990 ops/sec
+aesv8_gcm_8x_enc_256_org (256 bytes):    55.7 ns each (var  1.5%, corr  0.02) =   17959770 ops/sec
+aesv8_gcm_8x_enc_256_org (512 bytes):    89.6 ns each (var  1.0%, corr  0.06) =   11165699 ops/sec
+aesv8_gcm_8x_enc_256_org (1024 bytes):   160.3 ns each (var  3.6%, corr  0.04) =    6238239 ops/sec
+aesv8_gcm_8x_enc_256_org (4096 bytes):   568.7 ns each (var  1.2%, corr -0.02) =    1758248 ops/sec
+ARITHMEAN ( 26 tests)    :   86.9 ns
+GEOMEAN   ( 26 tests)    :   48.5 ns
+ROUND 2 full
+---------------------------------------------------------------------------------
+Timings in nanoseconds (ns) per call of function, average across input values.
+var = coefficient of variation (stddev / mean) across input values, as percentage.
+corr = correlation coefficient versus the bit density of input values.
+ops/sec = average number of operations per second = 10^9 / average timing.
+ARITHMEAN = arithmetic mean of all average function times, in nanoseconds.
+GEOMEAN = geometric mean of all average function times, in nanoseconds.
+Default repetitions per function = 5 (outer) * 65 (bit densities) * 1000 (inner) = 3250000
+---------------------------------------------------------------------------------
+
+aesv8_gcm_8x_enc_256 (16 bytes) :    15.7 ns each (var  3.6%, corr  0.03) =   63863234 ops/sec
+aesv8_gcm_8x_enc_256 (32 bytes) :    17.2 ns each (var  2.8%, corr  0.00) =   58191585 ops/sec
+aesv8_gcm_8x_enc_256 (48 bytes) :    20.4 ns each (var  3.1%, corr  0.03) =   49138192 ops/sec
+aesv8_gcm_8x_enc_256 (64 bytes) :    22.1 ns each (var  1.9%, corr  0.03) =   45308797 ops/sec
+aesv8_gcm_8x_enc_256 (80 bytes) :    23.7 ns each (var  2.8%, corr  0.01) =   42273673 ops/sec
+aesv8_gcm_8x_enc_256 (96 bytes) :    25.0 ns each (var  2.3%, corr -0.07) =   39995078 ops/sec
+aesv8_gcm_8x_enc_256 (112 bytes):    26.5 ns each (var  2.5%, corr -0.07) =   37803885 ops/sec
+aesv8_gcm_8x_enc_256 (128 bytes):    27.7 ns each (var  2.5%, corr -0.01) =   36143238 ops/sec
+aesv8_gcm_8x_enc_256 (192 bytes):    43.1 ns each (var  1.5%, corr  0.01) =   23181170 ops/sec
+aesv8_gcm_8x_enc_256 (256 bytes):    44.2 ns each (var  1.6%, corr  0.07) =   22602406 ops/sec
+aesv8_gcm_8x_enc_256 (512 bytes):    77.4 ns each (var  1.1%, corr  0.05) =   12915789 ops/sec
+aesv8_gcm_8x_enc_256 (1024 bytes):   148.1 ns each (var  2.7%, corr -0.01) =    6752903 ops/sec
+aesv8_gcm_8x_enc_256 (4096 bytes):   556.7 ns each (var  1.4%, corr -0.04) =    1796456 ops/sec
+aesv8_gcm_8x_enc_256_org (16 bytes):    26.5 ns each (var  2.4%, corr -0.01) =   37681159 ops/sec
+aesv8_gcm_8x_enc_256_org (32 bytes):    27.6 ns each (var  2.7%, corr -0.11) =   36179450 ops/sec
+aesv8_gcm_8x_enc_256_org (48 bytes):    28.8 ns each (var  2.4%, corr  0.03) =   34666667 ops/sec
+aesv8_gcm_8x_enc_256_org (64 bytes):    29.6 ns each (var  2.5%, corr  0.07) =   33769742 ops/sec
+aesv8_gcm_8x_enc_256_org (80 bytes):    30.5 ns each (var  2.2%, corr  0.03) =   32752192 ops/sec
+aesv8_gcm_8x_enc_256_org (96 bytes):    31.5 ns each (var  3.4%, corr -0.10) =   31769306 ops/sec
+aesv8_gcm_8x_enc_256_org (112 bytes):    32.4 ns each (var  2.0%, corr -0.00) =   30875926 ops/sec
+aesv8_gcm_8x_enc_256_org (128 bytes):    39.0 ns each (var  1.6%, corr -0.05) =   25659245 ops/sec
+aesv8_gcm_8x_enc_256_org (192 bytes):    46.2 ns each (var  1.5%, corr -0.05) =   21626298 ops/sec
+aesv8_gcm_8x_enc_256_org (256 bytes):    55.7 ns each (var  1.4%, corr -0.04) =   17950842 ops/sec
+aesv8_gcm_8x_enc_256_org (512 bytes):    89.5 ns each (var  0.9%, corr  0.03) =   11177604 ops/sec
+aesv8_gcm_8x_enc_256_org (1024 bytes):   160.6 ns each (var  3.7%, corr  0.13) =    6226521 ops/sec
+aesv8_gcm_8x_enc_256_org (4096 bytes):   569.3 ns each (var  1.2%, corr  0.04) =    1756571 ops/sec
+ARITHMEAN ( 26 tests)    :   85.2 ns
+GEOMEAN   ( 26 tests)    :   45.1 ns
+ROUND 2 fullAA
+---------------------------------------------------------------------------------
+Timings in nanoseconds (ns) per call of function, average across input values.
+var = coefficient of variation (stddev / mean) across input values, as percentage.
+corr = correlation coefficient versus the bit density of input values.
+ops/sec = average number of operations per second = 10^9 / average timing.
+ARITHMEAN = arithmetic mean of all average function times, in nanoseconds.
+GEOMEAN = geometric mean of all average function times, in nanoseconds.
+Default repetitions per function = 5 (outer) * 65 (bit densities) * 1000 (inner) = 3250000
+---------------------------------------------------------------------------------
+
+aesv8_gcm_8x_enc_256 (16 bytes) :    15.7 ns each (var  3.8%, corr -0.05) =   63725490 ops/sec
+aesv8_gcm_8x_enc_256 (32 bytes) :    17.2 ns each (var  3.0%, corr -0.12) =   58160344 ops/sec
+aesv8_gcm_8x_enc_256 (48 bytes) :    20.3 ns each (var  2.9%, corr  0.11) =   49197699 ops/sec
+aesv8_gcm_8x_enc_256 (64 bytes) :    22.1 ns each (var  2.1%, corr  0.02) =   45346728 ops/sec
+aesv8_gcm_8x_enc_256 (80 bytes) :    23.7 ns each (var  2.6%, corr -0.03) =   42229730 ops/sec
+aesv8_gcm_8x_enc_256 (96 bytes) :    25.0 ns each (var  1.8%, corr -0.07) =   40054227 ops/sec
+aesv8_gcm_8x_enc_256 (112 bytes):    26.4 ns each (var  2.3%, corr  0.10) =   37812682 ops/sec
+aesv8_gcm_8x_enc_256 (128 bytes):    27.6 ns each (var  2.4%, corr -0.07) =   36248048 ops/sec
+aesv8_gcm_8x_enc_256 (192 bytes):    43.2 ns each (var  1.6%, corr -0.03) =   23156395 ops/sec
+aesv8_gcm_8x_enc_256 (256 bytes):    44.3 ns each (var  1.7%, corr -0.10) =   22566310 ops/sec
+aesv8_gcm_8x_enc_256 (512 bytes):    77.5 ns each (var  1.1%, corr  0.01) =   12909633 ops/sec
+aesv8_gcm_8x_enc_256 (1024 bytes):   148.2 ns each (var  2.8%, corr -0.04) =    6748779 ops/sec
+aesv8_gcm_8x_enc_256 (4096 bytes):   556.7 ns each (var  1.5%, corr  0.02) =    1796164 ops/sec
+aesv8_gcm_8x_enc_256_org (16 bytes):    26.5 ns each (var  2.4%, corr -0.07) =   37724898 ops/sec
+aesv8_gcm_8x_enc_256_org (32 bytes):    27.6 ns each (var  2.4%, corr  0.05) =   36215734 ops/sec
+aesv8_gcm_8x_enc_256_org (48 bytes):    28.8 ns each (var  2.2%, corr -0.02) =   34662969 ops/sec
+aesv8_gcm_8x_enc_256_org (64 bytes):    29.7 ns each (var  2.3%, corr  0.07) =   33710196 ops/sec
+aesv8_gcm_8x_enc_256_org (80 bytes):    30.5 ns each (var  2.3%, corr  0.02) =   32742293 ops/sec
+aesv8_gcm_8x_enc_256_org (96 bytes):    31.5 ns each (var  2.1%, corr  0.01) =   31784841 ops/sec
+aesv8_gcm_8x_enc_256_org (112 bytes):    32.3 ns each (var  2.0%, corr -0.01) =   30919989 ops/sec
+aesv8_gcm_8x_enc_256_org (128 bytes):    39.0 ns each (var  1.7%, corr -0.02) =   25632936 ops/sec
+aesv8_gcm_8x_enc_256_org (192 bytes):    46.2 ns each (var  1.4%, corr  0.06) =   21634935 ops/sec
+aesv8_gcm_8x_enc_256_org (256 bytes):    55.6 ns each (var  1.4%, corr  0.05) =   17989594 ops/sec
+aesv8_gcm_8x_enc_256_org (512 bytes):    89.7 ns each (var  2.5%, corr  0.06) =   11151141 ops/sec
+aesv8_gcm_8x_enc_256_org (1024 bytes):   159.8 ns each (var  3.4%, corr -0.10) =    6255897 ops/sec
+aesv8_gcm_8x_enc_256_org (4096 bytes):   569.1 ns each (var  1.4%, corr -0.03) =    1757222 ops/sec
+ARITHMEAN ( 26 tests)    :   85.2 ns
+GEOMEAN   ( 26 tests)    :   45.1 ns
+ROUND 2 base
+---------------------------------------------------------------------------------
+Timings in nanoseconds (ns) per call of function, average across input values.
+var = coefficient of variation (stddev / mean) across input values, as percentage.
+corr = correlation coefficient versus the bit density of input values.
+ops/sec = average number of operations per second = 10^9 / average timing.
+ARITHMEAN = arithmetic mean of all average function times, in nanoseconds.
+GEOMEAN = geometric mean of all average function times, in nanoseconds.
+Default repetitions per function = 5 (outer) * 65 (bit densities) * 1000 (inner) = 3250000
+---------------------------------------------------------------------------------
+
+aesv8_gcm_8x_enc_256 (16 bytes) :    24.6 ns each (var  2.6%, corr -0.06) =   40706413 ops/sec
+aesv8_gcm_8x_enc_256 (32 bytes) :    26.0 ns each (var  9.6%, corr  0.03) =   38529935 ops/sec
+aesv8_gcm_8x_enc_256 (48 bytes) :    26.7 ns each (var  2.2%, corr -0.14) =   37481259 ops/sec
+aesv8_gcm_8x_enc_256 (64 bytes) :    28.1 ns each (var  2.0%, corr -0.05) =   35577449 ops/sec
+aesv8_gcm_8x_enc_256 (80 bytes) :    28.6 ns each (var  2.7%, corr  0.06) =   34946237 ops/sec
+aesv8_gcm_8x_enc_256 (96 bytes) :    29.1 ns each (var  1.9%, corr -0.01) =   34391534 ops/sec
+aesv8_gcm_8x_enc_256 (112 bytes):    29.7 ns each (var  2.3%, corr -0.01) =   33657829 ops/sec
+aesv8_gcm_8x_enc_256 (128 bytes):    28.3 ns each (var  2.5%, corr  0.00) =   35280069 ops/sec
+aesv8_gcm_8x_enc_256 (192 bytes):    44.5 ns each (var  1.7%, corr  0.02) =   22485125 ops/sec
+aesv8_gcm_8x_enc_256 (256 bytes):    44.9 ns each (var  1.4%, corr -0.06) =   22283168 ops/sec
+aesv8_gcm_8x_enc_256 (512 bytes):    78.1 ns each (var  1.3%, corr -0.01) =   12807882 ops/sec
+aesv8_gcm_8x_enc_256 (1024 bytes):   148.4 ns each (var  3.0%, corr  0.05) =    6737805 ops/sec
+aesv8_gcm_8x_enc_256 (4096 bytes):   558.2 ns each (var  3.7%, corr -0.11) =    1791601 ops/sec
+aesv8_gcm_8x_enc_256_org (16 bytes):    26.5 ns each (var  2.3%, corr  0.06) =   37751191 ops/sec
+aesv8_gcm_8x_enc_256_org (32 bytes):    27.6 ns each (var  2.3%, corr  0.02) =   36171397 ops/sec
+aesv8_gcm_8x_enc_256_org (48 bytes):    28.8 ns each (var  2.2%, corr -0.07) =   34699979 ops/sec
+aesv8_gcm_8x_enc_256_org (64 bytes):    29.7 ns each (var  3.2%, corr  0.03) =   33682247 ops/sec
+aesv8_gcm_8x_enc_256_org (80 bytes):    30.5 ns each (var  2.2%, corr -0.04) =   32781925 ops/sec
+aesv8_gcm_8x_enc_256_org (96 bytes):    31.5 ns each (var  2.5%, corr -0.01) =   31753786 ops/sec
+aesv8_gcm_8x_enc_256_org (112 bytes):    32.4 ns each (var  1.9%, corr  0.09) =   30908226 ops/sec
+aesv8_gcm_8x_enc_256_org (128 bytes):    39.0 ns each (var  1.7%, corr  0.00) =   25645072 ops/sec
+aesv8_gcm_8x_enc_256_org (192 bytes):    46.2 ns each (var  1.5%, corr -0.02) =   21640698 ops/sec
+aesv8_gcm_8x_enc_256_org (256 bytes):    55.8 ns each (var  1.5%, corr  0.06) =   17935982 ops/sec
+aesv8_gcm_8x_enc_256_org (512 bytes):    89.6 ns each (var  1.0%, corr -0.00) =   11166466 ops/sec
+aesv8_gcm_8x_enc_256_org (1024 bytes):   160.9 ns each (var  3.7%, corr  0.03) =    6214848 ops/sec
+aesv8_gcm_8x_enc_256_org (4096 bytes):   569.5 ns each (var  1.5%, corr -0.01) =    1755826 ops/sec
+ARITHMEAN ( 26 tests)    :   87.0 ns
+GEOMEAN   ( 26 tests)    :   48.6 ns
+ROUND 2 compact
+---------------------------------------------------------------------------------
+Timings in nanoseconds (ns) per call of function, average across input values.
+var = coefficient of variation (stddev / mean) across input values, as percentage.
+corr = correlation coefficient versus the bit density of input values.
+ops/sec = average number of operations per second = 10^9 / average timing.
+ARITHMEAN = arithmetic mean of all average function times, in nanoseconds.
+GEOMEAN = geometric mean of all average function times, in nanoseconds.
+Default repetitions per function = 5 (outer) * 65 (bit densities) * 1000 (inner) = 3250000
+---------------------------------------------------------------------------------
+
+aesv8_gcm_8x_enc_256 (16 bytes) :    15.7 ns each (var  3.7%, corr  0.10) =   63712997 ops/sec
+aesv8_gcm_8x_enc_256 (32 bytes) :    17.2 ns each (var  3.3%, corr  0.01) =   58097962 ops/sec
+aesv8_gcm_8x_enc_256 (48 bytes) :    20.3 ns each (var  2.7%, corr  0.06) =   49242424 ops/sec
+aesv8_gcm_8x_enc_256 (64 bytes) :    22.1 ns each (var  2.5%, corr  0.02) =   45264624 ops/sec
+aesv8_gcm_8x_enc_256 (80 bytes) :    27.8 ns each (var  1.9%, corr -0.01) =   36035037 ops/sec
+aesv8_gcm_8x_enc_256 (96 bytes) :    28.3 ns each (var  2.4%, corr -0.02) =   35314571 ops/sec
+aesv8_gcm_8x_enc_256 (112 bytes):    29.0 ns each (var  1.8%, corr -0.08) =   34468130 ops/sec
+aesv8_gcm_8x_enc_256 (128 bytes):    27.6 ns each (var  2.3%, corr  0.11) =   36171397 ops/sec
+aesv8_gcm_8x_enc_256 (192 bytes):    43.2 ns each (var  1.4%, corr -0.02) =   23149797 ops/sec
+aesv8_gcm_8x_enc_256 (256 bytes):    44.2 ns each (var  1.4%, corr  0.00) =   22603978 ops/sec
+aesv8_gcm_8x_enc_256 (512 bytes):    77.4 ns each (var  1.1%, corr -0.07) =   12913736 ops/sec
+aesv8_gcm_8x_enc_256 (1024 bytes):   148.3 ns each (var  3.2%, corr -0.09) =    6741916 ops/sec
+aesv8_gcm_8x_enc_256 (4096 bytes):   556.1 ns each (var  1.4%, corr -0.04) =    1798210 ops/sec
+aesv8_gcm_8x_enc_256_org (16 bytes):    26.6 ns each (var  2.9%, corr -0.01) =   37650602 ops/sec
+aesv8_gcm_8x_enc_256_org (32 bytes):    27.6 ns each (var  2.5%, corr -0.04) =   36264227 ops/sec
+aesv8_gcm_8x_enc_256_org (48 bytes):    28.8 ns each (var  2.4%, corr -0.01) =   34744494 ops/sec
+aesv8_gcm_8x_enc_256_org (64 bytes):    29.7 ns each (var  2.2%, corr -0.00) =   33678756 ops/sec
+aesv8_gcm_8x_enc_256_org (80 bytes):    30.5 ns each (var  2.4%, corr  0.01) =   32735697 ops/sec
+aesv8_gcm_8x_enc_256_org (96 bytes):    31.5 ns each (var  2.1%, corr  0.07) =   31772412 ops/sec
+aesv8_gcm_8x_enc_256_org (112 bytes):    32.4 ns each (var  3.1%, corr -0.07) =   30823217 ops/sec
+aesv8_gcm_8x_enc_256_org (128 bytes):    39.0 ns each (var  1.5%, corr  0.02) =   25649120 ops/sec
+aesv8_gcm_8x_enc_256_org (192 bytes):    46.2 ns each (var  1.3%, corr  0.01) =   21653674 ops/sec
+aesv8_gcm_8x_enc_256_org (256 bytes):    55.7 ns each (var  1.9%, corr  0.01) =   17955801 ops/sec
+aesv8_gcm_8x_enc_256_org (512 bytes):    89.6 ns each (var  1.3%, corr  0.10) =   11163398 ops/sec
+aesv8_gcm_8x_enc_256_org (1024 bytes):   160.9 ns each (var  4.1%, corr -0.05) =    6216014 ops/sec
+aesv8_gcm_8x_enc_256_org (4096 bytes):   569.0 ns each (var  1.3%, corr -0.01) =    1757409 ops/sec
+ARITHMEAN ( 26 tests)    :   85.6 ns
+GEOMEAN   ( 26 tests)    :   45.8 ns
+ROUND 3 fullAA
+---------------------------------------------------------------------------------
+Timings in nanoseconds (ns) per call of function, average across input values.
+var = coefficient of variation (stddev / mean) across input values, as percentage.
+corr = correlation coefficient versus the bit density of input values.
+ops/sec = average number of operations per second = 10^9 / average timing.
+ARITHMEAN = arithmetic mean of all average function times, in nanoseconds.
+GEOMEAN = geometric mean of all average function times, in nanoseconds.
+Default repetitions per function = 5 (outer) * 65 (bit densities) * 1000 (inner) = 3250000
+---------------------------------------------------------------------------------
+
+aesv8_gcm_8x_enc_256 (16 bytes) :    15.7 ns each (var  3.8%, corr  0.01) =   63725490 ops/sec
+aesv8_gcm_8x_enc_256 (32 bytes) :    17.2 ns each (var  2.6%, corr  0.01) =   58170754 ops/sec
+aesv8_gcm_8x_enc_256 (48 bytes) :    20.2 ns each (var  2.3%, corr -0.10) =   49392097 ops/sec
+aesv8_gcm_8x_enc_256 (64 bytes) :    22.1 ns each (var  2.2%, corr -0.03) =   45302481 ops/sec
+aesv8_gcm_8x_enc_256 (80 bytes) :    23.7 ns each (var  3.2%, corr  0.09) =   42240707 ops/sec
+aesv8_gcm_8x_enc_256 (96 bytes) :    25.0 ns each (var  2.2%, corr  0.06) =   40009849 ops/sec
+aesv8_gcm_8x_enc_256 (112 bytes):    26.4 ns each (var  2.1%, corr  0.02) =   37874374 ops/sec
+aesv8_gcm_8x_enc_256 (128 bytes):    27.6 ns each (var  2.4%, corr  0.06) =   36191537 ops/sec
+aesv8_gcm_8x_enc_256 (192 bytes):    43.1 ns each (var  1.3%, corr  0.08) =   23184477 ops/sec
+aesv8_gcm_8x_enc_256 (256 bytes):    44.3 ns each (var  1.6%, corr  0.02) =   22581990 ops/sec
+aesv8_gcm_8x_enc_256 (512 bytes):    77.5 ns each (var  1.4%, corr -0.09) =   12906557 ops/sec
+aesv8_gcm_8x_enc_256 (1024 bytes):   148.1 ns each (var  3.1%, corr  0.02) =    6751527 ops/sec
+aesv8_gcm_8x_enc_256 (4096 bytes):   556.4 ns each (var  1.4%, corr -0.08) =    1797235 ops/sec
+aesv8_gcm_8x_enc_256_org (16 bytes):    26.6 ns each (var  2.5%, corr -0.02) =   37646241 ops/sec
+aesv8_gcm_8x_enc_256_org (32 bytes):    27.7 ns each (var  3.2%, corr  0.01) =   36151279 ops/sec
+aesv8_gcm_8x_enc_256_org (48 bytes):    28.8 ns each (var  2.4%, corr -0.01) =   34714805 ops/sec
+aesv8_gcm_8x_enc_256_org (64 bytes):    29.7 ns each (var  2.5%, corr -0.07) =   33654344 ops/sec
+aesv8_gcm_8x_enc_256_org (80 bytes):    30.6 ns each (var  2.8%, corr -0.08) =   32722513 ops/sec
+aesv8_gcm_8x_enc_256_org (96 bytes):    31.6 ns each (var  2.4%, corr -0.03) =   31694948 ops/sec
+aesv8_gcm_8x_enc_256_org (112 bytes):    32.3 ns each (var  1.9%, corr -0.03) =   30917047 ops/sec
+aesv8_gcm_8x_enc_256_org (128 bytes):    39.0 ns each (var  1.6%, corr  0.02) =   25636980 ops/sec
+aesv8_gcm_8x_enc_256_org (192 bytes):    46.2 ns each (var  1.4%, corr -0.03) =   21637816 ops/sec
+aesv8_gcm_8x_enc_256_org (256 bytes):    55.7 ns each (var  1.5%, corr -0.06) =   17940933 ops/sec
+aesv8_gcm_8x_enc_256_org (512 bytes):    89.5 ns each (var  0.9%, corr  0.07) =   11176066 ops/sec
+aesv8_gcm_8x_enc_256_org (1024 bytes):   160.4 ns each (var  3.9%, corr -0.05) =    6233546 ops/sec
+aesv8_gcm_8x_enc_256_org (4096 bytes):   569.0 ns each (var  1.3%, corr -0.06) =    1757595 ops/sec
+ARITHMEAN ( 26 tests)    :   85.2 ns
+GEOMEAN   ( 26 tests)    :   45.1 ns
+ROUND 3 base
+---------------------------------------------------------------------------------
+Timings in nanoseconds (ns) per call of function, average across input values.
+var = coefficient of variation (stddev / mean) across input values, as percentage.
+corr = correlation coefficient versus the bit density of input values.
+ops/sec = average number of operations per second = 10^9 / average timing.
+ARITHMEAN = arithmetic mean of all average function times, in nanoseconds.
+GEOMEAN = geometric mean of all average function times, in nanoseconds.
+Default repetitions per function = 5 (outer) * 65 (bit densities) * 1000 (inner) = 3250000
+---------------------------------------------------------------------------------
+
+aesv8_gcm_8x_enc_256 (16 bytes) :    24.6 ns each (var  2.8%, corr  0.01) =   40650407 ops/sec
+aesv8_gcm_8x_enc_256 (32 bytes) :    25.8 ns each (var  2.4%, corr -0.09) =   38792074 ops/sec
+aesv8_gcm_8x_enc_256 (48 bytes) :    26.8 ns each (var  2.6%, corr -0.06) =   37373505 ops/sec
+aesv8_gcm_8x_enc_256 (64 bytes) :    28.2 ns each (var  2.4%, corr  0.02) =   35515244 ops/sec
+aesv8_gcm_8x_enc_256 (80 bytes) :    28.6 ns each (var  2.4%, corr -0.04) =   34961274 ops/sec
+aesv8_gcm_8x_enc_256 (96 bytes) :    29.1 ns each (var  2.0%, corr -0.02) =   34406098 ops/sec
+aesv8_gcm_8x_enc_256 (112 bytes):    29.7 ns each (var  2.0%, corr  0.01) =   33629967 ops/sec
+aesv8_gcm_8x_enc_256 (128 bytes):    28.4 ns each (var  2.8%, corr  0.02) =   35188393 ops/sec
+aesv8_gcm_8x_enc_256 (192 bytes):    44.5 ns each (var  2.6%, corr -0.02) =   22480459 ops/sec
+aesv8_gcm_8x_enc_256 (256 bytes):    44.9 ns each (var  1.6%, corr  0.03) =   22257225 ops/sec
+aesv8_gcm_8x_enc_256 (512 bytes):    78.1 ns each (var  1.5%, corr  0.14) =   12796283 ops/sec
+aesv8_gcm_8x_enc_256 (1024 bytes):   148.6 ns each (var  3.2%, corr -0.00) =    6730964 ops/sec
+aesv8_gcm_8x_enc_256 (4096 bytes):   556.8 ns each (var  1.4%, corr  0.02) =    1795969 ops/sec
+aesv8_gcm_8x_enc_256_org (16 bytes):    26.6 ns each (var  3.3%, corr -0.01) =   37624450 ops/sec
+aesv8_gcm_8x_enc_256_org (32 bytes):    27.6 ns each (var  2.2%, corr -0.00) =   36187507 ops/sec
+aesv8_gcm_8x_enc_256_org (48 bytes):    28.8 ns each (var  2.3%, corr -0.01) =   34729643 ops/sec
+aesv8_gcm_8x_enc_256_org (64 bytes):    29.7 ns each (var  3.1%, corr  0.04) =   33654344 ops/sec
+aesv8_gcm_8x_enc_256_org (80 bytes):    30.5 ns each (var  2.3%, corr  0.01) =   32775313 ops/sec
+aesv8_gcm_8x_enc_256_org (96 bytes):    31.5 ns each (var  2.2%, corr -0.02) =   31766201 ops/sec
+aesv8_gcm_8x_enc_256_org (112 bytes):    32.4 ns each (var  2.1%, corr  0.03) =   30864198 ops/sec
+aesv8_gcm_8x_enc_256_org (128 bytes):    39.0 ns each (var  1.8%, corr  0.07) =   25641026 ops/sec
+aesv8_gcm_8x_enc_256_org (192 bytes):    46.2 ns each (var  1.5%, corr  0.08) =   21624859 ops/sec
+aesv8_gcm_8x_enc_256_org (256 bytes):    55.7 ns each (var  1.5%, corr  0.03) =   17968707 ops/sec
+aesv8_gcm_8x_enc_256_org (512 bytes):    89.6 ns each (var  1.0%, corr -0.05) =   11159181 ops/sec
+aesv8_gcm_8x_enc_256_org (1024 bytes):   161.1 ns each (var  4.0%, corr -0.00) =    6207865 ops/sec
+aesv8_gcm_8x_enc_256_org (4096 bytes):   569.2 ns each (var  1.3%, corr  0.03) =    1756850 ops/sec
+ARITHMEAN ( 26 tests)    :   87.0 ns
+GEOMEAN   ( 26 tests)    :   48.6 ns
+ROUND 3 compact
+---------------------------------------------------------------------------------
+Timings in nanoseconds (ns) per call of function, average across input values.
+var = coefficient of variation (stddev / mean) across input values, as percentage.
+corr = correlation coefficient versus the bit density of input values.
+ops/sec = average number of operations per second = 10^9 / average timing.
+ARITHMEAN = arithmetic mean of all average function times, in nanoseconds.
+GEOMEAN = geometric mean of all average function times, in nanoseconds.
+Default repetitions per function = 5 (outer) * 65 (bit densities) * 1000 (inner) = 3250000
+---------------------------------------------------------------------------------
+
+aesv8_gcm_8x_enc_256 (16 bytes) :    15.7 ns each (var  5.3%, corr -0.02) =   63875786 ops/sec
+aesv8_gcm_8x_enc_256 (32 bytes) :    17.3 ns each (var  5.3%, corr  0.08) =   57932264 ops/sec
+aesv8_gcm_8x_enc_256 (48 bytes) :    20.3 ns each (var  3.0%, corr -0.03) =   49242424 ops/sec
+aesv8_gcm_8x_enc_256 (64 bytes) :    22.1 ns each (var  1.8%, corr  0.07) =   45340402 ops/sec
+aesv8_gcm_8x_enc_256 (80 bytes) :    27.7 ns each (var  2.0%, corr  0.02) =   36067029 ops/sec
+aesv8_gcm_8x_enc_256 (96 bytes) :    28.3 ns each (var  2.2%, corr -0.00) =   35352986 ops/sec
+aesv8_gcm_8x_enc_256 (112 bytes):    29.0 ns each (var  1.9%, corr -0.00) =   34475443 ops/sec
+aesv8_gcm_8x_enc_256 (128 bytes):    27.7 ns each (var  2.4%, corr -0.08) =   36043030 ops/sec
+aesv8_gcm_8x_enc_256 (192 bytes):    43.2 ns each (var  1.4%, corr  0.02) =   23148148 ops/sec
+aesv8_gcm_8x_enc_256 (256 bytes):    44.3 ns each (var  1.6%, corr  0.03) =   22592979 ops/sec
+aesv8_gcm_8x_enc_256 (512 bytes):    77.4 ns each (var  1.1%, corr  0.32) =   12915276 ops/sec
+aesv8_gcm_8x_enc_256 (1024 bytes):   148.1 ns each (var  2.7%, corr -0.15) =    6751527 ops/sec
+aesv8_gcm_8x_enc_256 (4096 bytes):   556.8 ns each (var  1.6%, corr -0.02) =    1795872 ops/sec
+aesv8_gcm_8x_enc_256_org (16 bytes):    26.6 ns each (var  2.8%, corr -0.01) =   37580944 ops/sec
+aesv8_gcm_8x_enc_256_org (32 bytes):    27.6 ns each (var  2.3%, corr  0.08) =   36199599 ops/sec
+aesv8_gcm_8x_enc_256_org (48 bytes):    28.9 ns each (var  2.2%, corr  0.08) =   34644494 ops/sec
+aesv8_gcm_8x_enc_256_org (64 bytes):    29.7 ns each (var  2.3%, corr  0.05) =   33696216 ops/sec
+aesv8_gcm_8x_enc_256_org (80 bytes):    30.5 ns each (var  2.3%, corr -0.04) =   32755493 ops/sec
+aesv8_gcm_8x_enc_256_org (96 bytes):    31.5 ns each (var  2.2%, corr -0.06) =   31756889 ops/sec
+aesv8_gcm_8x_enc_256_org (112 bytes):    32.4 ns each (var  2.1%, corr  0.03) =   30855407 ops/sec
+aesv8_gcm_8x_enc_256_org (128 bytes):    39.0 ns each (var  1.6%, corr  0.00) =   25641026 ops/sec
+aesv8_gcm_8x_enc_256_org (192 bytes):    46.2 ns each (var  1.3%, corr  0.06) =   21647905 ops/sec
+aesv8_gcm_8x_enc_256_org (256 bytes):    55.7 ns each (var  1.6%, corr -0.07) =   17951834 ops/sec
+aesv8_gcm_8x_enc_256_org (512 bytes):    89.3 ns each (var  0.7%, corr  0.18) =   11194158 ops/sec
+aesv8_gcm_8x_enc_256_org (1024 bytes):   160.8 ns each (var  3.8%, corr -0.13) =    6217179 ops/sec
+aesv8_gcm_8x_enc_256_org (4096 bytes):   569.1 ns each (var  1.3%, corr -0.05) =    1757129 ops/sec
+ARITHMEAN ( 26 tests)    :   85.6 ns
+GEOMEAN   ( 26 tests)    :   45.8 ns
+ROUND 3 full
+---------------------------------------------------------------------------------
+Timings in nanoseconds (ns) per call of function, average across input values.
+var = coefficient of variation (stddev / mean) across input values, as percentage.
+corr = correlation coefficient versus the bit density of input values.
+ops/sec = average number of operations per second = 10^9 / average timing.
+ARITHMEAN = arithmetic mean of all average function times, in nanoseconds.
+GEOMEAN = geometric mean of all average function times, in nanoseconds.
+Default repetitions per function = 5 (outer) * 65 (bit densities) * 1000 (inner) = 3250000
+---------------------------------------------------------------------------------
+
+aesv8_gcm_8x_enc_256 (16 bytes) :    15.7 ns each (var  3.8%, corr  0.08) =   63700510 ops/sec
+aesv8_gcm_8x_enc_256 (32 bytes) :    17.2 ns each (var  2.7%, corr  0.04) =   58160344 ops/sec
+aesv8_gcm_8x_enc_256 (48 bytes) :    20.3 ns each (var  2.7%, corr  0.01) =   49242424 ops/sec
+aesv8_gcm_8x_enc_256 (64 bytes) :    22.1 ns each (var  2.3%, corr -0.01) =   45214246 ops/sec
+aesv8_gcm_8x_enc_256 (80 bytes) :    23.7 ns each (var  2.8%, corr -0.06) =   42268175 ops/sec
+aesv8_gcm_8x_enc_256 (96 bytes) :    25.0 ns each (var  2.2%, corr -0.08) =   40024631 ops/sec
+aesv8_gcm_8x_enc_256 (112 bytes):    26.5 ns each (var  2.6%, corr -0.09) =   37795092 ops/sec
+aesv8_gcm_8x_enc_256 (128 bytes):    27.7 ns each (var  3.0%, corr -0.04) =   36111111 ops/sec
+aesv8_gcm_8x_enc_256 (192 bytes):    43.2 ns each (var  1.4%, corr -0.01) =   23172906 ops/sec
+aesv8_gcm_8x_enc_256 (256 bytes):    44.2 ns each (var  1.6%, corr  0.03) =   22605551 ops/sec
+aesv8_gcm_8x_enc_256 (512 bytes):    77.4 ns each (var  1.1%, corr -0.07) =   12915276 ops/sec
+aesv8_gcm_8x_enc_256 (1024 bytes):   147.9 ns each (var  2.5%, corr -0.10) =    6759788 ops/sec
+aesv8_gcm_8x_enc_256 (4096 bytes):   557.3 ns each (var  1.5%, corr -0.22) =    1794511 ops/sec
+aesv8_gcm_8x_enc_256_org (16 bytes):    26.6 ns each (var  2.6%, corr -0.06) =   37598334 ops/sec
+aesv8_gcm_8x_enc_256_org (32 bytes):    27.6 ns each (var  2.5%, corr  0.01) =   36175423 ops/sec
+aesv8_gcm_8x_enc_256_org (48 bytes):    28.8 ns each (var  2.4%, corr  0.04) =   34707390 ops/sec
+aesv8_gcm_8x_enc_256_org (64 bytes):    29.7 ns each (var  3.0%, corr -0.07) =   33682247 ops/sec
+aesv8_gcm_8x_enc_256_org (80 bytes):    30.5 ns each (var  2.2%, corr -0.01) =   32795156 ops/sec
+aesv8_gcm_8x_enc_256_org (96 bytes):    31.5 ns each (var  2.2%, corr  0.00) =   31713505 ops/sec
+aesv8_gcm_8x_enc_256_org (112 bytes):    32.5 ns each (var  2.3%, corr  0.05) =   30814450 ops/sec
+aesv8_gcm_8x_enc_256_org (128 bytes):    39.0 ns each (var  1.6%, corr  0.04) =   25632936 ops/sec
+aesv8_gcm_8x_enc_256_org (192 bytes):    46.2 ns each (var  1.2%, corr  0.08) =   21655117 ops/sec
+aesv8_gcm_8x_enc_256_org (256 bytes):    55.7 ns each (var  1.5%, corr -0.02) =   17966720 ops/sec
+aesv8_gcm_8x_enc_256_org (512 bytes):    89.5 ns each (var  1.0%, corr -0.08) =   11167234 ops/sec
+aesv8_gcm_8x_enc_256_org (1024 bytes):   160.1 ns each (var  3.5%, corr -0.01) =    6245290 ops/sec
+aesv8_gcm_8x_enc_256_org (4096 bytes):   570.0 ns each (var  3.5%, corr -0.08) =    1754247 ops/sec
+ARITHMEAN ( 26 tests)    :   85.2 ns
+GEOMEAN   ( 26 tests)    :   45.1 ns
+ROUND 4 base
+---------------------------------------------------------------------------------
+Timings in nanoseconds (ns) per call of function, average across input values.
+var = coefficient of variation (stddev / mean) across input values, as percentage.
+corr = correlation coefficient versus the bit density of input values.
+ops/sec = average number of operations per second = 10^9 / average timing.
+ARITHMEAN = arithmetic mean of all average function times, in nanoseconds.
+GEOMEAN = geometric mean of all average function times, in nanoseconds.
+Default repetitions per function = 5 (outer) * 65 (bit densities) * 1000 (inner) = 3250000
+---------------------------------------------------------------------------------
+
+aesv8_gcm_8x_enc_256 (16 bytes) :    24.6 ns each (var  2.5%, corr  0.01) =   40711512 ops/sec
+aesv8_gcm_8x_enc_256 (32 bytes) :    25.8 ns each (var  2.3%, corr -0.07) =   38782816 ops/sec
+aesv8_gcm_8x_enc_256 (48 bytes) :    26.7 ns each (var  2.8%, corr  0.00) =   37463977 ops/sec
+aesv8_gcm_8x_enc_256 (64 bytes) :    28.1 ns each (var  2.1%, corr -0.05) =   35534660 ops/sec
+aesv8_gcm_8x_enc_256 (80 bytes) :    28.6 ns each (var  2.4%, corr -0.05) =   34916201 ops/sec
+aesv8_gcm_8x_enc_256 (96 bytes) :    29.1 ns each (var  2.1%, corr  0.01) =   34420674 ops/sec
+aesv8_gcm_8x_enc_256 (112 bytes):    29.7 ns each (var  2.3%, corr  0.05) =   33616053 ops/sec
+aesv8_gcm_8x_enc_256 (128 bytes):    28.4 ns each (var  2.4%, corr  0.04) =   35222716 ops/sec
+aesv8_gcm_8x_enc_256 (192 bytes):    44.4 ns each (var  1.7%, corr  0.11) =   22513162 ops/sec
+aesv8_gcm_8x_enc_256 (256 bytes):    44.9 ns each (var  1.7%, corr -0.09) =   22277058 ops/sec
+aesv8_gcm_8x_enc_256 (512 bytes):    78.1 ns each (var  1.1%, corr  0.17) =   12800819 ops/sec
+aesv8_gcm_8x_enc_256 (1024 bytes):   148.8 ns each (var  3.2%, corr  0.03) =    6720049 ops/sec
+aesv8_gcm_8x_enc_256 (4096 bytes):   557.4 ns each (var  1.5%, corr -0.00) =    1794122 ops/sec
+aesv8_gcm_8x_enc_256_org (16 bytes):    26.6 ns each (var  2.4%, corr -0.04) =   37637522 ops/sec
+aesv8_gcm_8x_enc_256_org (32 bytes):    27.7 ns each (var  2.5%, corr  0.02) =   36095069 ops/sec
+aesv8_gcm_8x_enc_256_org (48 bytes):    28.8 ns each (var  2.1%, corr  0.04) =   34763076 ops/sec
+aesv8_gcm_8x_enc_256_org (64 bytes):    29.6 ns each (var  2.2%, corr -0.03) =   33755713 ops/sec
+aesv8_gcm_8x_enc_256_org (80 bytes):    30.6 ns each (var  2.3%, corr  0.01) =   32722513 ops/sec
+aesv8_gcm_8x_enc_256_org (96 bytes):    31.5 ns each (var  2.3%, corr -0.04) =   31728986 ops/sec
+aesv8_gcm_8x_enc_256_org (112 bytes):    32.4 ns each (var  2.3%, corr -0.09) =   30852478 ops/sec
+aesv8_gcm_8x_enc_256_org (128 bytes):    39.0 ns each (var  1.8%, corr -0.02) =   25655194 ops/sec
+aesv8_gcm_8x_enc_256_org (192 bytes):    46.2 ns each (var  1.4%, corr  0.01) =   21632055 ops/sec
+aesv8_gcm_8x_enc_256_org (256 bytes):    55.7 ns each (var  1.4%, corr -0.07) =   17966720 ops/sec
+aesv8_gcm_8x_enc_256_org (512 bytes):    89.6 ns each (var  1.0%, corr  0.08) =   11163014 ops/sec
+aesv8_gcm_8x_enc_256_org (1024 bytes):   160.5 ns each (var  3.0%, corr  0.00) =    6228861 ops/sec
+aesv8_gcm_8x_enc_256_org (4096 bytes):   568.8 ns each (var  1.3%, corr  0.05) =    1758154 ops/sec
+ARITHMEAN ( 26 tests)    :   87.0 ns
+GEOMEAN   ( 26 tests)    :   48.6 ns
+ROUND 4 compact
+---------------------------------------------------------------------------------
+Timings in nanoseconds (ns) per call of function, average across input values.
+var = coefficient of variation (stddev / mean) across input values, as percentage.
+corr = correlation coefficient versus the bit density of input values.
+ops/sec = average number of operations per second = 10^9 / average timing.
+ARITHMEAN = arithmetic mean of all average function times, in nanoseconds.
+GEOMEAN = geometric mean of all average function times, in nanoseconds.
+Default repetitions per function = 5 (outer) * 65 (bit densities) * 1000 (inner) = 3250000
+---------------------------------------------------------------------------------
+
+aesv8_gcm_8x_enc_256 (16 bytes) :    15.7 ns each (var  4.1%, corr  0.06) =   63650607 ops/sec
+aesv8_gcm_8x_enc_256 (32 bytes) :    17.2 ns each (var  2.7%, corr  0.08) =   58191585 ops/sec
+aesv8_gcm_8x_enc_256 (48 bytes) :    20.3 ns each (var  2.8%, corr  0.01) =   49205148 ops/sec
+aesv8_gcm_8x_enc_256 (64 bytes) :    22.1 ns each (var  1.8%, corr -0.07) =   45283545 ops/sec
+aesv8_gcm_8x_enc_256 (80 bytes) :    27.7 ns each (var  2.2%, corr  0.02) =   36075036 ops/sec
+aesv8_gcm_8x_enc_256 (96 bytes) :    28.3 ns each (var  2.1%, corr -0.02) =   35387631 ops/sec
+aesv8_gcm_8x_enc_256 (112 bytes):    29.0 ns each (var  2.0%, corr -0.12) =   34442560 ops/sec
+aesv8_gcm_8x_enc_256 (128 bytes):    27.7 ns each (var  2.3%, corr -0.05) =   36151279 ops/sec
+aesv8_gcm_8x_enc_256 (192 bytes):    43.3 ns each (var  1.8%, corr -0.02) =   23113577 ops/sec
+aesv8_gcm_8x_enc_256 (256 bytes):    44.3 ns each (var  1.4%, corr  0.09) =   22597692 ops/sec
+aesv8_gcm_8x_enc_256 (512 bytes):    77.6 ns each (var  1.8%, corr -0.02) =   12880980 ops/sec
+aesv8_gcm_8x_enc_256 (1024 bytes):   148.0 ns each (var  2.8%, corr -0.01) =    6755655 ops/sec
+aesv8_gcm_8x_enc_256 (4096 bytes):   556.3 ns each (var  1.5%, corr  0.01) =    1797625 ops/sec
+aesv8_gcm_8x_enc_256_org (16 bytes):    26.6 ns each (var  3.5%, corr  0.05) =   37589637 ops/sec
+aesv8_gcm_8x_enc_256_org (32 bytes):    27.7 ns each (var  2.2%, corr -0.04) =   36131184 ops/sec
+aesv8_gcm_8x_enc_256_org (48 bytes):    28.8 ns each (var  2.6%, corr -0.03) =   34751925 ops/sec
+aesv8_gcm_8x_enc_256_org (64 bytes):    29.6 ns each (var  2.3%, corr -0.04) =   33780272 ops/sec
+aesv8_gcm_8x_enc_256_org (80 bytes):    30.5 ns each (var  2.2%, corr -0.06) =   32772008 ops/sec
+aesv8_gcm_8x_enc_256_org (96 bytes):    31.5 ns each (var  2.3%, corr -0.08) =   31775518 ops/sec
+aesv8_gcm_8x_enc_256_org (112 bytes):    32.3 ns each (var  1.9%, corr  0.05) =   30949433 ops/sec
+aesv8_gcm_8x_enc_256_org (128 bytes):    39.0 ns each (var  2.1%, corr  0.02) =   25628894 ops/sec
+aesv8_gcm_8x_enc_256_org (192 bytes):    46.2 ns each (var  1.6%, corr -0.01) =   21642139 ops/sec
+aesv8_gcm_8x_enc_256_org (256 bytes):    55.7 ns each (var  1.4%, corr  0.01) =   17962748 ops/sec
+aesv8_gcm_8x_enc_256_org (512 bytes):    89.6 ns each (var  1.1%, corr -0.02) =   11157649 ops/sec
+aesv8_gcm_8x_enc_256_org (1024 bytes):   161.4 ns each (var  8.0%, corr  0.03) =    6197420 ops/sec
+aesv8_gcm_8x_enc_256_org (4096 bytes):   568.6 ns each (var  1.2%, corr -0.01) =    1758807 ops/sec
+ARITHMEAN ( 26 tests)    :   85.6 ns
+GEOMEAN   ( 26 tests)    :   45.8 ns
+ROUND 4 full
+---------------------------------------------------------------------------------
+Timings in nanoseconds (ns) per call of function, average across input values.
+var = coefficient of variation (stddev / mean) across input values, as percentage.
+corr = correlation coefficient versus the bit density of input values.
+ops/sec = average number of operations per second = 10^9 / average timing.
+ARITHMEAN = arithmetic mean of all average function times, in nanoseconds.
+GEOMEAN = geometric mean of all average function times, in nanoseconds.
+Default repetitions per function = 5 (outer) * 65 (bit densities) * 1000 (inner) = 3250000
+---------------------------------------------------------------------------------
+
+aesv8_gcm_8x_enc_256 (16 bytes) :    15.7 ns each (var  3.9%, corr -0.07) =   63725490 ops/sec
+aesv8_gcm_8x_enc_256 (32 bytes) :    17.2 ns each (var  3.2%, corr  0.07) =   58014995 ops/sec
+aesv8_gcm_8x_enc_256 (48 bytes) :    20.3 ns each (var  2.9%, corr  0.01) =   49220051 ops/sec
+aesv8_gcm_8x_enc_256 (64 bytes) :    22.1 ns each (var  1.8%, corr -0.00) =   45327755 ops/sec
+aesv8_gcm_8x_enc_256 (80 bytes) :    23.6 ns each (var  2.9%, corr  0.07) =   42334245 ops/sec
+aesv8_gcm_8x_enc_256 (96 bytes) :    25.0 ns each (var  1.8%, corr -0.08) =   40078925 ops/sec
+aesv8_gcm_8x_enc_256 (112 bytes):    26.5 ns each (var  2.5%, corr -0.05) =   37799488 ops/sec
+aesv8_gcm_8x_enc_256 (128 bytes):    27.7 ns each (var  3.0%, corr -0.10) =   36151279 ops/sec
+aesv8_gcm_8x_enc_256 (192 bytes):    43.1 ns each (var  1.4%, corr -0.10) =   23176211 ops/sec
+aesv8_gcm_8x_enc_256 (256 bytes):    44.3 ns each (var  1.6%, corr  0.04) =   22594549 ops/sec
+aesv8_gcm_8x_enc_256 (512 bytes):    77.4 ns each (var  2.6%, corr -0.11) =   12924007 ops/sec
+aesv8_gcm_8x_enc_256 (1024 bytes):   148.3 ns each (var  2.7%, corr -0.02) =    6744659 ops/sec
+aesv8_gcm_8x_enc_256 (4096 bytes):   556.8 ns each (var  1.5%, corr  0.07) =    1795969 ops/sec
+aesv8_gcm_8x_enc_256_org (16 bytes):    26.6 ns each (var  2.9%, corr -0.02) =   37572254 ops/sec
+aesv8_gcm_8x_enc_256_org (32 bytes):    27.7 ns each (var  2.3%, corr  0.08) =   36103088 ops/sec
+aesv8_gcm_8x_enc_256_org (48 bytes):    28.9 ns each (var  2.8%, corr -0.05) =   34655577 ops/sec
+aesv8_gcm_8x_enc_256_org (64 bytes):    29.7 ns each (var  3.2%, corr  0.01) =   33640410 ops/sec
+aesv8_gcm_8x_enc_256_org (80 bytes):    30.5 ns each (var  2.1%, corr -0.02) =   32801776 ops/sec
+aesv8_gcm_8x_enc_256_org (96 bytes):    31.5 ns each (var  2.2%, corr -0.05) =   31741381 ops/sec
+aesv8_gcm_8x_enc_256_org (112 bytes):    32.4 ns each (var  2.0%, corr  0.06) =   30908226 ops/sec
+aesv8_gcm_8x_enc_256_org (128 bytes):    39.0 ns each (var  1.7%, corr  0.02) =   25655194 ops/sec
+aesv8_gcm_8x_enc_256_org (192 bytes):    46.3 ns each (var  1.5%, corr  0.04) =   21620543 ops/sec
+aesv8_gcm_8x_enc_256_org (256 bytes):    55.7 ns each (var  1.6%, corr  0.07) =   17968707 ops/sec
+aesv8_gcm_8x_enc_256_org (512 bytes):    89.6 ns each (var  1.5%, corr -0.24) =   11159181 ops/sec
+aesv8_gcm_8x_enc_256_org (1024 bytes):   160.9 ns each (var  3.5%, corr  0.04) =    6216014 ops/sec
+aesv8_gcm_8x_enc_256_org (4096 bytes):   569.3 ns each (var  1.3%, corr  0.16) =    1756571 ops/sec
+ARITHMEAN ( 26 tests)    :   85.2 ns
+GEOMEAN   ( 26 tests)    :   45.1 ns
+ROUND 4 fullAA
+---------------------------------------------------------------------------------
+Timings in nanoseconds (ns) per call of function, average across input values.
+var = coefficient of variation (stddev / mean) across input values, as percentage.
+corr = correlation coefficient versus the bit density of input values.
+ops/sec = average number of operations per second = 10^9 / average timing.
+ARITHMEAN = arithmetic mean of all average function times, in nanoseconds.
+GEOMEAN = geometric mean of all average function times, in nanoseconds.
+Default repetitions per function = 5 (outer) * 65 (bit densities) * 1000 (inner) = 3250000
+---------------------------------------------------------------------------------
+
+aesv8_gcm_8x_enc_256 (16 bytes) :    15.7 ns each (var  3.7%, corr  0.00) =   63875786 ops/sec
+aesv8_gcm_8x_enc_256 (32 bytes) :    17.2 ns each (var  3.1%, corr -0.00) =   58087578 ops/sec
+aesv8_gcm_8x_enc_256 (48 bytes) :    20.4 ns each (var  3.0%, corr -0.16) =   49115914 ops/sec
+aesv8_gcm_8x_enc_256 (64 bytes) :    22.1 ns each (var  2.2%, corr  0.04) =   45258321 ops/sec
+aesv8_gcm_8x_enc_256 (80 bytes) :    23.7 ns each (var  2.6%, corr  0.03) =   42224243 ops/sec
+aesv8_gcm_8x_enc_256 (96 bytes) :    25.0 ns each (var  2.3%, corr  0.04) =   40044357 ops/sec
+aesv8_gcm_8x_enc_256 (112 bytes):    26.5 ns each (var  2.4%, corr  0.06) =   37799488 ops/sec
+aesv8_gcm_8x_enc_256 (128 bytes):    27.7 ns each (var  2.5%, corr -0.06) =   36115124 ops/sec
+aesv8_gcm_8x_enc_256 (192 bytes):    43.1 ns each (var  1.2%, corr  0.01) =   23212628 ops/sec
+aesv8_gcm_8x_enc_256 (256 bytes):    44.2 ns each (var  2.1%, corr  0.01) =   22599263 ops/sec
+aesv8_gcm_8x_enc_256 (512 bytes):    77.4 ns each (var  1.1%, corr  0.09) =   12912197 ops/sec
+aesv8_gcm_8x_enc_256 (1024 bytes):   148.4 ns each (var  2.9%, corr -0.07) =    6737805 ops/sec
+aesv8_gcm_8x_enc_256 (4096 bytes):   556.5 ns each (var  1.3%, corr  0.08) =    1797040 ops/sec
+aesv8_gcm_8x_enc_256_org (16 bytes):    26.7 ns each (var  7.8%, corr  0.08) =   37515872 ops/sec
+aesv8_gcm_8x_enc_256_org (32 bytes):    27.6 ns each (var  2.3%, corr  0.09) =   36260181 ops/sec
+aesv8_gcm_8x_enc_256_org (48 bytes):    28.8 ns each (var  2.3%, corr -0.01) =   34688868 ops/sec
+aesv8_gcm_8x_enc_256_org (64 bytes):    29.7 ns each (var  2.4%, corr  0.13) =   33703204 ops/sec
+aesv8_gcm_8x_enc_256_org (80 bytes):    30.5 ns each (var  2.4%, corr  0.06) =   32748892 ops/sec
+aesv8_gcm_8x_enc_256_org (96 bytes):    31.7 ns each (var  2.7%, corr -0.02) =   31565657 ops/sec
+aesv8_gcm_8x_enc_256_org (112 bytes):    32.3 ns each (var  1.9%, corr  0.05) =   30914106 ops/sec
+aesv8_gcm_8x_enc_256_org (128 bytes):    39.0 ns each (var  1.5%, corr  0.04) =   25657220 ops/sec
+aesv8_gcm_8x_enc_256_org (192 bytes):    46.2 ns each (var  1.5%, corr -0.01) =   21634935 ops/sec
+aesv8_gcm_8x_enc_256_org (256 bytes):    55.7 ns each (var  1.5%, corr  0.03) =   17966720 ops/sec
+aesv8_gcm_8x_enc_256_org (512 bytes):    89.6 ns each (var  1.3%, corr -0.03) =   11160331 ops/sec
+aesv8_gcm_8x_enc_256_org (1024 bytes):   160.3 ns each (var  3.3%, corr -0.01) =    6238239 ops/sec
+aesv8_gcm_8x_enc_256_org (4096 bytes):   568.7 ns each (var  1.4%, corr  0.02) =    1758434 ops/sec
+ARITHMEAN ( 26 tests)    :   85.2 ns
+GEOMEAN   ( 26 tests)    :   45.1 ns
+ROUND 5 compact
+---------------------------------------------------------------------------------
+Timings in nanoseconds (ns) per call of function, average across input values.
+var = coefficient of variation (stddev / mean) across input values, as percentage.
+corr = correlation coefficient versus the bit density of input values.
+ops/sec = average number of operations per second = 10^9 / average timing.
+ARITHMEAN = arithmetic mean of all average function times, in nanoseconds.
+GEOMEAN = geometric mean of all average function times, in nanoseconds.
+Default repetitions per function = 5 (outer) * 65 (bit densities) * 1000 (inner) = 3250000
+---------------------------------------------------------------------------------
+
+aesv8_gcm_8x_enc_256 (16 bytes) :    15.6 ns each (var  3.4%, corr -0.03) =   63913471 ops/sec
+aesv8_gcm_8x_enc_256 (32 bytes) :    17.2 ns each (var  3.3%, corr  0.03) =   58108350 ops/sec
+aesv8_gcm_8x_enc_256 (48 bytes) :    20.3 ns each (var  2.6%, corr -0.04) =   49287231 ops/sec
+aesv8_gcm_8x_enc_256 (64 bytes) :    22.0 ns each (var  1.8%, corr  0.02) =   45359386 ops/sec
+aesv8_gcm_8x_enc_256 (80 bytes) :    27.9 ns each (var  2.2%, corr  0.01) =   35887809 ops/sec
+aesv8_gcm_8x_enc_256 (96 bytes) :    28.3 ns each (var  2.4%, corr -0.00) =   35329927 ops/sec
+aesv8_gcm_8x_enc_256 (112 bytes):    29.0 ns each (var  1.8%, corr -0.09) =   34512053 ops/sec
+aesv8_gcm_8x_enc_256 (128 bytes):    27.7 ns each (var  2.4%, corr  0.06) =   36139219 ops/sec
+aesv8_gcm_8x_enc_256 (192 bytes):    43.2 ns each (var  1.6%, corr  0.11) =   23121799 ops/sec
+aesv8_gcm_8x_enc_256 (256 bytes):    44.2 ns each (var  1.4%, corr -0.07) =   22611842 ops/sec
+aesv8_gcm_8x_enc_256 (512 bytes):    77.4 ns each (var  1.3%, corr  0.04) =   12916816 ops/sec
+aesv8_gcm_8x_enc_256 (1024 bytes):   148.3 ns each (var  3.1%, corr  0.10) =    6741916 ops/sec
+aesv8_gcm_8x_enc_256 (4096 bytes):   556.9 ns each (var  1.4%, corr  0.03) =    1795775 ops/sec
+aesv8_gcm_8x_enc_256_org (16 bytes):    26.5 ns each (var  2.6%, corr -0.06) =   37698643 ops/sec
+aesv8_gcm_8x_enc_256_org (32 bytes):    27.6 ns each (var  2.3%, corr  0.03) =   36203632 ops/sec
+aesv8_gcm_8x_enc_256_org (48 bytes):    28.8 ns each (var  2.3%, corr -0.02) =   34707390 ops/sec
+aesv8_gcm_8x_enc_256_org (64 bytes):    29.6 ns each (var  2.1%, corr  0.13) =   33818939 ops/sec
+aesv8_gcm_8x_enc_256_org (80 bytes):    30.5 ns each (var  3.0%, corr -0.06) =   32752192 ops/sec
+aesv8_gcm_8x_enc_256_org (96 bytes):    31.4 ns each (var  2.1%, corr -0.06) =   31809729 ops/sec
+aesv8_gcm_8x_enc_256_org (112 bytes):    32.3 ns each (var  1.9%, corr  0.04) =   30928816 ops/sec
+aesv8_gcm_8x_enc_256_org (128 bytes):    39.1 ns each (var  5.2%, corr  0.07) =   25560362 ops/sec
+aesv8_gcm_8x_enc_256_org (192 bytes):    46.3 ns each (var  1.5%, corr -0.03) =   21620543 ops/sec
+aesv8_gcm_8x_enc_256_org (256 bytes):    55.7 ns each (var  1.4%, corr  0.09) =   17967713 ops/sec
+aesv8_gcm_8x_enc_256_org (512 bytes):    89.6 ns each (var  1.0%, corr -0.04) =   11159948 ops/sec
+aesv8_gcm_8x_enc_256_org (1024 bytes):   160.2 ns each (var  3.3%, corr -0.10) =    6242938 ops/sec
+aesv8_gcm_8x_enc_256_org (4096 bytes):   569.1 ns each (var  1.6%, corr  0.05) =    1757129 ops/sec
+ARITHMEAN ( 26 tests)    :   85.6 ns
+GEOMEAN   ( 26 tests)    :   45.8 ns
+ROUND 5 full
+---------------------------------------------------------------------------------
+Timings in nanoseconds (ns) per call of function, average across input values.
+var = coefficient of variation (stddev / mean) across input values, as percentage.
+corr = correlation coefficient versus the bit density of input values.
+ops/sec = average number of operations per second = 10^9 / average timing.
+ARITHMEAN = arithmetic mean of all average function times, in nanoseconds.
+GEOMEAN = geometric mean of all average function times, in nanoseconds.
+Default repetitions per function = 5 (outer) * 65 (bit densities) * 1000 (inner) = 3250000
+---------------------------------------------------------------------------------
+
+aesv8_gcm_8x_enc_256 (16 bytes) :    15.7 ns each (var  3.6%, corr -0.02) =   63750490 ops/sec
+aesv8_gcm_8x_enc_256 (32 bytes) :    17.2 ns each (var  2.8%, corr -0.12) =   58181167 ops/sec
+aesv8_gcm_8x_enc_256 (48 bytes) :    20.3 ns each (var  2.9%, corr  0.09) =   49190253 ops/sec
+aesv8_gcm_8x_enc_256 (64 bytes) :    22.1 ns each (var  2.3%, corr  0.01) =   45245719 ops/sec
+aesv8_gcm_8x_enc_256 (80 bytes) :    23.7 ns each (var  3.6%, corr -0.16) =   42169456 ops/sec
+aesv8_gcm_8x_enc_256 (96 bytes) :    25.0 ns each (var  2.2%, corr  0.02) =   39975400 ops/sec
+aesv8_gcm_8x_enc_256 (112 bytes):    26.5 ns each (var  2.5%, corr -0.00) =   37751191 ops/sec
+aesv8_gcm_8x_enc_256 (128 bytes):    27.7 ns each (var  2.4%, corr -0.00) =   36123152 ops/sec
+aesv8_gcm_8x_enc_256 (192 bytes):    43.2 ns each (var  1.6%, corr  0.06) =   23123444 ops/sec
+aesv8_gcm_8x_enc_256 (256 bytes):    44.2 ns each (var  1.3%, corr -0.03) =   22603978 ops/sec
+aesv8_gcm_8x_enc_256 (512 bytes):    77.5 ns each (var  1.2%, corr -0.01) =   12903482 ops/sec
+aesv8_gcm_8x_enc_256 (1024 bytes):   148.2 ns each (var  2.9%, corr -0.01) =    6747405 ops/sec
+aesv8_gcm_8x_enc_256 (4096 bytes):   557.0 ns each (var  1.5%, corr -0.03) =    1795288 ops/sec
+aesv8_gcm_8x_enc_256_org (16 bytes):    26.6 ns each (var  2.6%, corr -0.04) =   37602684 ops/sec
+aesv8_gcm_8x_enc_256_org (32 bytes):    27.6 ns each (var  2.3%, corr  0.06) =   36167371 ops/sec
+aesv8_gcm_8x_enc_256_org (48 bytes):    28.8 ns each (var  2.3%, corr  0.05) =   34670365 ops/sec
+aesv8_gcm_8x_enc_256_org (64 bytes):    29.7 ns each (var  2.8%, corr  0.08) =   33710196 ops/sec
+aesv8_gcm_8x_enc_256_org (80 bytes):    30.6 ns each (var  2.4%, corr  0.03) =   32712632 ops/sec
+aesv8_gcm_8x_enc_256_org (96 bytes):    31.5 ns each (var  2.1%, corr  0.01) =   31744481 ops/sec
+aesv8_gcm_8x_enc_256_org (112 bytes):    32.3 ns each (var  1.9%, corr  0.04) =   30917047 ops/sec
+aesv8_gcm_8x_enc_256_org (128 bytes):    39.0 ns each (var  1.6%, corr  0.01) =   25639003 ops/sec
+aesv8_gcm_8x_enc_256_org (192 bytes):    46.2 ns each (var  1.5%, corr -0.04) =   21621981 ops/sec
+aesv8_gcm_8x_enc_256_org (256 bytes):    55.8 ns each (var  4.0%, corr  0.05) =   17914232 ops/sec
+aesv8_gcm_8x_enc_256_org (512 bytes):    89.6 ns each (var  1.0%, corr  0.03) =   11163014 ops/sec
+aesv8_gcm_8x_enc_256_org (1024 bytes):   160.4 ns each (var  3.6%, corr -0.04) =    6233546 ops/sec
+aesv8_gcm_8x_enc_256_org (4096 bytes):   569.0 ns each (var  1.3%, corr  0.09) =    1757595 ops/sec
+ARITHMEAN ( 26 tests)    :   85.2 ns
+GEOMEAN   ( 26 tests)    :   45.1 ns
+ROUND 5 fullAA
