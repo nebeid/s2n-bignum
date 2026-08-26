@@ -123,8 +123,10 @@ The earlier decrypt experiment reached the same code-size warning by a
 different route. Eight exact-size decrypt bodies grew `.text` from 4,968 to
 12,376 bytes (2.49x) and delivered approximately -47/-43/-44/-41/-36/-30/-24/
 -10% at 16 through 128 bytes on G4. Truncating at four bodies cost 7,312 bytes
-(1.47x) and retained the first four gains only. The current PR uses a shared
-one-block cascade for 1--4 blocks at 5,960 bytes
+(1.47x) and retained the first four gains only. Retaining bodies 1--4 and 8
+instead cost 8,832 bytes (1.78x), retained the first four gains and the
+approximately 10% 128-byte gain, and left 80--112 bytes unchanged. The current
+PR uses a shared one-block cascade for 1--4 blocks at 5,960 bytes
 (1.20x); after ordering work its 64-byte gain versus the pre-fused kernel was
 -21.9/-27.2/-31.0% on G3/G4/G5, with larger lengths unchanged.
 
@@ -133,28 +135,36 @@ one-block cascade for 1--4 blocks at 5,960 bytes
 | encrypt full per-size | 11,848 B | 2.54x original | 16--112 B | best fixed-size speed |
 | **encrypt compact per-size** | **8,624 B** | **1.85x original** | **16--64 B** | full speed at retained sizes; still beats 4x at 80--112 B |
 | decrypt full per-size | 12,376 B | 2.49x | 16--128 B | largest code/proof cost |
+| decrypt per-size `{1,2,3,4,8}` (`t4p8`) | 8,832 B | 1.78x | 16--64 B, 128 B | full per-size speed at retained sizes |
 | decrypt truncated per-size C=4 | 7,312 B | 1.47x | 16--64 B | clean partial-adoption curve |
 | decrypt current shared 1--4 | 5,960 B | 1.20x | 16--64 B | shared code across four sizes |
 
 ### Decrypt equivalent of the compact encrypt experiment
 
-The direct decrypt analogue of compact encrypt `fast1`--`fast4` is the measured
-`t4` variant: four separate exact-size bodies for 16, 32, 48, and 64 bytes,
-with all larger lengths left on the existing path. Its `.text` is 7,312 bytes,
-or 1.47x the 4,968-byte pre-fusion kernel. The retained bodies reproduce the
-full eight-body variant's gains, while lengths above the 64-byte cutoff remain
-within the measurement floor.
+There are two useful decrypt comparisons. The contiguous `t4` variant is the
+literal four-body truncation: it retains exact-size bodies for 16--64 bytes,
+costs 7,312 bytes (1.47x), and leaves every larger length on the existing path.
+It does not retain the full decrypt experiment's faster body 8.
+
+The performance-equivalent analogue of compact encrypt is `t4p8`: exact-size
+bodies `{1,2,3,4,8}` for 16--64 and 128 bytes. It costs 8,832 bytes (1.78x),
+retains the full eight-body decrypt variant's performance at all five selected
+sizes, and leaves 80, 96, and 112 bytes on the existing path. This matches the
+compact encrypt result in outcome, although not in assembly shape: encrypt has
+no separate `fast8` body, because its retained common 8-wide path and dedicated
+`exact8` drain already match the full encrypt kernel at 128 bytes.
 
 | bytes | G3 / V1 vs pre-fusion | G4 / V2 vs pre-fusion | G5 / V3 vs pre-fusion |
 |---:|---:|---:|---:|
-| 16 | -46.7% | -47.0% | -46.3% |
-| 32 | -43.9% | -42.9% | -42.4% |
-| 48 | -43.5% | -43.6% | -44.8% |
-| 64 | -41.3% | -40.9% | -42.0% |
+| 16 | -46.86% | -47.27% | -46.27% |
+| 32 | -43.84% | -42.83% | -42.40% |
+| 48 | -43.56% | -43.48% | -44.92% |
+| 64 | -41.29% | -40.81% | -42.01% |
+| 128 | -9.72% | -9.95% | -8.61% |
 
 The current PR's shared 1--4-block path is 5,960 bytes. In the PR's in-tree
 rerun, the separate-body implementation measured the following additional
-change relative to that path at the four retained sizes:
+change relative to that path at the five `t4p8` sizes:
 
 | bytes | G3 / V1 | G4 / V2 | G5 / V3 |
 |---:|---:|---:|---:|
@@ -162,12 +172,24 @@ change relative to that path at the four retained sizes:
 | 32 | -3.44% | -5.58% | -2.87% |
 | 48 | -7.93% | -8.04% | -5.03% |
 | 64 | -14.09% | -12.11% | -4.90% |
+| 128 | -5.76% | -3.91% | -2.87% |
 
 These in-tree incremental percentages come from the eight-body object, whose
-first four bodies are the same exact-size design. The separately measured
-four-body truncation established that removing bodies 5--8 does not perturb
-the retained fixed-length gains. The four-body object adds 1,352 bytes over
-the shared-path object and does not target 80 bytes or above.
+retained bodies are the same exact-size designs. The separately measured
+`t4p8` object reproduced the full object's 128-byte gain to 0.08 percentage
+points against the placement-matched control. It adds 2,872 bytes over the
+shared-path object; `t4` adds 1,352 bytes but does not target 128 bytes.
+
+The decrypt measurements and construction are preserved in the
+[`t4p8` report](https://github.com/nebeid/s2n-bignum/blob/aes-gcm-fused-wip/_docs/fused-t4p8.md)
+and its
+[`gen_set.py` generator](https://github.com/nebeid/s2n-bignum/blob/aes-gcm-fused-wip/_docs/fused-t4p8/gen_set.py).
+The encrypt inputs are Mila's
+[`aes_gcm_256_x8_verbose_opt`](https://github.com/manastasova/s2n-bignum-dev/tree/aes_gcm_256_x8_verbose_opt)
+source branch and
+[`aes_gcm_256_x8_verbose_opt_bench`](https://github.com/manastasova/s2n-bignum-dev/tree/aes_gcm_256_x8_verbose_opt_bench)
+benchmark branch; complete source snapshots are also committed under
+[`src/`](src/).
 
 Decrypt can GHASH input ciphertext while AES produces plaintext, which made a
 shared cascade effective. Encrypt must GHASH ciphertext produced by AES, so
