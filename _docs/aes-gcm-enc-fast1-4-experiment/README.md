@@ -197,6 +197,40 @@ the dependency structure makes Mila's unbraided exact-width setup and dedicated
 drains more valuable and harder to share without losing speed. The decrypt
 1.20x result therefore should not be assumed achievable for encrypt.
 
+## John AES-256 4x comparison and Graviton2 screening
+
+The decrypt comparison did include the implementation currently in PR #445:
+the local `t4` source and live PR head `29c53264` assembled to identical
+`.text` on G3, G4, and G5. This is the shared fused 1--4-block path plus the
+older exact-8 drain, not the newer `t4p8` fused body-8 experiment. At 128 B,
+`t4p8` is 10.2%/9.3%/8.7% faster than the live PR on G3/G4/G5. John's
+decrypt `basic` 4x is 32.4%/27.9%/24.4% slower than the live PR at that size.
+
+On Graviton2/Neoverse N1, all candidates passed the no-`EOR3` gate and
+differential checks for every length from 1 through 256 blocks. Encrypt
+`fast_tail` is 17.6% faster than John `basic` by geometric mean over
+16--128 B. Per-size winners are `dual_acc` at 16 and 64 B, `fast_tail` at
+32, 48, 80, 96, and 112 B, and `reload_round_keys_partial` at 128 B.
+
+The John tree had clean decrypt `fast_tail` source but no optimized output.
+A generated candidate keeps the optimized `basic` preamble and 4-block body
+byte-for-byte and uses N1-scheduled fused 1-, 2-, and 3-block tails. It is
+9.6% faster by geometric mean:
+
+| bytes | 16 | 32 | 48 | 64 | 80 | 96 | 112 | 128 |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| change vs `basic` | -8.9% | -18.1% | -24.0% | +1.0% | -0.7% | -8.9% | -14.4% | +0.6% |
+
+The next concrete source experiments are an encrypt hybrid combining
+`dual_acc`'s body with `fast_tail`'s drains, and a decrypt dual-accumulator
+body that hashes input ciphertext independently while two AES streams produce
+plaintext. The 128 B round-key-reload result is only 1.7%, so an exact-8 or
+reload specialization is lower priority on G2.
+
+Full tables, provenance, generated source, harness, and raw logs are in the
+[`john-aes256-4x-vs-8x` report](john-aes256-4x-vs-8x/README.md). These
+measurements identify candidates and do not select a preferred PR design.
+
 ## Reproduction
 
 [`build-custom.sh`](harness/build-custom.sh) assembles and links the co-linked
