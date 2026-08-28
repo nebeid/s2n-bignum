@@ -2,11 +2,14 @@
 
 ## Candidates and provenance
 
-This report evaluates three AES-256-GCM 4x kernels:
+This report evaluates four AES-256-GCM 4x kernels:
 
 - **Encrypt `scalar_iv_mem_late_tag_scalar_rk`**: Hanno Becker's best
   sustained-throughput encrypt candidate on Graviton2 from about 2 KiB through
   32 KiB.
+- **Encrypt hybrid `fast_tail` + `late_tag`**: built during this experiment
+  with dedicated fused 1-, 2-, and 3-block paths followed by Hanno's unchanged
+  large-message `scalar_iv_mem_late_tag_scalar_rk` path.
 - **Decrypt `basic`**: Hanno's fastest existing optimized AES-256 decrypt
   candidate at every size in his committed Graviton2 table.
 - **Decrypt `fast_tail`**: generated during this experiment to combine Hanno's
@@ -21,9 +24,87 @@ The branch's
 contains the clean inputs, optimization script, generated outputs, and
 Graviton2 measurements.
 
-Both Hanno kernels are outputs of `optimize_x4()`, which invokes SLOTHY with
-software pipelining enabled for Neoverse N1, the Graviton2 core. Their
-steady-state x4 loops have 70-cycle SLOTHY estimates.
+Hanno's committed late-tag encrypt and basic decrypt kernels are outputs of
+`optimize_x4()`, which invokes SLOTHY with software pipelining enabled for
+Neoverse N1, the Graviton2 core. Their steady-state x4 loops have 70-cycle
+SLOTHY estimates.
+
+## Generated encrypt 1--3-block hybrid
+
+This experiment built a single exported encrypt entry point with an early
+bit-length dispatch:
+
+- 1--3 blocks enter a short-only kernel containing separate fused 1-, 2-, and
+  3-block AES-CTR + GHASH paths;
+- 4 or more blocks enter Hanno's unchanged
+  `scalar_iv_mem_late_tag_scalar_rk` kernel.
+
+The short paths come from Hanno's committed
+[`fast_tail` optimized output](src/hanno-enc-fast-tail.S). They were already
+scheduled by SLOTHY for Neoverse N1/Graviton2. The
+[`make-enc-short.awk`](make-enc-short.awk) generator removes only the
+unreachable software-pipelined 4-block loop, producing the
+[`short-only kernel`](src/hanno-enc-short.S). The
+[`12-byte wrapper`](src/hanno-enc-hybrid-wrapper.S) selects that kernel for at
+most 384 bits and otherwise tail-calls the
+[`unchanged late-tag source`](src/hanno-enc-large.S).
+
+Thus this has one public entry point but two internal code paths. It does not
+duplicate two complete kernels: the short helper has no 4-block loop. Each
+exact-length short body remains fused, rather than calling a generic AES pass
+and a separate GHASH pass.
+
+Correctness was checked on G3, G4, and G5. A one-block AES-256-GCM known-answer
+test checked ciphertext, GHASH state, updated counter, and return value. A
+differential gate then compared compact 8x, the hybrid, full encrypt
+`fast_tail`, and late-tag for output, Xi, counter, and return value at every
+whole-block length from 1 through 256 blocks. All checks passed on all three
+processors.
+
+The code-size cost is:
+
+| encrypt object | `.text` bytes | change from late-tag |
+|---|---:|---:|
+| Hanno late-tag | 3,864 | baseline |
+| short-only `fast_tail` helper | 1,424 | component |
+| generated hybrid | **5,312** | **+1,448 B / +37.5%** |
+| compact 8x `fast1`--`fast4` | 8,624 | +4,760 B / +123.2% |
+
+The linked hybrid includes 12 bytes of dispatch and 12 bytes of section
+alignment beyond the two component objects. It is 3,312 bytes (38.4%) smaller
+than compact 8x. It is also 932 bytes larger than Hanno's complete 4,380-byte
+encrypt `fast_tail`, because the hybrid deliberately retains the separate
+late-tag body that won Hanno's large-message G2 screen.
+
+Positive values below mean the hybrid is faster than compact 8x:
+
+| bytes | G3 / V1 | G4 / V2 | G5 / V3 |
+|---:|---:|---:|---:|
+| 16 | +11.1% | +17.4% | +13.3% |
+| 32 | -6.1% | +1.0% | +3.6% |
+| 48 | -6.2% | -0.8% | -0.9% |
+
+Over 16--48 B, the hybrid geometric mean is 0.7% slower on G3, 5.6% faster on
+G4, and 5.2% faster on G5. The hybrid and the complete 4x `fast_tail` were
+within 1.2% at each of these sizes, showing that the wrapper and loop removal
+did not erase the short-path gain.
+
+The size trade is worthwhile only with a workload or higher-level dispatch
+that treats 1--3 blocks as the relevant short-message region. At 64--112 B,
+the requested fallback is late-tag and compact 8x is 38--53% faster; at 128 B
+compact is 36--44% faster. Therefore this hybrid is a smaller way to add
+competitive 16--48 B handling while preserving Hanno's large-message kernel,
+not a performance replacement for compact 8x over the entire 16--128 B range.
+
+Raw logs:
+
+- [G3 / V1](results/hybrid-ip-172-31-4-159.log)
+- [G4 / V2](results/hybrid-ip-172-31-44-56.log)
+- [G5 / V3](results/hybrid-ip-172-31-42-229.log)
+
+The run is reproduced by [`build-enc-hybrid.sh`](build-enc-hybrid.sh) and
+[`run-enc-hybrid.sh`](run-enc-hybrid.sh); the independent KAT is
+[`kat-enc-hybrid.c`](kat-enc-hybrid.c).
 
 ## Generated decrypt `fast_tail`
 
