@@ -2,14 +2,26 @@
 
 ## Result
 
-John's fastest single encrypt kernel across 16--128 B on all three hosts is
-`aesv8-gcm-armv8-enc-opt-256_x4_fast_tail.S`, using geometric mean latency.
-His fastest decrypt kernel is
-`aesv8-gcm-armv8-dec-opt-256_x4_basic.S`.
+The Graviton2 screen selected the strongest existing John AES-256 4x
+candidates by geometric-mean latency over 16--128 B:
 
-The tables compare those two fixed 4x champions with compact 8x encrypt and
-the decrypt implementation currently in PR #445. Positive values mean **8x
-is faster**; negative values mean John's 4x kernel is faster.
+- encrypt: `aesv8-gcm-armv8-enc-opt-256_x4_fast_tail.S`;
+- decrypt: `aesv8-gcm-armv8-dec-opt-256_x4_basic.S`.
+
+The candidate files came from Hanno Becker's
+[`aarch64_aes_gcm_slothy`](https://github.com/hanno-becker/aws-lc/tree/aarch64_aes_gcm_slothy)
+branch, pinned at
+[`83d5627a`](https://github.com/hanno-becker/aws-lc/commit/83d5627a1d4315a71057fe6bc75900e080f255be).
+Both selected files are outputs of `optimize_x4()`, which invokes SLOTHY with
+`sw_pipelining.enabled`; both are SLOTHY-optimized and software-pipelined.
+
+John had not selected final AES-256 kernels. These are the experiment's
+small-message selections from the existing candidates. The same two source
+files were then tested without reselection on G3, G4, and G5.
+
+The tables compare them with compact 8x encrypt and the decrypt implementation
+currently in PR #445. Positive values mean **8x is faster**; negative values
+mean the selected 4x kernel is faster.
 
 ### Encrypt: compact 8x versus John `fast_tail` 4x
 
@@ -71,7 +83,13 @@ and 112 B, and `reload_round_keys_partial` at 128 B. The gains relative to
 `basic` range from 1.7% at 128 B to 30.2% at 48 B.
 
 For decrypt, the existing optimized `basic` beats the existing
-`scalar_iv_mem2_late_tag` at every size. The source tree contains a clean
+`scalar_iv_mem2_late_tag` at every size.
+
+### Separate generated decrypt follow-up
+
+The following candidate was generated during this experiment. It is not part
+of John's candidate set and was not used in the G3--G5 4x-versus-8x
+comparison. The source tree contains a clean
 decrypt `fast_tail`, analogous to encrypt's useful fused 1-, 2-, and 3-block
 tails, but no optimized decrypt output for it.
 
@@ -126,7 +144,9 @@ a wash because no code-placement A/A campaign was included.
 
 ## Provenance
 
-- John bundle:
+- John bundle imported from Hanno Becker's
+  [`aarch64_aes_gcm_slothy`](https://github.com/hanno-becker/aws-lc/tree/aarch64_aes_gcm_slothy)
+  branch at
   [AWS-LC commit `83d5627a`](https://github.com/hanno-becker/aws-lc/tree/83d5627a1d4315a71057fe6bc75900e080f255be/crypto/fipsmodule/modes/asm/slothy).
 - Compact encrypt source: s2n-bignum commit
   `e6b3289ffde496e7b5b97b676ec46ab8114f3a85`, source SHA-256
