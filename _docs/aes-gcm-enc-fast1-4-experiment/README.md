@@ -197,51 +197,43 @@ the dependency structure makes Mila's unbraided exact-width setup and dedicated
 drains more valuable and harder to share without losing speed. The decrypt
 1.20x result therefore should not be assumed achievable for encrypt.
 
-## AES-256 4x candidate selection and 8x comparison
+## AES-256-GCM 4x experiment
 
-This experiment gives the 4x side its strongest existing small-message
-representatives; it does not claim that John selected final AES-256 kernels.
-
-First, all seven of John's existing SLOTHY-optimized AES-256 encrypt
-candidates and both decrypt candidates from Hanno Becker's
+The fixed 4x candidates come from Hanno Becker's
 [`aarch64_aes_gcm_slothy`](https://github.com/hanno-becker/aws-lc/tree/aarch64_aes_gcm_slothy)
-branch, pinned at
-[`83d5627a`](https://github.com/hanno-becker/aws-lc/commit/83d5627a1d4315a71057fe6bc75900e080f255be),
-were screened on Graviton2 over 16--128-byte messages. Geometric-mean latency
-selected these fixed 4x candidates:
+branch at
+[`83d5627a`](https://github.com/hanno-becker/aws-lc/commit/83d5627a1d4315a71057fe6bc75900e080f255be):
 
-- encrypt: `x4_fast_tail`, 17.6% faster than `x4_basic` on G2;
-- decrypt: `x4_basic`, which beat the other existing decrypt candidate at
-  every tested size.
+- encrypt `scalar_iv_mem_late_tag_scalar_rk`, Hanno's best sustained G2
+  candidate from about 2 KiB through 32 KiB;
+- decrypt `basic`, Hanno's fastest committed decrypt candidate;
+- generated decrypt `fast_tail`, which reuses Hanno's optimized `basic`
+  preamble and software-pipelined body and adds independently N1/SLOTHY-
+  scheduled fused 1-, 2-, and 3-block tails.
 
-Both selected files are outputs of the branch's `optimize_x4()` function,
-which invokes SLOTHY with `sw_pipelining.enabled`; both are SLOTHY-optimized
-and software-pipelined. Those same two source files were then tested without
-reselection on G3, G4, and G5 against compact 8x encrypt and the 8x decrypt
-implementation in PR #445:
+Generated decrypt `fast_tail` is not one of Hanno's committed optimized
+kernels. It is specifically optimized for Graviton2/N1, is 964 bytes (49.6%)
+larger than decrypt `basic`, and was 9.6% faster by geometric-mean latency over
+16--128 B on G2. Its main loop is identical to `basic`, so it improves tail
+handling rather than sustained large-message throughput.
 
-| comparison over 16--128 B | G3 | G4 | G5 |
+The three candidates were rerun without reselection over every 16-byte length
+through 128 B on G3, G4, and G5:
+
+| geometric-mean comparison over 16--128 B | G3 | G4 | G5 |
 |---|---:|---:|---:|
-| compact 8x encrypt advantage | 12.1% | 7.4% | 7.7% |
-| PR #445 8x decrypt advantage | 19.1% | 18.9% | 18.5% |
+| compact 8x encrypt advantage over 4x `late_tag` | 47.4% | 50.0% | 51.7% |
+| 4x decrypt `fast_tail` advantage over `basic` | 14.7% | 15.4% | 16.6% |
+| 8x decrypt advantage over 4x `fast_tail` | 1.7% | 0.8% | -1.1% |
 
-These are geometric-mean latency results. The 4x encrypt kernel still wins at
-16 B on every host, while the 8x advantage grows at larger sizes. The local
-decrypt comparison source and PR #445 head `29c53264` assembled to identical
-`.text` on all three hosts.
+Thus Hanno's large-message encrypt winner is not competitive for short
+messages on G3--G5. Decrypt `fast_tail` substantially improves Hanno `basic`
+and is approximately tied with 8x overall, although the per-size result varies.
 
-All G2 candidates passed the no-`EOR3` gate and differential checks from 1
-through 256 blocks. The G3--G5 comparison also passed every differential
-gate.
-
-A separate follow-up, not part of John's candidate set or the G3--G5
-comparison, generated an N1-scheduled decrypt `fast_tail`. It was 9.6% faster
-than decrypt `x4_basic` on G2. It is documented separately in the full report
-to avoid attributing that generated kernel to John.
-
-Full tables, provenance, generated source, harness, and raw logs are in the
-[`john-aes256-4x-vs-8x` report](john-aes256-4x-vs-8x/README.md). These
-measurements identify candidates and do not select a preferred PR design.
+Every process passed output/state differential checks from 1 through 256
+blocks before timing. Full per-size tables, detailed optimization provenance,
+generated source, scripts, object hashes, and raw logs are in the
+[`AES-256-GCM 4x experiment`](aes256-gcm-4x-experiment/README.md).
 
 ## Reproduction
 
