@@ -2,7 +2,7 @@
 
 ## Candidates and provenance
 
-This report evaluates four AES-256-GCM 4x kernels:
+This report evaluates five AES-256-GCM 4x kernels:
 
 - **Encrypt `scalar_iv_mem_late_tag_scalar_rk`**: Hanno Becker's best
   sustained-throughput encrypt candidate on Graviton2 from about 2 KiB through
@@ -10,6 +10,9 @@ This report evaluates four AES-256-GCM 4x kernels:
 - **Encrypt hybrid `fast_tail` + `late_tag`**: built during this experiment
   with dedicated fused 1-, 2-, and 3-block paths followed by Hanno's unchanged
   large-message `scalar_iv_mem_late_tag_scalar_rk` path.
+- **Direct integrated encrypt**: a smaller follow-up that puts SLOTHY-scheduled
+  exact tails directly into late-tag; retained as a negative performance
+  result, not the recommended short path.
 - **Decrypt `basic`**: Hanno's fastest existing optimized AES-256 decrypt
   candidate at every size in his committed Graviton2 table.
 - **Decrypt `fast_tail`**: generated during this experiment to combine Hanno's
@@ -67,6 +70,7 @@ The code-size cost is:
 |---|---:|---:|
 | Hanno late-tag | 3,864 | baseline |
 | short-only `fast_tail` helper | 1,424 | component |
+| direct integrated experiment | 4,892 | +1,028 B / +26.6% |
 | generated hybrid | **5,312** | **+1,448 B / +37.5%** |
 | compact 8x `fast1`--`fast4` | 8,624 | +4,760 B / +123.2% |
 
@@ -96,6 +100,53 @@ compact is 36--44% faster. Therefore this hybrid is a smaller way to add
 competitive 16--48 B handling while preserving Hanno's large-message kernel,
 not a performance replacement for compact 8x over the entire 16--128 B range.
 
+### Direct integration follow-up
+
+A follow-up tested whether the 1,448-byte increase could be reduced to about
+1 KiB by putting the exact tails directly into late-tag. The
+[`clean construction`](src/hanno-enc-integrated-clean.S) adds an early
+zero-loop dispatch and replaces the serial one-block remainder loop with exact
+1-, 2-, and 3-block bodies. To guarantee that large-message scheduling did not
+move, the final
+[`pre-SLOTHY source`](src/hanno-enc-integrated-vector-preslothy.S) retains
+Hanno's existing optimized main loop and gives the new tails a vector final
+round. SLOTHY then schedules each marked tail independently for N1, producing
+the [`4,892-byte integrated output`](src/hanno-enc-integrated.S).
+
+The main-loop machine-code range is byte-identical to late-tag; both hash to
+`f008425433b1e55216d9848f97f432d2406035aa1ca6e03e14595a47ff22abdd`.
+The final integrated object is **1,028 bytes (26.6%) larger than late-tag**,
+420 bytes smaller than the helper-based hybrid, and 3,732 bytes smaller than
+compact 8x.
+
+KAT and 1--256-block differential checks passed on G2, G3, G4, and G5.
+However, reducing code size did not preserve short-message performance.
+Compact 8x was faster than direct integration by:
+
+| bytes | G3 / V1 | G4 / V2 | G5 / V3 |
+|---:|---:|---:|---:|
+| 16 | 91.3% | 113.2% | 113.5% |
+| 32 | 79.8% | 98.6% | 115.9% |
+| 48 | 46.6% | 64.9% | 77.6% |
+
+On G2, where compact 8x cannot execute, full 4x `fast_tail` was respectively
+42.4%, 20.7%, and 16.2% faster at 16, 32, and 48 B. Late-tag's scalar
+round-key and counter setup remains on the critical short path; scheduling
+exact tails cannot recover the helper's different short-message setup.
+
+Large-message performance was preserved. The geometric-mean integrated
+advantage over late-tag from 1,344 B through 32 KiB was:
+
+| G2 / N1 | G3 / V1 | G4 / V2 | G5 / V3 |
+|---:|---:|---:|---:|
+| +0.060% | +0.025% | +0.071% | -0.002% |
+
+These differences are noise-level and confirm that the unchanged main loop
+behaves unchanged. The direct design therefore achieves the requested
+approximately 1 KiB increase, but it is **rejected as the AWS-LC short path**.
+The 1,448-byte helper-based design remains the smaller measured option that is
+actually competitive with compact 8x through 48 B.
+
 Raw logs:
 
 - [G3 / V1](results/hybrid-ip-172-31-4-159.log)
@@ -105,6 +156,21 @@ Raw logs:
 The run is reproduced by [`build-enc-hybrid.sh`](build-enc-hybrid.sh) and
 [`run-enc-hybrid.sh`](run-enc-hybrid.sh); the independent KAT is
 [`kat-enc-hybrid.c`](kat-enc-hybrid.c).
+
+Direct-integration logs:
+
+- [G2 short](results/integrated-small-ip-172-31-11-58.log)
+- [G2 large](results/integrated-large-ip-172-31-11-58.log)
+- [G3 short](results/integrated-small-ip-172-31-4-159.log)
+- [G3 large](results/integrated-large-ip-172-31-4-159.log)
+- [G4 short](results/integrated-small-ip-172-31-44-56.log)
+- [G4 large](results/integrated-large-ip-172-31-44-56.log)
+- [G5 short](results/integrated-small-ip-172-31-42-229.log)
+- [G5 large](results/integrated-large-ip-172-31-42-229.log)
+
+The direct run is reproduced by
+[`build-enc-integrated.sh`](build-enc-integrated.sh) and
+[`run-enc-integrated.sh`](run-enc-integrated.sh).
 
 ## Generated decrypt `fast_tail`
 
