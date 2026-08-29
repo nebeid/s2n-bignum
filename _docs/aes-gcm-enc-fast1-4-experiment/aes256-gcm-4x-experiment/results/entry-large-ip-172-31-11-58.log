@@ -1,0 +1,147 @@
+# date=2026-08-28T23:50:44Z
+# host=ip-172-31-11-58
+# model=Neoverse-N1
+AWS Graviton2 AWS Graviton2 CPU @ 2.5GHz
+# profile=g2 mode=large reps=160 processes=7 pinned_cpu=3
+file,sha256,text_bytes
+hanno-enc-entry.o,8988bf398f1a4083f76954af5185b578c0a6ffc5db61beee6b7f387a93f23d01,5140
+entry-wrapper.o,04f61abf29a10d4ffd318e322c706fd907163d477e95183d183a8047492c299d,172
+entry-short.o,9c28e1304a14639d5853f75cbef7b0fd75e9a8b863a14f5ba88f6d31bbe31d01,1252
+entry-large.o,0221ad45f575a5cf272b915f5fc32e98c9742512e2bdec467bc1900a333649a8,3708
+entry-fast-tail.o,2a2cbd57b79bd274c698b2c26a08bc5500b7794338f3e9a428229d48ab0ad59b,4380
+entry-late-tag.o,8417a714dad9e7dabe037f849f510400c9ae693a2fe1821bbcf8f39b730dc36c,3864
+entry-x8-enc.o,78605a647e192cc843d63e5ce89ba72ccd1788acc748f900edc54a9aad6b15d3,8624
+# SELFCHECK OK: 1..256 blocks, 3 variants
+RES,1,1344,enc-4x-entry,607.810,608.347
+RES,1,1344,enc-4x-fast-tail,621.967,622.387
+RES,1,1344,enc-4x-late-tag,609.832,610.115
+RES,1,2048,enc-4x-entry,916.960,917.831
+RES,1,2048,enc-4x-fast-tail,941.696,942.374
+RES,1,2048,enc-4x-late-tag,919.017,919.620
+RES,1,4096,enc-4x-entry,1816.076,1817.928
+RES,1,4096,enc-4x-fast-tail,1872.908,1874.279
+RES,1,4096,enc-4x-late-tag,1818.071,1819.105
+RES,1,8192,enc-4x-entry,3615.196,3617.243
+RES,1,8192,enc-4x-fast-tail,3735.637,3737.885
+RES,1,8192,enc-4x-late-tag,3616.747,3618.506
+RES,1,16384,enc-4x-entry,7213.167,7216.333
+RES,1,16384,enc-4x-fast-tail,7460.302,7465.380
+RES,1,16384,enc-4x-late-tag,7214.133,7218.007
+RES,1,32768,enc-4x-entry,14411.109,14418.366
+RES,1,32768,enc-4x-fast-tail,14915.374,14923.277
+RES,1,32768,enc-4x-late-tag,14411.487,14418.067
+# SELFCHECK OK: 1..256 blocks, 3 variants
+RES,2,1344,enc-4x-entry,607.839,608.355
+RES,2,1344,enc-4x-fast-tail,622.104,622.436
+RES,2,1344,enc-4x-late-tag,610.005,610.461
+RES,2,2048,enc-4x-entry,916.936,917.648
+RES,2,2048,enc-4x-fast-tail,941.851,942.418
+RES,2,2048,enc-4x-late-tag,918.750,919.890
+RES,2,4096,enc-4x-entry,1816.194,1817.475
+RES,2,4096,enc-4x-fast-tail,1873.133,1874.271
+RES,2,4096,enc-4x-late-tag,1817.980,1819.072
+RES,2,8192,enc-4x-entry,3614.746,3616.893
+RES,2,8192,enc-4x-fast-tail,3735.703,3737.911
+RES,2,8192,enc-4x-late-tag,3616.018,3618.008
+RES,2,16384,enc-4x-entry,7212.520,7215.987
+RES,2,16384,enc-4x-fast-tail,7461.384,7465.494
+RES,2,16384,enc-4x-late-tag,7213.727,7217.177
+RES,2,32768,enc-4x-entry,14411.036,14418.019
+RES,2,32768,enc-4x-fast-tail,14914.198,14922.833
+RES,2,32768,enc-4x-late-tag,14411.070,14417.927
+# SELFCHECK OK: 1..256 blocks, 3 variants
+RES,3,1344,enc-4x-entry,609.077,609.374
+RES,3,1344,enc-4x-fast-tail,621.982,622.463
+RES,3,1344,enc-4x-late-tag,609.900,610.153
+RES,3,2048,enc-4x-entry,918.335,918.812
+RES,3,2048,enc-4x-fast-tail,941.817,942.408
+RES,3,2048,enc-4x-late-tag,919.194,919.606
+RES,3,4096,enc-4x-entry,1817.673,1818.627
+RES,3,4096,enc-4x-fast-tail,1873.160,1874.261
+RES,3,4096,enc-4x-late-tag,1818.228,1819.129
+RES,3,8192,enc-4x-entry,3615.911,3617.867
+RES,3,8192,enc-4x-fast-tail,3735.665,3737.897
+RES,3,8192,enc-4x-late-tag,3616.894,3618.821
+RES,3,16384,enc-4x-entry,7212.657,7216.321
+RES,3,16384,enc-4x-fast-tail,7460.627,7465.252
+RES,3,16384,enc-4x-late-tag,7214.281,7217.910
+RES,3,32768,enc-4x-entry,14411.453,14419.008
+RES,3,32768,enc-4x-fast-tail,14914.480,14923.640
+RES,3,32768,enc-4x-late-tag,14411.296,14418.655
+# SELFCHECK OK: 1..256 blocks, 3 variants
+RES,4,1344,enc-4x-entry,607.847,609.196
+RES,4,1344,enc-4x-fast-tail,622.150,622.456
+RES,4,1344,enc-4x-late-tag,609.373,609.616
+RES,4,2048,enc-4x-entry,917.273,919.008
+RES,4,2048,enc-4x-fast-tail,941.944,942.399
+RES,4,2048,enc-4x-late-tag,918.532,919.645
+RES,4,4096,enc-4x-entry,1816.346,1818.585
+RES,4,4096,enc-4x-fast-tail,1873.217,1874.406
+RES,4,4096,enc-4x-late-tag,1818.583,1819.804
+RES,4,8192,enc-4x-entry,3615.063,3617.397
+RES,4,8192,enc-4x-fast-tail,3735.620,3737.893
+RES,4,8192,enc-4x-late-tag,3617.862,3619.653
+RES,4,16384,enc-4x-entry,7212.988,7216.452
+RES,4,16384,enc-4x-fast-tail,7460.730,7465.688
+RES,4,16384,enc-4x-late-tag,7215.467,7218.813
+RES,4,32768,enc-4x-entry,14424.561,14431.779
+RES,4,32768,enc-4x-fast-tail,14915.804,14924.999
+RES,4,32768,enc-4x-late-tag,14415.427,14422.159
+# SELFCHECK OK: 1..256 blocks, 3 variants
+RES,5,1344,enc-4x-entry,609.101,609.400
+RES,5,1344,enc-4x-fast-tail,622.133,622.491
+RES,5,1344,enc-4x-late-tag,609.605,609.894
+RES,5,2048,enc-4x-entry,918.329,918.846
+RES,5,2048,enc-4x-fast-tail,941.813,942.421
+RES,5,2048,enc-4x-late-tag,918.692,919.398
+RES,5,4096,enc-4x-entry,1816.226,1818.420
+RES,5,4096,enc-4x-fast-tail,1873.175,1874.201
+RES,5,4096,enc-4x-late-tag,1817.983,1819.051
+RES,5,8192,enc-4x-entry,3614.667,3616.888
+RES,5,8192,enc-4x-fast-tail,3735.521,3737.939
+RES,5,8192,enc-4x-late-tag,3616.579,3618.407
+RES,5,16384,enc-4x-entry,7212.567,7216.177
+RES,5,16384,enc-4x-fast-tail,7461.372,7465.719
+RES,5,16384,enc-4x-late-tag,7213.789,7217.260
+RES,5,32768,enc-4x-entry,14410.568,14417.664
+RES,5,32768,enc-4x-fast-tail,14914.883,14923.439
+RES,5,32768,enc-4x-late-tag,14410.922,14418.165
+# SELFCHECK OK: 1..256 blocks, 3 variants
+RES,6,1344,enc-4x-entry,607.900,609.267
+RES,6,1344,enc-4x-fast-tail,621.869,622.428
+RES,6,1344,enc-4x-late-tag,609.630,609.945
+RES,6,2048,enc-4x-entry,918.299,918.817
+RES,6,2048,enc-4x-fast-tail,941.783,942.418
+RES,6,2048,enc-4x-late-tag,918.704,919.345
+RES,6,4096,enc-4x-entry,1816.141,1817.373
+RES,6,4096,enc-4x-fast-tail,1873.297,1874.337
+RES,6,4096,enc-4x-late-tag,1817.957,1818.861
+RES,6,8192,enc-4x-entry,3614.857,3616.614
+RES,6,8192,enc-4x-fast-tail,3735.919,3737.861
+RES,6,8192,enc-4x-late-tag,3616.615,3618.317
+RES,6,16384,enc-4x-entry,7212.842,7215.776
+RES,6,16384,enc-4x-fast-tail,7461.019,7465.708
+RES,6,16384,enc-4x-late-tag,7213.855,7217.653
+RES,6,32768,enc-4x-entry,14411.325,14418.041
+RES,6,32768,enc-4x-fast-tail,14915.257,14924.314
+RES,6,32768,enc-4x-late-tag,14411.141,14418.139
+# SELFCHECK OK: 1..256 blocks, 3 variants
+RES,7,1344,enc-4x-entry,607.824,609.289
+RES,7,1344,enc-4x-fast-tail,622.073,622.522
+RES,7,1344,enc-4x-late-tag,609.821,610.077
+RES,7,2048,enc-4x-entry,917.005,918.480
+RES,7,2048,enc-4x-fast-tail,941.768,942.417
+RES,7,2048,enc-4x-late-tag,919.071,919.564
+RES,7,4096,enc-4x-entry,1816.329,1817.666
+RES,7,4096,enc-4x-fast-tail,1873.250,1874.268
+RES,7,4096,enc-4x-late-tag,1818.369,1819.184
+RES,7,8192,enc-4x-entry,3614.966,3617.075
+RES,7,8192,enc-4x-fast-tail,3736.015,3738.024
+RES,7,8192,enc-4x-late-tag,3617.019,3618.603
+RES,7,16384,enc-4x-entry,7212.485,7216.089
+RES,7,16384,enc-4x-fast-tail,7461.252,7465.593
+RES,7,16384,enc-4x-late-tag,7214.530,7218.008
+RES,7,32768,enc-4x-entry,14411.611,14418.622
+RES,7,32768,enc-4x-fast-tail,14915.628,14924.051
+RES,7,32768,enc-4x-late-tag,14411.274,14417.904
+DONE: 7 correctness gates

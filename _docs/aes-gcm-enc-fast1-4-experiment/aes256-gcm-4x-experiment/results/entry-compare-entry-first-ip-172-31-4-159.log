@@ -1,0 +1,128 @@
+# date=2026-08-28T23:56:09Z
+# host=ip-172-31-4-159
+# model=Neoverse-V1
+AWS Graviton3 AWS Graviton3 CPU @ 2.6GHz
+# layout=entry-first reps=160 processes=7 pinned_cpu=3
+file,sha256,text_bytes
+hanno-enc-entry.o,8988bf398f1a4083f76954af5185b578c0a6ffc5db61beee6b7f387a93f23d01,5140
+compare-hybrid.o,b62f49896a211a34394c5ac43dbe89aca91dee20eed03c4078b9c700bb6569aa,5312
+# SELFCHECK OK: 1..256 blocks, 2 variants
+RES,1,16,entry,13.249,13.263
+RES,1,16,shared-helper,13.313,13.464
+RES,1,32,entry,17.863,17.993
+RES,1,32,shared-helper,17.858,17.903
+RES,1,48,entry,22.415,22.546
+RES,1,48,shared-helper,22.209,22.392
+RES,1,64,entry,42.340,43.524
+RES,1,64,shared-helper,42.883,43.301
+RES,1,80,entry,51.478,51.858
+RES,1,80,shared-helper,51.227,51.711
+RES,1,96,entry,60.177,60.622
+RES,1,96,shared-helper,59.801,60.587
+RES,1,112,entry,68.966,69.650
+RES,1,112,shared-helper,68.454,69.311
+RES,1,128,entry,49.590,49.988
+RES,1,128,shared-helper,49.363,49.784
+# SELFCHECK OK: 1..256 blocks, 2 variants
+RES,2,16,entry,13.248,13.260
+RES,2,16,shared-helper,13.015,13.362
+RES,2,32,entry,17.888,17.929
+RES,2,32,shared-helper,17.910,18.023
+RES,2,48,entry,22.450,22.573
+RES,2,48,shared-helper,22.208,22.414
+RES,2,64,entry,42.817,43.616
+RES,2,64,shared-helper,42.911,43.450
+RES,2,80,entry,51.581,51.895
+RES,2,80,shared-helper,51.349,51.689
+RES,2,96,entry,60.069,60.683
+RES,2,96,shared-helper,59.874,60.605
+RES,2,112,entry,69.034,69.563
+RES,2,112,shared-helper,68.567,69.216
+RES,2,128,entry,49.725,50.104
+RES,2,128,shared-helper,49.317,49.645
+# SELFCHECK OK: 1..256 blocks, 2 variants
+RES,3,16,entry,13.248,13.262
+RES,3,16,shared-helper,13.314,13.465
+RES,3,32,entry,17.870,17.953
+RES,3,32,shared-helper,17.905,17.965
+RES,3,48,entry,22.345,22.545
+RES,3,48,shared-helper,22.195,22.383
+RES,3,64,entry,43.166,43.522
+RES,3,64,shared-helper,42.513,43.410
+RES,3,80,entry,51.581,51.904
+RES,3,80,shared-helper,51.096,51.707
+RES,3,96,entry,60.067,60.511
+RES,3,96,shared-helper,59.942,60.579
+RES,3,112,entry,69.053,69.593
+RES,3,112,shared-helper,68.620,69.330
+RES,3,128,entry,49.309,50.076
+RES,3,128,shared-helper,49.248,49.786
+# SELFCHECK OK: 1..256 blocks, 2 variants
+RES,4,16,entry,13.247,13.259
+RES,4,16,shared-helper,13.312,13.469
+RES,4,32,entry,17.870,17.932
+RES,4,32,shared-helper,17.914,18.043
+RES,4,48,entry,22.408,22.539
+RES,4,48,shared-helper,22.218,22.409
+RES,4,64,entry,42.593,43.521
+RES,4,64,shared-helper,42.891,43.372
+RES,4,80,entry,51.086,51.841
+RES,4,80,shared-helper,51.345,51.780
+RES,4,96,entry,60.102,60.682
+RES,4,96,shared-helper,59.994,60.652
+RES,4,112,entry,69.074,69.561
+RES,4,112,shared-helper,68.639,69.411
+RES,4,128,entry,49.486,50.063
+RES,4,128,shared-helper,49.340,49.749
+# SELFCHECK OK: 1..256 blocks, 2 variants
+RES,5,16,entry,13.250,13.258
+RES,5,16,shared-helper,13.312,13.466
+RES,5,32,entry,17.865,18.042
+RES,5,32,shared-helper,17.851,17.984
+RES,5,48,entry,22.408,22.549
+RES,5,48,shared-helper,22.171,22.368
+RES,5,64,entry,42.804,43.554
+RES,5,64,shared-helper,42.829,43.399
+RES,5,80,entry,51.580,51.910
+RES,5,80,shared-helper,51.032,51.659
+RES,5,96,entry,60.024,60.658
+RES,5,96,shared-helper,59.615,60.594
+RES,5,112,entry,69.047,69.550
+RES,5,112,shared-helper,68.365,69.181
+RES,5,128,entry,49.423,49.975
+RES,5,128,shared-helper,49.228,49.769
+# SELFCHECK OK: 1..256 blocks, 2 variants
+RES,6,16,entry,13.247,13.259
+RES,6,16,shared-helper,13.018,13.398
+RES,6,32,entry,17.883,18.006
+RES,6,32,shared-helper,17.907,18.043
+RES,6,48,entry,22.410,22.558
+RES,6,48,shared-helper,22.200,22.457
+RES,6,64,entry,42.764,43.561
+RES,6,64,shared-helper,42.953,43.540
+RES,6,80,entry,51.577,51.908
+RES,6,80,shared-helper,51.153,51.718
+RES,6,96,entry,59.991,60.682
+RES,6,96,shared-helper,59.901,60.750
+RES,6,112,entry,69.031,69.558
+RES,6,112,shared-helper,68.633,69.380
+RES,6,128,entry,49.344,50.079
+RES,6,128,shared-helper,49.062,49.634
+# SELFCHECK OK: 1..256 blocks, 2 variants
+RES,7,16,entry,13.249,13.258
+RES,7,16,shared-helper,13.316,13.466
+RES,7,32,entry,17.865,18.022
+RES,7,32,shared-helper,17.862,17.984
+RES,7,48,entry,22.329,22.548
+RES,7,48,shared-helper,22.115,22.366
+RES,7,64,entry,42.627,43.578
+RES,7,64,shared-helper,42.977,43.438
+RES,7,80,entry,51.337,51.849
+RES,7,80,shared-helper,51.200,51.758
+RES,7,96,entry,59.992,60.638
+RES,7,96,shared-helper,59.790,60.687
+RES,7,112,entry,69.039,69.503
+RES,7,112,shared-helper,68.554,69.326
+RES,7,128,entry,49.402,50.103
+RES,7,128,shared-helper,49.134,49.695
+DONE: 7 correctness gates
