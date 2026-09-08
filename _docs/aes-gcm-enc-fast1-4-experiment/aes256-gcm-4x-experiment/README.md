@@ -134,18 +134,30 @@ The shared entry is 172 bytes smaller than the helper hybrid and 3,484 bytes
 smaller than compact 8x. Its object SHA-256 is
 `8988bf398f1a4083f76954af5185b578c0a6ffc5db61beee6b7f387a93f23d01`.
 
-### Short-message performance
+### Encrypt: recommended 4x shared entry versus compact 8x
 
-Positive values mean shared entry is faster than compact 8x:
+This compares the recommended 4x shared-entry `fast_tail` + `late_tag` kernel
+with the compact 8x `fast1`--`fast4` kernel. Each value is
+`100 * (8x time - 4x time) / 8x time`: positive means the 4x shared entry is
+faster; negative means compact 8x is faster.
 
 | bytes | G3 / V1 | G4 / V2 | G5 / V3 |
 |---:|---:|---:|---:|
 | 16 | +12.5% | +15.1% | +11.5% |
 | 32 | -5.8% | +2.3% | +3.4% |
 | 48 | -8.1% | -1.4% | -0.7% |
+| 64 | -96.8% | -93.8% | -95.8% |
+| 80 | -62.3% | -64.8% | -64.7% |
+| 96 | -84.8% | -85.3% | -89.3% |
+| 112 | -103.5% | -104.8% | -112.2% |
+| 128 | -57.1% | -69.5% | -77.2% |
 
 Over 16--48 B, shared entry is effectively tied with compact 8x on G3
 (+0.01%) and is faster by 5.62% on G4 and 4.90% on G5.
+
+From 64 through 128 B, compact 8x is faster at every measured size. The sharp
+change at 64 B is expected: the 4x shared entry dispatches 64 B and above to
+`late_tag`, while compact 8x has a dedicated 64-byte `fast4` path.
 
 A direct entry-versus-helper control linked the same two objects in both
 orders. The 16--48 B geometric-mean shared-entry advantage was:
@@ -266,8 +278,9 @@ and the generated 4x `fast_tail`. Positive percentages mean the first named
 kernel is faster.
 
 The final shared-entry encrypt comparison is reported earlier under
-[Short-message performance](#short-message-performance). The old bare
-`late_tag` encrypt comparison from this fixed rerun is now retained only as an
+[recommended 4x shared entry versus compact 8x](#encrypt-recommended-4x-shared-entry-versus-compact-8x).
+The old bare `late_tag` encrypt comparison from this fixed rerun is now
+retained only as an
 [appendix baseline](#bare-late-tag-encrypt-control-before-the-shared-entry).
 
 ### Generated 4x `fast_tail` advantage over 4x `basic`
