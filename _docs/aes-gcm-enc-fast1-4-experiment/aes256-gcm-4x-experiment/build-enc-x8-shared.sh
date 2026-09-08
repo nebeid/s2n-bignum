@@ -5,7 +5,7 @@ mkdir -p obj results
 
 assemble() {
   local source=$1 object=$2 march=${3:-armv8.2-a+crypto}
-  gcc -E -Isrc -I../src -xassembler-with-cpp "$source" |
+  gcc -E -Isrc -I../src -Iinclude -xassembler-with-cpp "$source" |
     tr ';' '\n' | as -march="$march" -o "$object" -
 }
 
