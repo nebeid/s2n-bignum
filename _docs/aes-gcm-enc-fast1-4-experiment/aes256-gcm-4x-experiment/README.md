@@ -34,11 +34,6 @@ This report evaluates these AES-256-GCM 4x kernels:
   paths, and Hanno's unchanged large-message loop.
 - **Encrypt helper `fast_tail` + `late_tag`**: the earlier two-kernel version,
   retained in the appendix as the performance control.
-- **Encrypt tail-only late-tag integration (rejected)**: a code-size control
-  that kept `late_tag`'s scalar-oriented setup and large loop and added only
-  SLOTHY-scheduled exact tails. Its poor short-message
-  [benchmarks](#tail-only-late-tag-integration) showed that the early dispatch
-  and vector-oriented `fast_tail` setup were necessary.
 - **Decrypt `basic`**: Hanno's fastest existing optimized AES-256 decrypt
   candidate at every size in his committed Graviton2 table.
 - **Decrypt `fast_tail`**: generated during this experiment to combine Hanno's
@@ -124,19 +119,9 @@ value for every whole-block length from 1 through 256 blocks. G2 compared
 shared entry, full `fast_tail`, and late-tag; G3--G5 additionally compared
 compact 8x. Every gate passed on all four processors.
 
-The rejected tail-only integration is a negative control. It tested whether
-adding optimized 1--3-block tails after `late_tag`'s existing setup could
-recover short-message speed with less code than carrying the vector-oriented
-`fast_tail` setup. At 4,892 bytes it was 248 bytes smaller than the final
-shared entry, but at 16--48 B it was substantially slower than full 4x
-`fast_tail` on G2 and compact 8x on G3--G5. This established that the tails
-alone were insufficient and motivated dispatching before the incompatible
-setup in the final design.
-
 | encrypt object | `.text` bytes | change from late-tag |
 |---|---:|---:|
 | Hanno late-tag | 3,864 | baseline |
-| [rejected tail-only late-tag integration](#tail-only-late-tag-integration) | 4,892 | +1,028 B / +26.6% |
 | **recommended shared entry** | **5,140** | **+1,276 B / +33.0%** |
 | earlier helper hybrid | 5,312 | +1,448 B / +37.5% |
 | compact 8x `fast1`--`fast4` | 8,624 | +4,760 B / +123.2% |
@@ -394,7 +379,7 @@ Differences around 1% should normally be treated as a wash. The shared-entry
 promotion additionally used the two-order entry-versus-helper control described
 above to expose code-placement sensitivity.
 
-## Appendix: earlier encrypt controls and integrations
+## Appendix: earlier encrypt controls and designs
 
 ### Bare late-tag encrypt control before the shared entry
 
@@ -458,59 +443,6 @@ Raw logs:
 The run is reproduced by [`build-enc-hybrid.sh`](build-enc-hybrid.sh) and
 [`run-enc-hybrid.sh`](run-enc-hybrid.sh); the independent KAT is
 [`kat-enc-hybrid.c`](kat-enc-hybrid.c).
-
-### Tail-only late-tag integration
-
-This negative control asked whether the final design could be made smaller by
-keeping `late_tag`'s entry, scalar-oriented counter and round-key setup, and
-unchanged large loop, while replacing only its 1--3-block remainder handling
-with exact N1/SLOTHY-scheduled tails. Its
-[`4,892-byte output`](src/hanno-enc-integrated.S) was **+1,028 bytes over
-`late_tag`** and 248 bytes smaller than the final shared-entry design.
-
-It passed the independent KAT and the 1--256-block differential gate. The
-short-message result, however, was poor. Values below are the tail-only
-integration's latency overhead over the named control; positive means the
-integration took more time:
-
-| bytes | G2 vs full 4x `fast_tail` | G3 vs compact 8x | G4 vs compact 8x | G5 vs compact 8x |
-|---:|---:|---:|---:|---:|
-| 16 | +42.4% | +91.3% | +113.2% | +113.5% |
-| 32 | +20.7% | +79.8% | +98.6% | +115.9% |
-| 48 | +16.2% | +46.6% | +64.9% | +77.6% |
-
-The unchanged large path behaved as intended. Its geometric-mean latency
-change versus `late_tag` from 1,344 B through 32 KiB was noise-level:
-
-| G2 / N1 | G3 / V1 | G4 / V2 | G5 / V3 |
-|---:|---:|---:|---:|
-| -0.060% | -0.025% | -0.071% | +0.002% |
-
-The useful finding is therefore not a deployable kernel but a design
-constraint: optimized tails added after the scalar-oriented setup do not
-recover `fast_tail` performance. The final shared entry spends the additional
-248 bytes to dispatch before that setup, allowing 1--3 blocks to use the
-vector-oriented `fast_tail` setup while preserving the same `late_tag` large
-loop.
-
-Its [`clean source`](src/hanno-enc-integrated-clean.S),
-[`pre-SLOTHY source`](src/hanno-enc-integrated-vector-preslothy.S), and final
-output remain available for audit.
-
-Raw logs:
-
-- [G2 short](results/integrated-small-ip-172-31-11-58.log) and
-  [G2 large](results/integrated-large-ip-172-31-11-58.log)
-- [G3 short](results/integrated-small-ip-172-31-4-159.log) and
-  [G3 large](results/integrated-large-ip-172-31-4-159.log)
-- [G4 short](results/integrated-small-ip-172-31-44-56.log) and
-  [G4 large](results/integrated-large-ip-172-31-44-56.log)
-- [G5 short](results/integrated-small-ip-172-31-42-229.log) and
-  [G5 large](results/integrated-large-ip-172-31-42-229.log)
-
-The run is reproduced by
-[`build-enc-integrated.sh`](build-enc-integrated.sh) and
-[`run-enc-integrated.sh`](run-enc-integrated.sh).
 
 ## Additional artifacts
 
