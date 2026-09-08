@@ -34,9 +34,9 @@ This report evaluates these AES-256-GCM 4x kernels:
   paths, and Hanno's unchanged large-message loop.
 - **Encrypt helper `fast_tail` + `late_tag`**: the earlier two-kernel version,
   retained in the appendix as the performance control.
-- **Direct integrated encrypt**: a smaller follow-up that puts SLOTHY-scheduled
-  exact tails directly into late-tag; retained as a negative performance
-  result, not the recommended short path.
+- **Encrypt tail-only late-tag integration (rejected)**: a smaller follow-up
+  that puts SLOTHY-scheduled exact tails directly into late-tag; retained as a
+  negative performance result, not the recommended short path.
 - **Decrypt `basic`**: Hanno's fastest existing optimized AES-256 decrypt
   candidate at every size in his committed Graviton2 table.
 - **Decrypt `fast_tail`**: generated during this experiment to combine Hanno's
@@ -125,7 +125,7 @@ compact 8x. Every gate passed on all four processors.
 | encrypt object | `.text` bytes | change from late-tag |
 |---|---:|---:|
 | Hanno late-tag | 3,864 | baseline |
-| rejected tail-only integration | 4,892 | +1,028 B / +26.6% |
+| [rejected tail-only late-tag integration](#tail-only-late-tag-integration) | 4,892 | +1,028 B / +26.6% |
 | **recommended shared entry** | **5,140** | **+1,276 B / +33.0%** |
 | earlier helper hybrid | 5,312 | +1,448 B / +37.5% |
 | compact 8x `fast1`--`fast4` | 8,624 | +4,760 B / +123.2% |
