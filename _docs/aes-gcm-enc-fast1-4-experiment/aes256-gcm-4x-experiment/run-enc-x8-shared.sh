@@ -22,7 +22,7 @@ out="results/x8-shared-$mode-$host.log"
 {
   echo "# date=$(date -u +%FT%TZ)"
   echo "# host=$host"
-  echo "# model=$(lscpu | awk -F: '/Model name/{gsub(/^ +/,\"\",$2);print $2}')"
+  echo "# model=$(lscpu | awk -F: '/Model name/{gsub(/^ +/,"",$2);print $2}')"
   echo "# mode=$mode reps=$reps processes=$processes pinned_cpu=$core"
   cat results/x8-enc-shared-objects.csv
 } >> "$out"

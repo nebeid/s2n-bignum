@@ -15,6 +15,14 @@ dedicated 1-, 2-, and 3-block bodies, then deliberately dispatches four blocks
 dedicated `fast4` body and retains a substantial advantage at 64 B. Adding a
 4x `fast4` body was not part of the measured 5,140-byte design.
 
+We subsequently built and measured a 6,000-byte **8x shared fused
+1--4-block** candidate patterned after the PR-445 decrypt cascade. It is 2,624
+bytes smaller than compact 8x, but even at 16 B its result ranges from 4.5%
+slower to 2.5% faster, and it is 14.7%--54.3% slower at 32--64 B across
+G3--G5. The result does not change the 4x recommendation. The complete
+apples-to-apples comparison is in
+[Encrypt 8x shared fused 1--4-block experiment](#encrypt-8x-shared-fused-1--4-block-experiment).
+
 The later table titled "Bare late-tag encrypt control" is an earlier
 baseline. It compares compact 8x with unmodified 4x `late_tag`, without the
 recommended 4x short path, and is retained only to show why `late_tag` alone
@@ -39,9 +47,9 @@ This report evaluates these AES-256-GCM 4x kernels:
 - **Decrypt `fast_tail`**: generated during this experiment to combine Hanno's
   optimized `basic` body with dedicated short-message tails.
 
-### 8x controls
+### 8x kernels
 
-The word "8x" refers to different encrypt and decrypt implementations:
+The word "8x" refers to three different encrypt and decrypt implementations:
 
 - **Encrypt control: compact `fast1`--`fast4` 8x.** The exact benchmark
   snapshot is
@@ -52,6 +60,14 @@ The word "8x" refers to different encrypt and decrypt implementations:
   records the construction, correctness checks, and proof status. It is a
   hand-optimized, hand-scheduled AWS-LC-derived 8-way kernel with dedicated
   1-, 2-, 3-, and 4-block paths. It is **not SLOTHY-generated**.
+- **Encrypt experiment: shared fused 1--4-block 8x.** The exact source is
+  [`src/x8-enc-shared-fused.S`](src/x8-enc-shared-fused.S). It adds one early
+  `<=64 B` dispatch and four entry stubs to a shared fall-through cascade on
+  top of the 5,008-byte optimized 8x baseline. It was built in this experiment
+  to test the same code-size structure as PR 445. The short path is
+  hand-written and **not SLOTHY-generated**; the existing large path is left
+  byte-identical. It is an experiment snapshot, not a proposed in-tree kernel
+  or proof artifact.
 - **Decrypt control: PR-445 fused 1--4-block 8x.** This is
   `aesv8_gcm_8x_dec_256_wb` from
   [s2n-bignum PR 445](https://github.com/awslabs/s2n-bignum/pull/445), pinned
@@ -63,10 +79,12 @@ The word "8x" refers to different encrypt and decrypt implementations:
   kernel with a shared fused 1--4-block path and a HOL Light proof. It is
   **not SLOTHY-generated**.
 
-Both 8x controls contain SHA3-extension `EOR3` instructions and were benchmarked
-unchanged on G3--G5. They do not run unchanged on G2/N1. The separate G2
-large-message screen expanded each `EOR3` into two `EOR` instructions and is
-explicitly an adaptation, not the same object used for G3--G5.
+All three 8x kernels contain SHA3-extension `EOR3` instructions. The compact
+encrypt and PR-445 decrypt controls were benchmarked unchanged on G3--G5; the
+new shared encrypt candidate used the same hosts. They do not run unchanged
+on G2/N1. The separate G2 large-message screen expanded each `EOR3` into two
+`EOR` instructions and is explicitly an adaptation, not the same object used
+for G3--G5.
 
 Hanno's committed candidates come from the
 [`aarch64_aes_gcm_slothy`](https://github.com/hanno-becker/aws-lc/tree/aarch64_aes_gcm_slothy)
@@ -209,6 +227,115 @@ The run is reproduced by [`build-enc-entry.sh`](build-enc-entry.sh) and
 [`build-enc-entry-compare.sh`](build-enc-entry-compare.sh) and
 [`run-enc-entry-compare.sh`](run-enc-entry-compare.sh); calculations are in
 [`analyze-enc-entry.py`](analyze-enc-entry.py).
+
+## Encrypt 8x shared fused 1--4-block experiment
+
+This is the direct encrypt analogue requested for the
+[PR-445 decrypt shared cascade](https://github.com/awslabs/s2n-bignum/pull/445).
+It compares two 8x encrypt kernels with the same large-message base:
+
+- **candidate:** shared fused 1--4-block 8x, with one `<=64 B` branch and a
+  fall-through H4 -> H3 -> H2 -> H1 cascade;
+- **control:** compact `fast1`--`fast4` 8x, with separate hand-scheduled
+  width-specific bodies.
+
+The candidate has a small entry stub for each length, which seeds `Xi * H^n`
+and jumps into the corresponding point in one shared cascade. It does **not**
+contain four separate complete length-specific schedules. Each fall-through
+body encrypts one plaintext block with AES-256-CTR, obtains the ciphertext,
+folds that ciphertext into GHASH with the appropriate H power, and continues
+to the next body.
+
+Unlike decrypt, encrypt cannot overlap GHASH of a block with AES rounds for
+that same block: decrypt receives ciphertext as input, while encrypt does not
+have ciphertext until AES-CTR and the plaintext XOR finish. Compact 8x avoids
+most of this dependency cost at 2--4 blocks by carrying several AES blocks in
+parallel, at the cost of separate schedules and more code. This experiment
+measures whether the shared-cascade size saving is still worthwhile.
+
+### Correctness and code size
+
+The candidate passed the independent one-block AES-256-GCM KAT on G3, G4, and
+G5. On each host, seven benchmark processes also differentially checked
+ciphertext, Xi, ivec, and return value against compact 8x and baseline 8x for
+every whole-block length from 1 through 256 blocks.
+
+The build additionally extracted the original large path from both objects.
+All 4,952 bytes from its entry through the exact-8 drain are byte-identical;
+only the early dispatch and appended short cascade are new.
+
+| 8x encrypt object | `.text` bytes | change from baseline |
+|---|---:|---:|
+| optimized baseline 8x | 5,008 | baseline |
+| **shared fused 1--4-block 8x** | **6,000** | **+992 B / +19.8%** |
+| compact `fast1`--`fast4` 8x | 8,624 | +3,616 B / +72.2% |
+
+The shared candidate is 2,624 bytes smaller than compact 8x. Its Linux object
+SHA-256 is
+`0e3e6ddfbff9b0fd7f97fd570d6ddb27d489044be752cf2f34bbc62ce6b29126`.
+
+### Shared fused 1--4-block 8x versus compact fast1--fast4 8x
+
+Each value is `100 * (compact time - shared time) / compact time`: positive
+means the shared candidate is faster; negative means compact 8x is faster.
+
+| bytes | G3 / V1 | G4 / V2 | G5 / V3 |
+|---:|---:|---:|---:|
+| 16 | -4.5% | +2.5% | +0.7% |
+| 32 | -27.6% | -20.4% | -14.7% |
+| 48 | -36.1% | -25.2% | -20.4% |
+| 64 | -54.3% | -45.0% | -36.6% |
+| 80 | +0.3% | -2.6% | -1.5% |
+| 96 | -1.1% | -1.4% | -2.0% |
+| 112 | +0.4% | -1.8% | -2.2% |
+| 128 | -1.0% | -1.5% | -1.5% |
+
+At 16 B the shared candidate is 4.5% slower on G3 and 2.5% and 0.7% faster on
+G4 and G5; this is the only short-path point where it is competitive. Across
+16--64 B, its geometric-mean disadvantage is **22.70% on G3, 17.24% on G4, and
+14.52% on G5**. The loss grows with the number of blocks because the shared
+path repeats one dependency-bound AES-then-GHASH body, while compact 8x uses
+parallel, width-specific AES schedules.
+
+The candidate dispatches 80 B and larger to the preserved baseline path, so
+the 80--128 B points are a large-path/layout check rather than measurements of
+the new cascade. They are within 2.6% of compact 8x.
+
+The size reduction is therefore real, but it does not buy the compact 8x
+short-message performance. This candidate is not recommended over compact 8x.
+The 5,140-byte recommended 4x shared entry remains smaller and uses Hanno's
+SLOTHY-optimized 1--3-block `fast_tail` schedules instead of this serial
+encrypt cascade.
+
+### Large-message preservation
+
+Positive values mean the shared candidate is faster than baseline 8x:
+
+| bytes | G3 / V1 | G4 / V2 | G5 / V3 |
+|---:|---:|---:|---:|
+| 1,344 | +0.248% | -0.011% | -0.093% |
+| 2,048 | +0.298% | -0.113% | -0.174% |
+| 4,096 | +0.275% | -0.070% | -0.085% |
+| 8,192 | +0.313% | -0.043% | -0.047% |
+| 16,384 | +0.281% | -0.017% | -0.029% |
+| 32,768 | +0.212% | -0.014% | -0.081% |
+
+The 1,344 B--32 KiB geometric mean is +0.272% on G3, -0.045% on G4, and
+-0.085% on G5: noise-level, consistent with the byte-identical large body.
+
+Authoritative logs:
+
+- G3: [short](results/x8-shared-small-ip-172-31-4-159.log) and
+  [large](results/x8-shared-large-ip-172-31-4-159.log)
+- G4: [short](results/x8-shared-small-ip-172-31-44-56.log) and
+  [large](results/x8-shared-large-ip-172-31-44-56.log)
+- G5: [short](results/x8-shared-small-ip-172-31-42-229.log) and
+  [large](results/x8-shared-large-ip-172-31-42-229.log)
+
+The run is reproduced by
+[`build-enc-x8-shared.sh`](build-enc-x8-shared.sh) and
+[`run-enc-x8-shared.sh`](run-enc-x8-shared.sh); calculations are in
+[`analyze-enc-x8-shared.py`](analyze-enc-x8-shared.py).
 
 ## Generated decrypt `fast_tail`
 
