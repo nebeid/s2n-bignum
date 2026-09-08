@@ -5,6 +5,13 @@ Measurement date: 2026-08-26. This branch is based on `aes-gcm-dec-clean` at
 
 ## Decision
 
+This section chooses between the **full and compact 8x encrypt kernels**. Its
+statement that compact 8x preserves `fast1`--`fast4` performance through 64 B
+is about two 8x designs; it is not a claim that the later 4x shared-entry
+kernel has a 64-byte fast path. The final 4x result is summarized under
+[AES-256-GCM 4x experiment](#aes-256-gcm-4x-experiment): it is smaller than
+compact 8x and competitive through 48 B, then returns to `late_tag` at 64 B.
+
 Keeping Mila's final `fast1` through `fast4` encrypt paths and removing
 `fast5` through `fast7` produces an 8,624-byte kernel. It is 1.72x the
 optimized pre-fast-path baseline and 1.85x AWS-LC's original 8x kernel, so it
@@ -199,6 +206,23 @@ drains more valuable and harder to share without losing speed. The decrypt
 
 ## AES-256-GCM 4x experiment
 
+### Exact comparison controls
+
+The G3--G5 encrypt control is the 8,624-byte
+[compact `fast1`--`fast4` 8x snapshot](aes256-gcm-4x-experiment/src/x8-enc-compact.S),
+generated from Mila's
+[`aesv8_gcm_8x_enc_256.S`](https://github.com/manastasova/s2n-bignum-dev/blob/c262508d0e792f23bc45c8395f2904fb3a5d10d1/arm/aes-gcm/aesv8_gcm_8x_enc_256.S).
+It is a hand-optimized, hand-scheduled AWS-LC-derived 8-way kernel with
+separate 1-, 2-, 3-, and 4-block paths; it is not SLOTHY-generated.
+
+The G3--G5 decrypt control is the 5,960-byte fused 1--4-block
+`aesv8_gcm_8x_dec_256_wb` from
+[s2n-bignum PR 445](https://github.com/awslabs/s2n-bignum/pull/445), pinned to
+[`29c532644`](https://github.com/nebeid/s2n-bignum/blob/29c532644f8f1ac0c0a5ae520a06768ebcb4ac3f/arm/aes-gcm/aesv8_gcm_8x_dec_256_wb.S).
+It is also hand-optimized rather than SLOTHY-generated. Both 8x controls use
+SHA3-extension `EOR3` and were run unchanged only on G3--G5; the G2 large-message
+8x screen used mechanically expanded adaptations.
+
 The fixed 4x candidates come from Hanno Becker's
 [`aarch64_aes_gcm_slothy`](https://github.com/hanno-becker/aws-lc/tree/aarch64_aes_gcm_slothy)
 branch at
@@ -211,27 +235,39 @@ branch at
   preamble and software-pipelined body and adds independently N1/SLOTHY-
   scheduled fused 1-, 2-, and 3-block tails.
 
-Generated decrypt `fast_tail` is not one of Hanno's committed optimized
-kernels. It is specifically optimized for Graviton2/N1, is 964 bytes (49.6%)
-larger than decrypt `basic`, and was 9.6% faster by geometric-mean latency over
-16--128 B on G2. Its main loop is identical to `basic`, so it improves tail
-handling rather than sustained large-message throughput.
+Hanno's committed 4x encrypt and decrypt kernels are N1 SLOTHY outputs with
+software-pipelined main loops. Generated decrypt `fast_tail` is not one of his
+committed outputs, but its unchanged main loop and its added tails are also
+N1/SLOTHY-scheduled.
 
-The three candidates were rerun without reselection over every 16-byte length
-through 128 B on G3, G4, and G5:
+### Final result
+
+The recommended encrypt construction is a 5,140-byte 4x shared entry: fused
+`fast_tail` bodies for 16, 32, and 48 B, followed by Hanno's unchanged
+`late_tag` setup and loop at 64 B and above. It is 3,484 bytes smaller than
+compact 8x. Against compact 8x over 16--48 B, it is tied on G3 and faster on
+G4 and G5:
+
+| geometric-mean 4x shared-entry advantage over compact 8x | G3 | G4 | G5 |
+|---|---:|---:|---:|
+| 16--48 B | +0.01% | +5.62% | +4.90% |
+
+The conclusion is **competitive through 48 B, not through 64 B**. Compact 8x
+has a dedicated `fast4` path; the measured 4x shared entry does not. The older
+16--128 B table comparing compact 8x with bare 4x `late_tag` is only a baseline
+showing why an encrypt short path was needed.
+
+For decrypt, generated 4x `fast_tail` is 964 bytes (49.6%) larger than Hanno
+`basic` and was 9.6% faster by geometric-mean latency over 16--128 B on G2.
+Its G3--G5 results are:
 
 | geometric-mean comparison over 16--128 B | G3 | G4 | G5 |
 |---|---:|---:|---:|
-| compact 8x encrypt advantage over 4x `late_tag` | 47.4% | 50.0% | 51.7% |
-| 4x decrypt `fast_tail` advantage over `basic` | 14.7% | 15.4% | 16.6% |
-| 8x decrypt advantage over 4x `fast_tail` | 1.7% | 0.8% | -1.1% |
-
-Thus Hanno's large-message encrypt winner is not competitive for short
-messages on G3--G5. Decrypt `fast_tail` substantially improves Hanno `basic`
-and is approximately tied with 8x overall, although the per-size result varies.
+| 4x decrypt `fast_tail` advantage over 4x `basic` | 14.7% | 15.4% | 16.6% |
+| PR-445 8x advantage over 4x `fast_tail` | 1.7% | 0.8% | -1.1% |
 
 Every process passed output/state differential checks from 1 through 256
-blocks before timing. Full per-size tables, detailed optimization provenance,
+blocks before timing. Full per-size tables, detailed scheduling provenance,
 generated source, scripts, object hashes, and raw logs are in the
 [`AES-256-GCM 4x experiment`](aes256-gcm-4x-experiment/README.md).
 
