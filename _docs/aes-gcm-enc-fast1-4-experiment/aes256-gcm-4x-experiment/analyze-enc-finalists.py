@@ -60,13 +60,13 @@ for label, sizes, mode in (
         ("16--48 B", (16, 32, 48), "small"),
         ("16--64 B", (16, 32, 48, 64), "small"),
         ("1,344 B--32 KiB", (1344, 2048, 4096, 8192, 16384, 32768), "large")):
-    print(f"\n{label} geometric-mean 4x shared advantage over final 8x")
+    print(f"\n{label} geometric-mean final 8x speed advantage over 4x shared")
     for name, ip in PLATFORMS:
         cells = []
         for layout in LAYOUTS:
             data = load(mode, ip, layout)
             ratios = [
-                data[size, FINAL_8X] / data[size, FINAL_4X]
+                data[size, FINAL_4X] / data[size, FINAL_8X]
                 for size in sizes
             ]
             cells.append(f"{layout}: {geometric_advantage(ratios):+.2f}%")

@@ -11,20 +11,22 @@ every measured 16, 32, 48, and 64 B point on G3--G5. Its 16--64 B geometric
 mean advantage is 6.76% on G3, 6.54% on G4, and 8.88% on G5. The existing
 main loop and common tails are object-byte identical.
 
-The final **smaller 4x recommendation** remains the 5,140-byte shared-entry
-`fast_tail` + `late_tag` kernel. It is competitive with compact 8x through
-48 B while using 2,364 fewer bytes than the new 8x recommendation, but it has
-no dedicated 64 B path. Choose it when that size saving matters more than
-64 B latency; choose the new 8x result when the full 1--4-block range matters.
+The final **smaller 4x option** remains the 5,140-byte shared-entry `fast_tail`
++ `late_tag` kernel, but it is not the faster finalist on G3--G5. In a direct
+two-layout comparison it won only at 16 B: 1.9% to 2.5% on G3, 11.4% on G4,
+and 0.9% to 1.1% on G5. Final 8x won every 32--128 B point and was
+1.38% to 9.43% faster by geometric mean over 16--48 B. The 4x option uses 2,364
+fewer bytes and remains the G2 choice; on G3--G5 choose it for that code-size
+saving, not for better overall short-message performance.
 
 The earlier 6,000-byte serial shared 8x cascade patterned after decrypt PR 445
 is retained as a rejected appendix experiment. It saved more code but was
-14.7%--54.3% slower at 32--64 B because encrypt could not overlap same-block
+14.7% to 54.3% slower at 32--64 B because encrypt could not overlap same-block
 GHASH with AES. The winning 8x design keeps separate parallel AES schedules
 and shares only setup and final GHASH reduction.
 
 The later "Bare late-tag encrypt control" table is also an earlier baseline.
-It compares compact 8x with unmodified 4x `late_tag`, without the recommended
+It compares compact 8x with unmodified 4x `late_tag`, without the final
 4x short path, and is retained only to show why `late_tag` alone is unsuitable
 for short messages.
 
@@ -250,10 +252,10 @@ by [`build-enc-x8-pareto.sh`](build-enc-x8-pareto.sh) and
 [`run-enc-x8-pareto.sh`](run-enc-x8-pareto.sh); calculations are in
 [`analyze-enc-x8-pareto.py`](analyze-enc-x8-pareto.py).
 
-## Final encrypt: recommended 4x shared entry
+## Final 4x option: shared entry
 
-The recommended result is one exported function with one stack frame and an
-early dispatch before the incompatible counter setup:
+The final 4x result is one exported function with one stack frame and an early
+dispatch before the incompatible counter setup:
 
 - common entry code saves registers, loads AES round keys 0--13, and prepares
   the GHASH reduction constant;
@@ -290,7 +292,7 @@ compact 8x. Every gate passed on all four processors.
 | encrypt object | `.text` bytes | change from late-tag |
 |---|---:|---:|
 | Hanno late-tag | 3,864 | baseline |
-| **recommended shared entry** | **5,140** | **+1,276 B / +33.0%** |
+| **final 4x shared entry** | **5,140** | **+1,276 B / +33.0%** |
 | earlier helper hybrid | 5,312 | +1,448 B / +37.5% |
 | compact 8x `fast1`--`fast4` | 8,624 | +4,760 B / +123.2% |
 
@@ -298,10 +300,72 @@ The shared entry is 172 bytes smaller than the helper hybrid and 3,484 bytes
 smaller than compact 8x. Its object SHA-256 is
 `8988bf398f1a4083f76954af5185b578c0a6ffc5db61beee6b7f387a93f23d01`.
 
-### Encrypt: recommended 4x shared entry versus compact 8x
+### Direct finalists: 4x shared entry versus final 8x
 
-This compares the recommended 4x shared-entry `fast_tail` + `late_tag` kernel
-with the compact 8x `fast1`--`fast4` kernel. Each value is
+The earlier campaign compared 4x shared entry with compact 8x because the
+7,504-byte final 8x did not yet exist. This rerun directly linked the 5,140-byte
+4x shared entry, final 8x, and compact 8x control in one binary. A second binary
+swapped the first two objects. Each cell is the range across those two link
+layouts using `100 * (8x time - 4x time) / 8x time`: positive means 4x is
+faster; negative means final 8x is faster.
+
+| bytes | G3 / V1 | G4 / V2 | G5 / V3 |
+|---:|---:|---:|---:|
+| 16 | +1.9% to +2.5% | +11.4% | +0.9% to +1.1% |
+| 32 | -17.3% to -12.9% | -7.6% to -4.5% | -4.9% to -3.4% |
+| 48 | -15.2% to -13.9% | -12.5% to -11.0% | -12.8% to -12.7% |
+| 64 | -104.1% to -104.0% | -102.3% to -100.4% | -102.6% to -102.5% |
+| 80 | -62.0% to -61.8% | -65.3% to -65.0% | -65.2% to -64.6% |
+| 96 | -82.7% to -82.1% | -87.4% to -87.3% | -89.9% to -89.0% |
+| 112 | -106.1% to -105.6% | -106.3% to -106.0% | -113.1% to -112.2% |
+| 128 | -57.4% to -57.0% | -68.5% to -68.3% | -77.7% to -77.0% |
+
+The 4x shared entry won only at 16 B. Its G3 and G5 margins were small; the G4
+win was clear. Final 8x won every 32--128 B point in both layouts. Its
+geometric-mean speed advantage was:
+
+| range | G3 / V1 | G4 / V2 | G5 / V3 |
+|---|---:|---:|---:|---:|
+| 16--48 B | 8.23% to 9.43% | 1.38% to 1.87% | 4.94% to 5.40% |
+| 16--64 B | 26.81% to 27.89% | 20.50% to 20.65% | 23.69% to 24.10% |
+| 1,344 B--32 KiB | 45.48% to 45.72% | 44.42% to 44.58% | 35.30% to 35.32% |
+
+This makes the tradeoff explicit: 4x saves 2,364 bytes; final 8x is the
+performance choice on G3--G5. The final 8x uses SHA3-extension `EOR3`, so this
+comparison does not change the 4x choice on G2.
+
+Both finalists passed the independent one-block KAT. In each link layout,
+every one of seven benchmark processes checked ciphertext, Xi, counter, and
+return value against compact 8x for 1 through 256 blocks before timing. The
+direct build's 5,140-byte 4x `.text` is byte-identical to the canonical 4x
+object; its extracted `.text` SHA-256 is
+`616023aa69488572f76f00dfe999eb6f4bc1d45d84ae4cd1bce36ea4bfd27993`.
+
+Direct-comparison logs:
+
+- G3: short [4x first](results/finalists-small-4x-first-ip-172-31-4-159.log)
+  and [8x first](results/finalists-small-8x-first-ip-172-31-4-159.log); large
+  [4x first](results/finalists-large-4x-first-ip-172-31-4-159.log) and
+  [8x first](results/finalists-large-8x-first-ip-172-31-4-159.log)
+- G4: short [4x first](results/finalists-small-4x-first-ip-172-31-44-56.log)
+  and [8x first](results/finalists-small-8x-first-ip-172-31-44-56.log); large
+  [4x first](results/finalists-large-4x-first-ip-172-31-44-56.log) and
+  [8x first](results/finalists-large-8x-first-ip-172-31-44-56.log)
+- G5: short [4x first](results/finalists-small-4x-first-ip-172-31-42-229.log)
+  and [8x first](results/finalists-small-8x-first-ip-172-31-42-229.log); large
+  [4x first](results/finalists-large-4x-first-ip-172-31-42-229.log) and
+  [8x first](results/finalists-large-8x-first-ip-172-31-42-229.log)
+
+The object manifest is
+[`finalists-objects.csv`](results/finalists-objects.csv). The run is reproduced
+by [`build-enc-finalists.sh`](build-enc-finalists.sh) and
+[`run-enc-finalists.sh`](run-enc-finalists.sh); calculations are in
+[`analyze-enc-finalists.py`](analyze-enc-finalists.py).
+
+### Earlier control: 4x shared entry versus compact 8x
+
+This earlier run compares the final 4x shared-entry `fast_tail` + `late_tag`
+kernel with the compact 8x `fast1`--`fast4` kernel. Each value is
 `100 * (8x time - 4x time) / 8x time`: positive means the 4x shared entry is
 faster; negative means compact 8x is faster.
 
@@ -453,7 +517,7 @@ the new cascade. They are within 2.6% of compact 8x.
 
 The size reduction is therefore real, but it does not buy the compact 8x
 short-message performance. This candidate is not recommended over compact 8x.
-The 5,140-byte recommended 4x shared entry remains smaller and uses Hanno's
+The 5,140-byte final 4x shared entry remains smaller and uses Hanno's
 SLOTHY-optimized 1--3-block `fast_tail` schedules instead of this serial
 encrypt cascade.
 
@@ -551,7 +615,7 @@ and the generated 4x `fast_tail`. Positive percentages mean the first named
 kernel is faster.
 
 The final shared-entry encrypt comparison is reported earlier under
-[recommended 4x shared entry versus compact 8x](#encrypt-recommended-4x-shared-entry-versus-compact-8x).
+[direct finalists](#direct-finalists-4x-shared-entry-versus-final-8x).
 The old bare `late_tag` encrypt comparison from this fixed rerun is now
 retained only as an
 [appendix baseline](#bare-late-tag-encrypt-control-before-the-shared-entry).
@@ -682,7 +746,7 @@ Positive values mean compact 8x is faster than bare 4x `late_tag`:
 
 The compact 8x geometric-mean advantage over bare `late_tag` is **47.4% on
 G3, 50.0% on G4, and 51.7% on G5**. This large gap motivated the short-path
-work; it is not what remains after adding the recommended 4x shared entry.
+work; it is not what remains after adding the final 4x shared entry.
 That final comparison is the 16--48 B table near the top of this report.
 
 At 64 B the final 4x design also selects the `late_tag` algorithmic path,
@@ -707,7 +771,7 @@ alignment, the linked object was 5,312 bytes: **+1,448 bytes over late-tag**.
 This design established that separate vector-oriented short setup was
 necessary. At 16--48 B it was 0.7% slower than compact 8x on G3 and faster by
 5.6% on G4 and 5.2% on G5. It passed the KAT and 1--256-block differential
-gate. It is superseded, not rejected: the recommended shared entry preserves
+gate. It is superseded, not rejected: the final shared entry preserves
 its performance while sharing the frame, key loads, and return code, saving
 172 bytes.
 
