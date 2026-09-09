@@ -1,28 +1,32 @@
 # AES-256-GCM small-path code-size experiment
 
-Measurement date: 2026-08-26. This branch is based on `aes-gcm-dec-clean` at
+Initial measurement date: 2026-08-26; final 8x Pareto rerun: 2026-09-08.
+This branch is based on `aes-gcm-dec-clean` at
 `29c532644f8f1ac0c0a5ae520a06768ebcb4ac3f`.
 
 ## Decision
 
-This section chooses between the **full and compact 8x encrypt kernels**. Its
-statement that compact 8x preserves `fast1`--`fast4` performance through 64 B
-is about two 8x designs; it is not a claim that the later 4x shared-entry
-kernel has a 64-byte fast path. The final 4x result is summarized under
-[AES-256-GCM 4x experiment](#aes-256-gcm-4x-experiment): it is smaller than
-compact 8x and competitive through 48 B, then returns to `late_tag` at 64 B.
+The final 8x choice is the 7,504-byte **shared-setup, parallel
+`fast1`--`fast4`** kernel. It retains Mila's four width-specific parallel AES
+schedules, but shares entry setup and final GHASH reduction, constructs final
+counters directly, and removes unreachable older bodies. It is 1.50x the
+5,008-byte optimized baseline and 1.61x AWS-LC's 4,672-byte original 8x
+kernel.
 
-Keeping Mila's final `fast1` through `fast4` encrypt paths and removing
-`fast5` through `fast7` produces an 8,624-byte kernel. It is 1.72x the
-optimized pre-fast-path baseline and 1.85x AWS-LC's original 8x kernel, so it
-meets a strict "less than 2x original" constraint. The full kernel is 11,848
-bytes, 2.37x and 2.54x those respective baselines.
+Against the 8,624-byte compact control, the new result is 1,120 bytes smaller
+and faster at every measured 16--64 B point on G3--G5. Its geometric-mean
+advantage is 6.76% on G3, 6.54% on G4, and 8.88% on G5. The existing main loop
+and common tails are byte-identical. Construction, KAT/differential checks,
+all measurements, and logs are in the
+[AES-256-GCM 4x experiment report](aes256-gcm-4x-experiment/README.md#final-8x-shared-setup-with-parallel-1--4-block-bodies).
 
-The compact kernel preserves the full kernel's performance at 16--64 and
-128 bytes. At the omitted 80/96/112-byte sizes it is 13--26% slower than full,
-although it remains 10--20% faster than AWS-LC's 4x kernel in the pure-kernel
-harness. This is a defensible code-size compromise if staying below 2x is a
-hard constraint; it is not free performance.
+The 5,140-byte 4x shared-entry result remains the smaller choice. It is
+competitive with compact 8x through 48 B, then returns to `late_tag` at 64 B.
+Use it when saving another 2,364 bytes matters more than 64 B latency.
+
+The original full-versus-compact experiment below remains useful provenance.
+Compact preserves full's performance at 16--64 and 128 B, and is 13--26%
+slower at the omitted 80/96/112 B sizes. The full kernel is 11,848 bytes.
 
 Use the s2n-bignum in-tree harness as the primary variant-to-variant result:
 it embeds each kernel at the same executable offset and reproduced Mila's G3
@@ -47,6 +51,9 @@ are from `aes_gcm_256_x8_verbose_opt_bench` at
 - [`baseline.S`](src/baseline.S) retains the common optimizations but predates
   the per-size fast paths. The AWS-LC references are
   [`awslc-8x.S`](src/awslc-8x.S) and [`awslc-4x.S`](src/awslc-4x.S).
+- The final follow-up source is
+  [`x8-enc-pareto-full.S`](aes256-gcm-4x-experiment/src/x8-enc-pareto-full.S);
+  its build, KAT, differential gates, and logs are in the same directory.
 
 The generator reproduces the checked-in compact source byte-for-byte. On all
 three hosts every object assembled successfully, and
@@ -54,16 +61,20 @@ three hosts every object assembled successfully, and
 against the baseline for every whole-block length from 1 through 256 blocks.
 All seven variants agreed. The full source retains Mila's completed HOL Light
 proof. The compact source is **measurement-only** until the top-level proof
-dispatch is reduced to `fast1`--`fast4` and the proof is rerun.
+dispatch is reduced to `fast1`--`fast4` and the proof is rerun. The final
+shared-setup candidate is also a measurement artifact without a HOL proof.
 
 | object | `.text` | vs optimized baseline | vs AWS-LC original |
 |---|---:|---:|---:|
 | AWS-LC original 8x | 4,672 B | 0.93x | 1.00x |
 | optimized pre-fast baseline | 5,008 B | 1.00x | 1.07x |
+| **shared-setup parallel `fast1`--`fast4`** | **7,504 B** | **1.50x** | **1.61x** |
 | compact `fast1`--`fast4` | **8,624 B** | **1.72x** | **1.85x** |
 | full `fast1`--`fast7` | 11,848 B | 2.37x | 2.54x |
 
-The compact choice saves 3,224 bytes, or 27.2% of the full kernel.
+The final shared-setup choice saves 1,120 bytes versus compact and 4,344 bytes
+versus full. The earlier compact choice by itself saves 3,224 bytes, or 27.2%
+of the full kernel.
 
 ## Encrypt results
 
@@ -140,6 +151,7 @@ PR uses a shared one-block cascade for 1--4 blocks at 5,960 bytes
 | direction/design | `.text` | growth | accelerated sizes | key result |
 |---|---:|---:|---|---|
 | encrypt full per-size | 11,848 B | 2.54x original | 16--112 B | best fixed-size speed |
+| **encrypt shared-setup parallel 1--4** | **7,504 B** | **1.61x original** | **16--64 B** | smaller and faster than compact at retained sizes; preserved main loop |
 | **encrypt compact per-size** | **8,624 B** | **1.85x original** | **16--64 B** | full speed at retained sizes; still beats 4x at 80--112 B |
 | decrypt full per-size | 12,376 B | 2.49x | 16--128 B | largest code/proof cost |
 | decrypt per-size `{1,2,3,4,8}` (`t4p8`) | 8,832 B | 1.78x | 16--64 B, 128 B | full per-size speed at retained sizes |
@@ -201,8 +213,10 @@ benchmark branch; complete source snapshots are also committed under
 Decrypt can GHASH input ciphertext while AES produces plaintext, which made a
 shared cascade effective. Encrypt must GHASH ciphertext produced by AES, so
 the dependency structure makes Mila's unbraided exact-width setup and dedicated
-drains more valuable and harder to share without losing speed. The decrypt
-1.20x result therefore should not be assumed achievable for encrypt.
+drains more valuable and makes the same serial cascade slow. The final encrypt
+result instead retains all four parallel schedules and shares setup and final
+reduction. It reaches 1.61x the original size, not decrypt's 1.20x, while
+improving on compact's short-message performance.
 
 ## AES-256-GCM 4x experiment
 
