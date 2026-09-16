@@ -123,12 +123,20 @@ let gen_mk_safety_spec
       let expr_rhs = String.sub s (idx+1) (l - idx - 1) in
       mk_binary "*" (elemsz_to_hol expr_lhs, elemsz_to_hol expr_rhs)
     | None ->
-     (try mk_small_numeral (int_of_string s)
-      with Failure _ ->
-        let v = c_var_to_hol s in
-        match dest_type (type_of v) with
-        | ("num",_) -> v
-        | _ -> (* word ty *) mk_icomb (`val:(N)word->num`,v)) in
+     (match String.index_opt s '/' with
+      | Some idx ->
+        (* integer division, e.g. a size given in the header as "bit_len/8" *)
+        let expr_lhs = String.sub s 0 idx in
+        let l = String.length s in
+        let expr_rhs = String.sub s (idx+1) (l - idx - 1) in
+        mk_binary "DIV" (elemsz_to_hol expr_lhs, elemsz_to_hol expr_rhs)
+      | None ->
+       (try mk_small_numeral (int_of_string s)
+        with Failure _ ->
+          let v = c_var_to_hol s in
+          match dest_type (type_of v) with
+          | ("num",_) -> v
+          | _ -> (* word ty *) mk_icomb (`val:(N)word->num`,v))) in
 
   (* memreads/writes without stackpointer and pc; (base pointer, size) list. *)
   let (memreads:(term*term)list), (memwrites:(term*term)list) =
