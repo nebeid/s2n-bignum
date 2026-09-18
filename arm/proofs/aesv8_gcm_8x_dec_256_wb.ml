@@ -17446,3 +17446,651 @@ let () =
      "(list_of_seq (gcm_dec_nist_input inblock) nblk)); spelled entirely in "^
      "word_reversefields 8, zero word_bytereverse; derived from the FIPS-197 form "^
      "by spell + BREV_RF8_128) hyps=0, axioms=3\n");;
+(* ------------------------------------------------------------------------- *)
+(* Constant-time and memory safety proof.                                    *)
+(* ------------------------------------------------------------------------- *)
+
+needs "arm/proofs/consttime.ml";;
+needs "arm/proofs/subroutine_signatures.ml";;
+
+let EXEC = AESV8_GCM_8X_DEC_256_WB_EXEC;;
+
+(* ---- quiet stepper: the default one logs a line per state, and these legs
+   run several hundred steps each ---- *)
+let ARM_QSTEP_TAC th s =
+  ARM_STEP_TAC th [] s None (K STRIP_TAC) THEN DISCARD_OLDSTATE_TAC s THEN CLARIFY_TAC;;
+let ARM_QSTEPS_TAC th snums = MAP_EVERY (ARM_QSTEP_TAC th) (statenames "s" snums);;
+
+(* ---- GENERAL affine word_sub cancellation (NO WORD_BLAST) ----
+   For a `word_sub P Q` subterm whose only free int64 var is a single register base
+   x (in_p/out_p/...), the difference P-Q is a constant independent of x. Prove
+   `word_sub P Q = word_sub P[x:=0] Q[x:=0]` by WORD_RULE (the x-dependence cancels),
+   then WORD_REDUCE the RHS to a numeral `word k`.  Covers the 9-16 loop-enter shape
+   `word_sub in_p (word_add (word 128) in_p)` as well as the plain tail compares. *)
+let affine_cancel_thm t =
+  match t with
+  | Comb(Comb(Const("word_sub",_),_),_) ->
+    let fv = filter (fun v -> type_of v = `:int64` && is_var v) (frees t) in
+    (match fv with
+     | [x] ->
+       let t0 = subst [`word 0:int64`, x] t in
+       let step1 = WORD_RULE (mk_eq(t, t0)) in
+       CONV_RULE (RAND_CONV WORD_REDUCE_CONV) step1     (* |- word_sub P Q = word k *)
+     | _ -> failwith "affine_cancel_thm: not exactly one int64 var")
+  | _ -> failwith "affine_cancel_thm: not word_sub";;
+
+(* Collect every affine word_sub in goal+asms, cancel it, rewrite, then reduce the
+   now-concrete PC if-condition. *)
+let WB_TAIL_RESOLVE2_TAC : tactic = fun (asl,w) ->
+  let is_sub tm = match tm with
+    | Comb(Comb(Const("word_sub",_),_),_) ->
+        length (filter (fun v -> type_of v = `:int64` && is_var v) (frees tm)) = 1
+    | _ -> false in
+  let all = itlist (fun (_,th) acc -> concl th :: acc) asl [w] in
+  let subs = setify (itlist (fun t acc -> find_terms is_sub t @ acc) all []) in
+  let cancel_thms = mapfilter affine_cancel_thm subs in
+  (RULE_ASSUM_TAC(REWRITE_RULE cancel_thms) THEN
+   (* reflexive branch at 0x44c: ival in_p - ival in_p / word_sub X X = 0 *)
+   RULE_ASSUM_TAC(REWRITE_RULE[INT_SUB_REFL; WORD_SUB_REFL; VAL_WORD_0; IVAL_WORD_0]) THEN
+   RULE_ASSUM_TAC(CONV_RULE(ONCE_DEPTH_CONV WORD_REDUCE_CONV)) THEN
+   RULE_ASSUM_TAC(CONV_RULE(TRY_CONV INT_REDUCE_CONV)) THEN
+   RULE_ASSUM_TAC(CONV_RULE(TRY_CONV(DEPTH_CONV NUM_EQ_CONV))) THEN
+   RULE_ASSUM_TAC(REWRITE_RULE[NOT_CLAUSES; COND_CLAUSES]) THEN
+   RULE_ASSUM_TAC(REWRITE_RULE[])) (asl,w);;
+
+(* ---- extract (current-state index, PC offset) from the goal's PC assumption.
+   off: >=0 concrete pc+off (or bare word off); -2 symbolic if-term (needs resolve);
+        -3 no PC assumption found. ---- *)
+let pc_info (asl,_) =
+  try
+    let (_,th) = List.find (fun (_,th) -> match concl th with
+        | Comb(Comb(Const("=",_),Comb(Comb(Const("read",_),Const("PC",_)),_)),_) -> true
+        | _ -> false) asl in
+    let lhs,rhs = dest_eq (concl th) in
+    let st = rand lhs in
+    let sidx = (let nm = fst(dest_var st) in
+                int_of_string (String.sub nm 1 (String.length nm - 1))) in
+    let off = (match rhs with
+      | Comb(Const("word",_),Comb(Comb(Const("+",_),_),n)) -> (try dest_small_numeral n with _ -> -2)
+      | Comb(Const("word",_),n) -> (try dest_small_numeral n with _ -> -2)
+      | _ -> -2) in
+    (sidx, off)
+  with _ -> (-1, -3);;
+
+(* ---- DRIVE_TAC target maxsteps : recursive tactic form of drive_to ----
+   Steps ARM instrs one at a time from the current state; when the PC becomes a
+   symbolic if-term, applies WB_TAIL_RESOLVE2_TAC to make it concrete, then steps;
+   stops when PC = word (pc + target). Composes with THENL => committable. *)
+let rec DRIVE_TAC target maxsteps : tactic = fun (asl,w) ->
+  if maxsteps <= 0 then failwith "DRIVE_TAC: maxsteps exhausted" else
+  let (sidx, off) = pc_info (asl,w) in
+  if off = target then ALL_TAC (asl,w)
+  else if off = -3 then failwith "DRIVE_TAC: no PC assumption"
+  else if off = -2 then
+    (WB_TAIL_RESOLVE2_TAC THEN
+     (fun g ->
+        let (sidx2, off2) = pc_info g in
+        if off2 = target then ALL_TAC g
+        else if off2 = -2 then failwith "DRIVE_TAC: resolver left PC symbolic"
+        else (ARM_QSTEP_TAC EXEC ("s"^string_of_int (sidx2+1)) THEN
+              DRIVE_TAC target (maxsteps-1)) g)) (asl,w)
+  else
+    (ARM_QSTEP_TAC EXEC ("s"^string_of_int (sidx+1)) THEN
+     DRIVE_TAC target (maxsteps-1)) (asl,w);;
+
+(* ---- concrete-band prep: unfold list wrappers, keep nonoverlapping FOLDED,
+   split the conjunctive nonoverlapping asms, init state s0 ---- *)
+let BAND_PREP_TAC =
+  RULE_ASSUM_TAC(REWRITE_RULE[ALL; ALLPAIRS; PAIRWISE; MAP; WB_MC_LEN]) THEN
+  REPEAT(FIRST_X_ASSUM(CONJUNCTS_THEN ASSUME_TAC o check (is_conj o concl))) THEN
+  ENSURES_INIT_TAC "s0";;
+
+(* ---- UNIFORM concrete-band closer: prep, then DRIVE from s0 to pc+4560, finalize.
+   Works for ANY concrete nblk (1..16): every branch condition is concrete arithmetic
+   the resolver reduces directly, so no band-specific step count or front prefix.
+   The symbolic NBLK_ARITH lemmas are only needed for the symbolic >=17 leg. ---- *)
+let concrete_band_close_tac =
+  BAND_PREP_TAC THEN
+  DRIVE_TAC 4560 700 THEN
+  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN DISCHARGE_SAFETY_PROPERTY_TAC;;
+
+(* ---- n-way concrete split of a bounded nblk leg (lo..hi), then close each band ---- *)
+let split_close_tac lo hi =
+  let disj = end_itlist (fun a b -> mk_disj(a,b))
+     (map (fun k -> mk_eq(`nblk:num`, mk_small_numeral k)) (lo--hi)) in
+  SUBGOAL_THEN disj MP_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  STRIP_TAC THEN FIRST_X_ASSUM SUBST_ALL_TAC THEN
+  CONV_TAC NUM_REDUCE_CONV THEN RULE_ASSUM_TAC(CONV_RULE NUM_REDUCE_CONV) THEN REWRITE_TAC[] THEN
+  concrete_band_close_tac;;
+
+
+(* ---- the nblk 9..16 leg: symbolic front, then concretize per band.  A
+   concrete-band DRIVE from s0 does NOT work here: the front branch at 0x44c is a
+   flag compare rather than an affine word_sub, so the resolver cannot make its PC
+   concrete.  Hence the front runs symbolically off WB_LOOPENTER_FLAGS_GE9 and each
+   band is concretized only afterwards. ---- *)
+
+let front_916_setup_tac =
+  SUBGOAL_THEN `9 <= nblk` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `word_ushr (word (128 * nblk):int64) 3 = word (16 * nblk)` ASSUME_TAC THENL
+   [MATCH_MP_TAC USHR_128NBLK_ANY THEN NBLK_ARITH_GE9_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `word_and (word_sub (word (16 * nblk)) (word 1)) (word 18446744073709551488):int64
+       = word (128 * ((nblk - 1) DIV 8))` ASSUME_TAC THENL
+   [MATCH_MP_TAC AND_MASK_16NBLK_ANY THEN NBLK_ARITH_GE9_TAC; ALL_TAC] THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[ALL; ALLPAIRS; PAIRWISE; MAP; WB_MC_LEN]) THEN
+  REPEAT(FIRST_X_ASSUM(CONJUNCTS_THEN ASSUME_TAC o check (is_conj o concl))) THEN
+  ENSURES_INIT_TAC "s0" THEN
+  MP_TAC(SPEC `nblk:num` GUARD_LE_FALLTHRU) THEN ANTS_TAC THENL
+   [CONJ_TAC THENL [NBLK_ARITH_GE9_TAC;
+      MP_TAC(ASSUME `val (in_p:int64) + 16 * nblk < 2 EXP 63`) THEN NBLK_ARITH_GE9_TAC]; DISCH_TAC] THEN
+  MP_TAC(SPECL [`in_p:int64`; `nblk:num`] WB_LOOPENTER_FLAGS_GE9) THEN ANTS_TAC THENL
+   [CONJ_TAC THENL [NBLK_ARITH_GE9_TAC;
+      MP_TAC(ASSUME `val (in_p:int64) + 16 * nblk < 2 EXP 63`) THEN NBLK_ARITH_GE9_TAC]; DISCH_TAC];;
+
+(* front sim 1--295 -> pc+1212 (0x4bc); resolve 0x49c; step 296 -> pc+2576 (0xa10) *)
+let front_916_sim_tac =
+  ARM_QSTEPS_TAC EXEC (1--295) THEN
+  SUBGOAL_THEN `(nblk - 1) DIV 8 = 1` ASSUME_TAC THENL
+   [MP_TAC(ASSUME `9 <= nblk`) THEN MP_TAC(ASSUME `nblk <= 16`) THEN
+    POP_ASSUM_LIST(K ALL_TAC) THEN ARITH_TAC; ALL_TAC] THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `(nblk - 1) DIV 8 = 1`]) THEN
+  RULE_ASSUM_TAC(CONV_RULE(ONCE_DEPTH_CONV NUM_MULT_CONV)) THEN
+  MP_TAC(SPECL [`in_p:int64`; `128`; `128`] WB_PTRCMP_FLAGS) THEN ANTS_TAC THENL
+   [CONJ_TAC THEN MP_TAC(ASSUME `val (in_p:int64) + 16 * nblk < 2 EXP 63`) THEN
+    MP_TAC(ASSUME `9 <= nblk`) THEN ARITH_TAC; ALL_TAC] THEN
+  DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th])) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[ARITH_RULE `(128 < 128) <=> F`]) THEN
+  ARM_QSTEPS_TAC EXEC (296--296);;
+
+(* ---- the nblk>=17 leg.  Its trace is already in ENSURES_EVENTS_WHILE_UP2 shape:
+     e2 = APPEND <residue ladder> (APPEND (ENUMERATEL ((nblk-9) DIV 8) f_ev_loop)
+                                          f_ev_front)
+   so the residue ladder lands in the rule's discarded e_back.  The scaffold below
+   gives the ladder its eight residue metavars, one per (nblk-9) MOD 8 value, since
+   HOL metavars are shared across the goalstack and a single shared one would be
+   fixed by whichever residue closed first. ---- *)
+
+let core_scaffold =
+ `\(in_p:int64) (key_p:int64) (htbl_p:int64) (out_p:int64) (xi_p:int64)
+   (ivec_p:int64) (nblk:num) (pc:num) (stackpointer:int64).
+     if nblk = 1 then f_ev_1 in_p key_p htbl_p out_p xi_p ivec_p nblk pc stackpointer
+     else if nblk = 2 then f_ev_2 in_p key_p htbl_p out_p xi_p ivec_p nblk pc stackpointer
+     else if nblk = 3 then f_ev_3 in_p key_p htbl_p out_p xi_p ivec_p nblk pc stackpointer
+     else if nblk = 4 then f_ev_4 in_p key_p htbl_p out_p xi_p ivec_p nblk pc stackpointer
+     else if nblk = 5 then f_ev_5 in_p key_p htbl_p out_p xi_p ivec_p nblk pc stackpointer
+     else if nblk = 6 then f_ev_6 in_p key_p htbl_p out_p xi_p ivec_p nblk pc stackpointer
+     else if nblk = 7 then f_ev_7 in_p key_p htbl_p out_p xi_p ivec_p nblk pc stackpointer
+     else if nblk = 8 then f_ev_8 in_p key_p htbl_p out_p xi_p ivec_p nblk pc stackpointer
+     else if nblk = 9 then f_ev_9 in_p key_p htbl_p out_p xi_p ivec_p nblk pc stackpointer
+     else if nblk = 10 then f_ev_10 in_p key_p htbl_p out_p xi_p ivec_p nblk pc stackpointer
+     else if nblk = 11 then f_ev_11 in_p key_p htbl_p out_p xi_p ivec_p nblk pc stackpointer
+     else if nblk = 12 then f_ev_12 in_p key_p htbl_p out_p xi_p ivec_p nblk pc stackpointer
+     else if nblk = 13 then f_ev_13 in_p key_p htbl_p out_p xi_p ivec_p nblk pc stackpointer
+     else if nblk = 14 then f_ev_14 in_p key_p htbl_p out_p xi_p ivec_p nblk pc stackpointer
+     else if nblk = 15 then f_ev_15 in_p key_p htbl_p out_p xi_p ivec_p nblk pc stackpointer
+     else if nblk = 16 then f_ev_16 in_p key_p htbl_p out_p xi_p ivec_p nblk pc stackpointer
+     else
+       APPEND
+         ((if (nblk - 9) MOD 8 = 0 then f_ev_t0
+           else if (nblk - 9) MOD 8 = 1 then f_ev_t1
+           else if (nblk - 9) MOD 8 = 2 then f_ev_t2
+           else if (nblk - 9) MOD 8 = 3 then f_ev_t3
+           else if (nblk - 9) MOD 8 = 4 then f_ev_t4
+           else if (nblk - 9) MOD 8 = 5 then f_ev_t5
+           else if (nblk - 9) MOD 8 = 6 then f_ev_t6
+           else f_ev_t7) in_p key_p htbl_p out_p xi_p ivec_p nblk pc stackpointer)
+         (APPEND
+           (ENUMERATEL ((nblk - 9) DIV 8)
+             (\i. f_ev_loop in_p key_p htbl_p out_p xi_p ivec_p nblk pc stackpointer i))
+           (f_ev_front in_p key_p htbl_p out_p xi_p ivec_p nblk pc stackpointer))
+     :(uarch_event)list`;;
+
+(* ---- >=17 entry prep: establish the bounds and collapse the 16-way ladder to its
+   else-branch.  Collapsing it by asserting sixteen `~(nblk = k)` hypotheses instead is
+   ruinously slow: those hypotheses are walked once per simulation step and again by
+   DISCHARGE_SAFETY_PROPERTY_TAC over the whole trace, which turns seconds into tens of
+   minutes.  Hence the rewrite carries the already-present 17<=nblk and leaves no
+   hypotheses behind. ---- *)
+let GE17_LADDER_KILL_TAC : tactic = fun (asl,w) ->
+  let neq = map (fun k ->
+    EQF_INTRO (UNDISCH (ARITH_RULE
+      (mk_imp(`17 <= nblk`, mk_neg(mk_eq(`nblk:num`, mk_small_numeral k))))))) (1--16) in
+  (GEN_REWRITE_TAC (RATOR_CONV o ONCE_DEPTH_CONV) (COND_CLAUSES::neq) THEN
+   REWRITE_TAC neq) (asl,w);;
+
+let GE17_PREP_TAC =
+  SUBGOAL_THEN `17 <= nblk /\ 9 <= nblk` STRIP_ASSUME_TAC THENL
+   [MP_TAC(ASSUME `~(nblk <= 16)`) THEN POP_ASSUM_LIST(K ALL_TAC) THEN ARITH_TAC; ALL_TAC] THEN
+  GE17_LADDER_KILL_TAC;;
+
+(* ---- RESHAPE the collapsed trace for SEQUENCE:
+        APPEND ladder (APPEND loop front) -> APPEND (APPEND ladder (APPEND loop [])) front
+   so SEQUENCE at the loop head peels e_front_tail = front, e_back = APPEND ladder (APPEND loop []).
+   NOTE: must use ONCE_REWRITE_TAC (GEN_REWRITE_TAC with a RAND o ONCE_DEPTH path silently
+   missed the intended APPEND occurrence). ---- *)
+let RESHAPE_LOOP_TAC : tactic = fun (asl,w) ->
+  let e2var = `e2:(uarch_event)list` in
+  let e2eq = find_term (fun t -> is_eq t && lhs t = e2var
+                 && (match rhs t with Comb(Comb(Const("APPEND",_),_),_) -> true | _ -> false)) w in
+  let rhs_e2 = rhs e2eq in
+  let a,bb,c = (match rhs_e2 with
+     | Comb(Comb(Const("APPEND",_),a),Comb(Comb(Const("APPEND",_),bb),c)) -> a,bb,c
+     | _ -> failwith "RESHAPE_LOOP_TAC: unexpected e2 shape") in
+  let nil = `[]:(uarch_event)list` in
+  let ap x y = mk_binop `APPEND:(uarch_event)list->(uarch_event)list->(uarch_event)list` x y in
+  let reshaped = ap (ap a (ap bb nil)) c in
+  let reshape_thm = prove(mk_eq(rhs_e2, reshaped), REWRITE_TAC[APPEND_NIL; APPEND_ASSOC]) in
+  ONCE_REWRITE_TAC[reshape_thm] (asl,w);;
+
+(* ---- front invariant at pc+0x4c0 (the loop head; the i=0 register state of
+   wbn_loop_invariant_raw).  SEQUENCE augments it with e2 = f_ev_front. ---- *)
+let front_inv = `\s:armstate.
+     aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
+     read SP s = stackpointer /\
+     read X0 s = word_add in_p (word 128) /\
+     read X2 s = word_add out_p (word 128) /\
+     read X4 s = word_add in_p (word (16 * nblk)) /\
+     read X5 s = word_add (word (128 * ((nblk - 1) DIV 8))) in_p /\
+     read X9 s = word (16 * nblk) /\
+     read X10 s = word_add stackpointer (word 64) /\
+     read X1 s = word (128 * nblk) /\
+     read X16 s = ivec_p /\
+     read X6 s = htbl_p /\
+     read X3 s = xi_p /\
+     read X11 s = key_p`;;
+
+(* ---- >=17 leg entry.  Leaves two subgoals: the front (pc+32 -> pc+1216), then the
+   rest (loop + tail, pc+1216 -> pc+4560). ---- *)
+let GE17_ENTER_TAC =
+  GE17_PREP_TAC THEN RESHAPE_LOOP_TAC THEN
+  ENSURES_EVENTS_SEQUENCE_TAC `pc + 0x4c0` front_inv THEN CONJ_TAC;;
+
+(* ---- the >=17 front leg, pc+32 -> pc+1216 (the loop head).  The branch at 0x4bc
+   is the loop-entry compare, resolved off WB_PTRCMP_FLAGS and D_GT_128 rather than by
+   the affine resolver, since both of its operands are symbolic in nblk. ---- *)
+let GE17_FRONT_CLOSE_TAC =
+  front_916_setup_tac THEN
+  ARM_QSTEPS_TAC EXEC (1--295) THEN
+  MP_TAC(SPECL [`in_p:int64`; `128`; `128 * ((nblk-1) DIV 8)`] WB_PTRCMP_FLAGS) THEN ANTS_TAC THENL
+   [CONJ_TAC THEN MP_TAC(ASSUME `val (in_p:int64) + 16 * nblk < 2 EXP 63`) THEN
+    MP_TAC(ASSUME `17 <= nblk`) THEN POP_ASSUM_LIST(K ALL_TAC) THEN ARITH_TAC; ALL_TAC] THEN
+  DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th])) THEN
+  MP_TAC(SPEC `nblk:num` D_GT_128) THEN ANTS_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th])) THEN
+  ARM_QSTEPS_TAC EXEC (296--296) THEN
+  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN DISCHARGE_SAFETY_PROPERTY_TAC;;
+
+(* ---- loop invariant: the register state at the loop head on iteration i.  WHILE
+   augments it with e2 = APPEND (ENUMERATEL i f_ev_loop) (APPEND [] front). ---- *)
+let loop_inv = `\(i:num) s:armstate.
+     aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
+     read SP s = stackpointer /\
+     read X0 s = word_add in_p (word (128 * (i + 1))) /\
+     read X2 s = word_add out_p (word (128 * (i + 1))) /\
+     read X4 s = word_add in_p (word (16 * nblk)) /\
+     read X5 s = word_add (word (128 * ((nblk - 1) DIV 8))) in_p /\
+     read X9 s = word (16 * nblk) /\
+     read X10 s = word_add stackpointer (word 64) /\
+     read X1 s = word (128 * nblk) /\
+     read X16 s = ivec_p /\
+     read X6 s = htbl_p /\
+     read X3 s = xi_p /\
+     read X11 s = key_p`;;
+
+(* ---- LOOP decomposition: on the rest subgoal (prePC=pc+1216) after GE17 front closed.
+        ENSURES_EVENTS_WHILE_UP2_TAC then REPEAT CONJ_TAC yields 4 subgoals in ORDER:
+          G0 count-nonzero ~((nblk-9)DIV8=0)
+          G1 entry (i=0)         prePC=pc+1216 (establish inv at 0)
+          G2 loop BODY (forall i) -- the crux
+          G3 exit/TAIL           prePC=pc+2576 -> pc+4560 (residue dispatch)   ---- *)
+let GE17_LOOP_OPEN_TAC =
+  ENSURES_EVENTS_WHILE_UP2_TAC `(nblk - 9) DIV 8` `pc + 0x4c0` `pc + 0xa10` loop_inv THEN
+  REPEAT CONJ_TAC;;
+
+(* G0 count-nonzero *)
+let GE17_COUNT_TAC =
+  MP_TAC(ASSUME `17 <= nblk`) THEN POP_ASSUM_LIST(K ALL_TAC) THEN
+  SIMP_TAC[DIV_EQ_0; ARITH_EQ] THEN ARITH_TAC;;
+
+(* G1 entry (i=0): precond=postcond after normalizing 0+1, 128*1, ENUMERATEL 0, APPEND [], *1 *)
+let GE17_ENTRY_TAC =
+  ENSURES_INIT_TAC "s0" THEN ENSURES_FINAL_STATE_TAC THEN
+  ASM_REWRITE_TAC[ENUMERATEL; APPEND; ADD_CLAUSES; MULT_CLAUSES] THEN
+  FIRST_X_ASSUM(MP_TAC o check (fun th -> is_exists (concl th))) THEN
+  ASM_REWRITE_TAC[MULT_CLAUSES];;
+
+(* G2, the loop body.  STRIP_EXISTS_ASSUM_TAC after ENSURES_INIT_TAC is required, not
+   cosmetic: the invariant carries an accumulated `exists e2. read events s0 = APPEND e2 e
+   /\ ...`, and unless it is stripped, `read events s0` is never exposed and the closing
+   EXISTS_E2_TAC fails in AP_THM_TAC.  This mirrors what
+   bignum_copy_row_from_table_8n.ml gets from ARM_SIM_TAC's
+   ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC).  WBN_PC_BRIDGE already has i free, so it
+   is MP'd rather than SPEC'd. *)
+let ptrcmp_i = SPECL [`in_p:int64`; `128 * (i + 2)`; `128 * ((nblk - 1) DIV 8)`] WB_PTRCMP_FLAGS;;
+let x0norm_i = WORD_RULE
+  `word_add (word_add in_p (word (128 * (i + 1)))) (word 128):int64 = word_add in_p (word (128 * (i + 2)))`;;
+let pcbridge_i = MP WBN_PC_BRIDGE (ASSUME `9 <= nblk`);;
+
+let GE17_BODY_CLOSE_TAC =
+  REPEAT STRIP_TAC THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[ALL; ALLPAIRS; PAIRWISE; MAP; WB_MC_LEN]) THEN
+  REPEAT(FIRST_X_ASSUM(CONJUNCTS_THEN ASSUME_TAC o check (is_conj o concl))) THEN
+  ENSURES_INIT_TAC "s0" THEN
+  TRY STRIP_EXISTS_ASSUM_TAC THEN
+  ARM_QSTEPS_TAC EXEC (1--340) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[x0norm_i]) THEN
+  MP_TAC ptrcmp_i THEN ANTS_TAC THENL
+   [CONJ_TAC THEN MP_TAC(ASSUME `val (in_p:int64) + 16 * nblk < 2 EXP 63`) THEN
+    MP_TAC(ASSUME `i < (nblk - 9) DIV 8`) THEN MP_TAC(ASSUME `17 <= nblk`) THEN
+    POP_ASSUM_LIST(K ALL_TAC) THEN SIMP_TAC[] THEN ARITH_TAC; ALL_TAC] THEN
+  DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th])) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[pcbridge_i]) THEN
+  ENSURES_FINAL_STATE_TAC THEN
+  ASM_REWRITE_TAC[ARITH_RULE `(i + 1) + 1 = i + 2`; GSYM COND_RAND] THEN
+  GEN_REWRITE_TAC (ONCE_DEPTH_CONV) [CONJUNCT1 APPEND] THEN
+  DISCHARGE_SAFETY_PROPERTY_TAC;;
+
+(* ---- G3, the exit/tail leg, pc+2576 -> pc+4560: a straight-line prepretail to
+   pc+3844, then the 8-way dispatch on the leftover block count (nblk-9) MOD 8. ---- *)
+
+(* the leftover-byte count left in X5 at pc+3844, guarded by 17<=nblk + no overflow. *)
+let TAIL_LEFTOVER_BYTES = prove
+  (`17 <= nblk /\ val (in_p:int64) + 16 * nblk < 2 EXP 63
+     ==> word_sub (word_add in_p (word (16 * nblk)))
+                  (word_add in_p (word (128 * ((nblk - 9) DIV 8 + 1))))
+         = word (16 * ((nblk - 9) MOD 8 + 1)):int64`,
+   STRIP_TAC THEN
+   SUBGOAL_THEN `16 * nblk = 128 * ((nblk - 9) DIV 8 + 1) + 16 * ((nblk - 9) MOD 8 + 1)` ASSUME_TAC THENL
+    [MP_TAC(SPECL [`nblk - 9`; `8`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN
+     MP_TAC(ASSUME `17 <= nblk`) THEN ARITH_TAC; ALL_TAC] THEN
+   ASM_REWRITE_TAC[] THEN CONV_TAC WORD_RULE);;
+
+(* tail setup: init, strip the accumulated e2, sim the prepretail, fold X5, bound rr. *)
+let GE17_TAIL_SETUP_TAC =
+  RULE_ASSUM_TAC(REWRITE_RULE[ALL; ALLPAIRS; PAIRWISE; MAP; WB_MC_LEN]) THEN
+  REPEAT(FIRST_X_ASSUM(CONJUNCTS_THEN ASSUME_TAC o check (is_conj o concl))) THEN
+  ENSURES_INIT_TAC "s0" THEN
+  TRY STRIP_EXISTS_ASSUM_TAC THEN
+  ARM_QSTEPS_TAC EXEC (1--317) THEN                (* pc+2576 -> pc+3844 *)
+  MP_TAC TAIL_LEFTOVER_BYTES THEN ANTS_TAC THENL
+   [CONJ_TAC THENL [FIRST_ASSUM ACCEPT_TAC; FIRST_ASSUM ACCEPT_TAC]; ALL_TAC] THEN
+  DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th])) THEN
+  SUBGOAL_THEN `(nblk - 9) MOD 8 < 8` ASSUME_TAC THENL
+   [MP_TAC(SPECL [`nblk - 9`; `8`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN ARITH_TAC; ALL_TAC];;
+
+let GE17_TAIL_SPLIT_TAC =
+  SUBGOAL_THEN
+   `(nblk-9)MOD 8 = 0 \/ (nblk-9)MOD 8 = 1 \/ (nblk-9)MOD 8 = 2 \/ (nblk-9)MOD 8 = 3 \/
+    (nblk-9)MOD 8 = 4 \/ (nblk-9)MOD 8 = 5 \/ (nblk-9)MOD 8 = 6 \/ (nblk-9)MOD 8 = 7` MP_TAC THENL
+   [MP_TAC(ASSUME `(nblk - 9) MOD 8 < 8`) THEN POP_ASSUM_LIST(K ALL_TAC) THEN ARITH_TAC; ALL_TAC] THEN
+   STRIP_TAC;;
+
+(* per-residue closer: drive the concrete residue tail to pc+4560, collapse the ladder
+   down to this residue's f_ev_t<rr>, then discharge. *)
+let close_tail_residue rr =
+  (* the DIVISION identity is load-bearing: without it CONTAINED_TAC's arithmetic
+     cannot show the residue store at out_p+128*((nblk-9) DIV 8+1)+k is in bounds. *)
+  SUBGOAL_THEN `16 * nblk = 128 * ((nblk - 9) DIV 8 + 1) + 16 * ((nblk - 9) MOD 8 + 1)` ASSUME_TAC THENL
+   [MP_TAC(SPECL [`nblk - 9`; `8`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN
+    MP_TAC(ASSUME `17 <= nblk`) THEN ARITH_TAC; ALL_TAC] THEN
+  DRIVE_TAC 4560 700 THEN
+  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[ASSUME (mk_eq(`(nblk - 9) MOD 8`, mk_small_numeral rr))]) THEN
+  GEN_REWRITE_TAC (ONCE_DEPTH_CONV) [ASSUME (mk_eq(`(nblk - 9) MOD 8`, mk_small_numeral rr))] THEN
+  CONV_TAC(DEPTH_CONV NUM_EQ_CONV) THEN REWRITE_TAC[COND_CLAUSES] THEN
+  GEN_REWRITE_TAC (ONCE_DEPTH_CONV) [CONJUNCT1 APPEND] THEN
+  DISCHARGE_SAFETY_PROPERTY_TAC;;
+
+(* per-band closer for nblk 9..16, concretizing off the shared symbolic front. *)
+let close_916_band k =
+  UNDISCH_TAC (mk_eq(`nblk:num`, mk_small_numeral k)) THEN DISCH_THEN SUBST_ALL_TAC THEN
+  RULE_ASSUM_TAC(CONV_RULE NUM_REDUCE_CONV) THEN
+  DRIVE_TAC 4560 400 THEN
+  CONV_TAC NUM_REDUCE_CONV THEN REWRITE_TAC[] THEN
+  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN DISCHARGE_SAFETY_PROPERTY_TAC;;
+
+(* ---- the core safety opening.  Unlike a `\s s'. true` frame, this one unfolds
+   MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI up front so ENSURES_FINAL_STATE_TAC can
+   discharge the real frame at every leaf; the wrapper needs the real frame, because it
+   simulates the epilogue after the core big-step and so needs aligned_bytes_loaded
+   preserved across it.  Mirrors BIGNUM_INV_P25519_SAFE (bignum_inv_p25519.ml:3543). ---- *)
+let CORE_SAFE_OPEN_TAC =
+  CONCRETIZE_F_EVENTS_TAC core_scaffold THEN REPEAT META_EXISTS_TAC THEN
+  REWRITE_TAC[C_ARGUMENTS; C_RETURN; SOME_FLAGS] THEN
+  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; MODIFIABLE_SIMD_REGS;
+              MODIFIABLE_GPRS; MODIFIABLE_UPPER_SIMD_REGS] THEN
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `val (word (16 * nblk):int64) = 16 * nblk` ASSUME_TAC THENL
+   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `val (word (128 * nblk):int64) = 128 * nblk` ASSUME_TAC THENL
+   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC; ALL_TAC];;
+
+let CORE_SAFE_TAC =
+  CORE_SAFE_OPEN_TAC THEN
+  ASM_CASES_TAC `nblk <= 16` THENL [
+    ASM_CASES_TAC `nblk <= 8` THENL [
+      split_close_tac 1 8;
+      front_916_setup_tac THEN front_916_sim_tac THEN ARM_QSTEPS_TAC EXEC (297--520) THEN
+      SUBGOAL_THEN `nblk=9\/nblk=10\/nblk=11\/nblk=12\/nblk=13\/nblk=14\/nblk=15\/nblk=16` MP_TAC THENL
+       [MP_TAC(ASSUME `9 <= nblk`) THEN MP_TAC(ASSUME `nblk <= 16`) THEN
+        POP_ASSUM_LIST(K ALL_TAC) THEN ARITH_TAC; ALL_TAC] THEN
+      STRIP_TAC THENL
+       [close_916_band 9; close_916_band 10; close_916_band 11; close_916_band 12;
+        close_916_band 13; close_916_band 14; close_916_band 15; close_916_band 16]
+    ];
+    GE17_ENTER_TAC THENL [
+      GE17_FRONT_CLOSE_TAC;
+      GE17_LOOP_OPEN_TAC THENL [
+        GE17_COUNT_TAC;
+        GE17_ENTRY_TAC;
+        GE17_BODY_CLOSE_TAC;
+        GE17_TAIL_SETUP_TAC THEN GE17_TAIL_SPLIT_TAC THENL
+         [close_tail_residue 0; close_tail_residue 1; close_tail_residue 2;
+          close_tail_residue 3; close_tail_residue 4; close_tail_residue 5;
+          close_tail_residue 6; close_tail_residue 7]
+      ]
+    ]
+  ];;
+
+(* ---- the ABI wrapper.  Stock ARM_ADD_RETURN_STACK_TAC does not apply: this spec
+   carries extra secret quantifiers (rk, ctr0, nonce, c) that its MATCH_MP_TAC cannot
+   match, and the prologue contains the nblk=0 guard branch.  The crossing is therefore
+   hand-rolled, mirroring the functional wrapper WBN_DEC_SUBROUTINE_BYTELIST above. ---- *)
+
+let WB_GUARD_FALLTHROUGH_TAC =
+  SUBGOAL_THEN `val (word (128 * nblk):int64) = 128 * nblk` ASSUME_TAC THENL
+   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `~(128 * nblk = 0)` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `val (word_and (word (128 * nblk):int64) (word 127)) = 0` ASSUME_TAC THENL
+   [SUBGOAL_THEN `(127:num) = 2 EXP 7 - 1` SUBST1_TAC THENL
+     [CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
+    REWRITE_TAC[VAL_WORD_AND_MASK_WORD] THEN ASM_REWRITE_TAC[] THEN
+    SUBGOAL_THEN `(2:num) EXP 7 = 128` SUBST1_TAC THENL
+     [CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
+    REWRITE_TAC[MOD_MULT]; ALL_TAC];;
+
+(* ---- the core safety theorem, over the real MAYCHANGE frame the wrapper needs. ---- *)
+let AESV8_GCM_8X_DEC_256_SAFE = prove
+ (`exists f_events.
+     forall e pc stackpointer in_p out_p xi_p ivec_p key_p htbl_p nblk.
+         1 <= nblk /\
+         128 * nblk < 2 EXP 62 /\
+         val in_p + 16 * nblk < 2 EXP 63 /\
+         aligned 16 stackpointer /\
+         ALLPAIRS nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16]
+         [word pc,LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,16 * nblk;
+          key_p,240; htbl_p,192; stackpointer,80] /\
+         PAIRWISE nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16] /\
+         ALL (nonoverlapping (stackpointer,80))
+         [word pc,LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,16 * nblk;
+          key_p,240; htbl_p,192]
+         ==> ensures arm
+             (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
+                  read PC s = word (pc + 32) /\
+                  read SP s = stackpointer /\
+                  C_ARGUMENTS
+                  [in_p; word (128 * nblk); out_p; xi_p; ivec_p; key_p; htbl_p]
+                  s /\
+                  read events s = e)
+             (\s. read PC s = word (pc + 4560) /\
+                  (exists e2.
+                       read events s = APPEND e2 e /\
+                       e2 =
+                       f_events in_p key_p htbl_p out_p xi_p ivec_p nblk pc
+                       stackpointer /\
+                       memaccess_inbounds e2
+                       [in_p,val (word (128 * nblk):int64) DIV 8 * 1; xi_p,16;
+                        ivec_p,16; key_p,244; htbl_p,256;
+                        out_p,val (word (128 * nblk):int64) DIV 8 * 1;
+                        stackpointer,80]
+                       [out_p,val (word (128 * nblk):int64) DIV 8 * 1; xi_p,16;
+                        ivec_p,16; stackpointer,80]))
+             (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+              MAYCHANGE
+              [memory :> bytes (out_p,16 * nblk); memory :> bytes (xi_p,16);
+               memory :> bytes (ivec_p,16);
+               memory :> bytes (word_add stackpointer (word 64),16)] ,,
+              MAYCHANGE
+              [Q0; Q1; Q2; Q3; Q4; Q5; Q6; Q7; Q8; Q9; Q10; Q11; Q12; Q13;
+               Q14; Q15; Q16; Q17; Q18; Q19; Q20; Q21; Q22; Q23; Q24; Q25;
+               Q26; Q27; Q28; Q29; Q30; Q31])`,
+  CORE_SAFE_TAC);;
+
+(* The wrapper's f_events gets an EXPLICIT witness rather than CONCRETIZE + UNIFY_REFL:
+   the latter leaves the core's X_CHOOSE'd f_events_callee variable in the witness, which
+   then escapes its scope and makes the CHOOSE fail at extraction.  The explicit witness
+   is closed over the chosen variable's own application, so each branch closes by
+   REFL / APPEND_ASSOC / DISCHARGE_MEMACCESS and UNIFY_REFL is never reached. *)
+
+(* Build the explicit wrapper f_events witness from the goal's own core f_events var. *)
+let build_wrapper_witness (asl:(string*thm)list) : term =
+  let fev = find_term (fun t -> is_var t &&
+     (let n = fst(dest_var t) in String.length n >= 15 && String.sub n 0 15 = "f_events_callee"))
+     (concl (assoc "CORE" asl)) in
+  mk_abs(`in_p:int64`, mk_abs(`key_p:int64`, mk_abs(`htbl_p:int64`,
+   mk_abs(`out_p:int64`, mk_abs(`xi_p:int64`, mk_abs(`ivec_p:int64`,
+   mk_abs(`nblk:num`, mk_abs(`pc:num`, mk_abs(`sp:int64`, mk_abs(`ra:int64`,
+    let core_app = list_mk_comb(fev, [`in_p:int64`;`key_p:int64`;`htbl_p:int64`;`out_p:int64`;`xi_p:int64`;`ivec_p:int64`;`nblk:num`;`pc:num`;`sp:int64`]) in
+    let nblk0 = `[EventJump (word (pc + 5956),ra:int64); EventJump (word (pc + 4),word (pc + 5952))]:(uarch_event)list` in
+    let epi = `[EventJump (word (pc + 4580),ra:int64); EventLoad (sp:int64,16); EventLoad (word_add sp (word 48),16); EventLoad (word_add sp (word 32),16); EventLoad (word_add sp (word 16),16)]:(uarch_event)list` in
+    let pro = `[EventStore (word_add sp (word 48),16); EventStore (word_add sp (word 32),16); EventStore (word_add sp (word 16),16); EventStore (sp:int64,16); EventJump (word (pc + 12),word (pc + 16)); EventJump (word (pc + 4),word (pc + 8))]:(uarch_event)list` in
+    mk_cond(`nblk:num = 0`, nblk0,
+      mk_comb(mk_comb(`APPEND:(uarch_event)list->(uarch_event)list->(uarch_event)list`, epi),
+        mk_comb(mk_comb(`APPEND:(uarch_event)list->(uarch_event)list->(uarch_event)list`, core_app), pro))))))))))))) ;;
+
+let find_e2_rhs w =
+  let e2v = `e2:(uarch_event)list` in
+  rhs (find_term (fun t -> is_eq t && lhs t = e2v) w);;
+
+let WRAPPER_SAFE_TAC coreth =
+  ASSUME_CALLEE_SAFETY_TAILED_TAC coreth "CORE" THEN
+  W(fun (asl,w) -> EXISTS_TAC (build_wrapper_witness asl)) THEN
+  REWRITE_TAC[NONOVERLAPPING_CLAUSES;PAIRWISE;ALLPAIRS;ALL] THEN
+  REWRITE_TAC[C_ARGUMENTS;C_RETURN;SOME_FLAGS] THEN REPEAT GEN_TAC THEN
+  DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC) THEN BETA_TAC THEN
+  ASM_CASES_TAC `nblk = 0` THENL
+   [ FIRST_X_ASSUM SUBST_ALL_TAC THEN REWRITE_TAC[COND_CLAUSES] THEN
+     REWRITE_TAC[MULT_CLAUSES;ADD_CLAUSES;ARITH_RULE`128*0=0`;ARITH_RULE`16*0=0`] THEN
+     REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI;MODIFIABLE_SIMD_REGS;
+       MODIFIABLE_GPRS;MODIFIABLE_UPPER_SIMD_REGS;fst EXEC] THEN
+     ENSURES_INIT_TAC "s0" THEN ARM_STEPS_TAC EXEC (1--4) THEN
+     ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+     EXISTS_TAC `[EventJump (word (pc + 5956),returnaddress); EventJump (word (pc + 4),word (pc + 5952))]:(uarch_event)list` THEN
+     REWRITE_TAC[APPEND] THEN REWRITE_TAC[VAL_WORD_0] THEN CONV_TAC NUM_REDUCE_CONV THEN
+     REWRITE_TAC[memaccess_inbounds; ALL; EX; FST; SND];
+     ASM_REWRITE_TAC[COND_CLAUSES] THEN
+     SUBGOAL_THEN `1 <= nblk` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+     REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI;MODIFIABLE_SIMD_REGS;
+       MODIFIABLE_GPRS;MODIFIABLE_UPPER_SIMD_REGS;fst EXEC] THEN
+     ENSURES_EXISTING_PRESERVED_TAC `SP` THEN
+     MAP_EVERY (fun c -> ENSURES_PRESERVED_DREG_TAC ("init_"^fst(dest_const c)) c)
+       [`D8`;`D9`;`D10`;`D11`;`D12`;`D13`;`D14`;`D15`] THEN
+     REWRITE_TAC(!simulation_precanon_thms) THEN ENSURES_INIT_TAC "s0" THEN
+     RULE_ASSUM_TAC(REWRITE_RULE[WB_MC_LEN]) THEN
+     WB_GUARD_FALLTHROUGH_TAC THEN ARM_STEPS_TAC EXEC (1--8) THEN
+     W(fun (asl,w) ->
+        let s8ev = find (fun (_,th) -> let c = concl th in
+            is_eq c && (try rator(lhs c) = `read events` with _ -> false)
+                     && (try rand(lhs c) = `s8:armstate` with _ -> false)) asl in
+        let pd = subst [`[]:(uarch_event)list`,`e:(uarch_event)list`] (rhs (concl (snd s8ev))) in
+        USE_THEN "CORE" (fun cth -> MP_TAC (SPECL
+          [`e:(uarch_event)list`;`pc:num`;`word_sub stackpointer (word 80):int64`;
+           `in_p:int64`;`out_p:int64`;`xi_p:int64`;`ivec_p:int64`;`key_p:int64`;
+           `htbl_p:int64`;`nblk:num`; pd] cth))) THEN
+     ANTS_TAC THENL
+      [ASM_REWRITE_TAC[NONOVERLAPPING_CLAUSES;PAIRWISE;ALLPAIRS;ALL] THEN
+       REPEAT CONJ_TAC THEN TRY(FIRST_ASSUM ACCEPT_TAC) THEN
+       MATCH_MP_TAC ALIGNED_WORD_SUB THEN ASM_REWRITE_TAC[] THEN
+       REWRITE_TAC[aligned;WORD_VAL] THEN CONV_TAC WORD_REDUCE_CONV THEN
+       REWRITE_TAC[DIMINDEX_64] THEN CONV_TAC NUM_DIVIDES_CONV; ALL_TAC] THEN
+     REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI;MODIFIABLE_SIMD_REGS;
+       MODIFIABLE_GPRS;MODIFIABLE_UPPER_SIMD_REGS;fst EXEC] THEN
+     ARM_BIGSTEP_TAC EXEC "s9" THENL [REWRITE_TAC[C_ARGUMENTS;APPEND] THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+     REWRITE_TAC(!simulation_precanon_thms) THEN ARM_STEPS_TAC EXEC (10--15) THEN
+     ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+     CONJ_TAC THENL
+      [ W(fun (asl,w) -> EXISTS_TAC (find_e2_rhs w)) THEN
+        REWRITE_TAC[GSYM APPEND_ASSOC; APPEND] THEN ASM_REWRITE_TAC[] THEN
+        DISCHARGE_MEMACCESS_INBOUNDS_TAC;
+        REWRITE_TAC[WORD_BLAST`(word_zx:int128->int64)(word_zx(x:int64))=x`] THEN CONV_TAC WORD_RULE ]];;
+
+let full_spec,public_vars = mk_safety_spec
+    ~keep_maychanges:true
+    (assoc "aesv8_gcm_8x_dec_256_wb" subroutine_signatures)
+    AESV8_GCM_8X_DEC_256_SUBROUTINE_CORRECT
+    AESV8_GCM_8X_DEC_256_WB_EXEC;;
+
+let AESV8_GCM_8X_DEC_256_SUBROUTINE_SAFE = prove
+ (`exists f_events.
+     forall e pc stackpointer in_p out_p xi_p ivec_p key_p htbl_p nblk
+            (rk:(int128)list) ctr0 nonce c returnaddress.
+         128 * nblk < 2 EXP 62 /\
+         val in_p + 16 * nblk < 2 EXP 63 /\
+         LENGTH rk = 15 /\
+         aligned 16 stackpointer /\
+         word_reversefields 8 ctr0 = ctr_block nonce c /\
+         ALLPAIRS nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16]
+         [word pc,LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,16 * nblk;
+          key_p,240; htbl_p,192; word_sub stackpointer (word 80),80] /\
+         PAIRWISE nonoverlapping [out_p,16 * nblk; xi_p,16; ivec_p,16] /\
+         ALL (nonoverlapping (word_sub stackpointer (word 80),80))
+         [word pc,LENGTH aesv8_gcm_8x_dec_256_wb_mc; in_p,16 * nblk;
+          key_p,240; htbl_p,192]
+         ==> ensures arm
+             (\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
+                  read PC s = word pc /\
+                  read SP s = stackpointer /\
+                  read X30 s = returnaddress /\
+                  C_ARGUMENTS
+                  [in_p; word (128 * nblk); out_p; xi_p; ivec_p; key_p; htbl_p]
+                  s /\
+                  read events s = e)
+             (\s. read PC s = returnaddress /\
+                  (exists e2.
+                       read events s = APPEND e2 e /\
+                       e2 =
+                       f_events in_p key_p htbl_p out_p xi_p ivec_p nblk pc
+                       (word_sub stackpointer (word 80))
+                       returnaddress /\
+                       memaccess_inbounds e2
+                       [in_p,val (word (128 * nblk):int64) DIV 8 * 1; xi_p,16;
+                        ivec_p,16; key_p,244; htbl_p,256;
+                        out_p,val (word (128 * nblk):int64) DIV 8 * 1;
+                        word_sub stackpointer (word 80),80]
+                       [out_p,val (word (128 * nblk):int64) DIV 8 * 1; xi_p,16;
+                        ivec_p,16; word_sub stackpointer (word 80),80]))
+             (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+              MAYCHANGE
+              [memory :> bytes (out_p,16 * nblk); memory :> bytes (xi_p,16);
+               memory :> bytes (ivec_p,16);
+               memory :> bytes (word_sub stackpointer (word 80),80)])`,
+  ASSERT_CONCL_TAC full_spec THEN
+  WRAPPER_SAFE_TAC AESV8_GCM_8X_DEC_256_SAFE);;
+
+let () =
+  if hyp AESV8_GCM_8X_DEC_256_SUBROUTINE_SAFE <> [] then
+    failwith "AESV8_GCM_8X_DEC_256_SUBROUTINE_SAFE: unexpected hypotheses"
+  else if List.length (axioms()) <> 3 then
+    failwith "AESV8_GCM_8X_DEC_256_SUBROUTINE_SAFE: unexpected axiom count"
+  else Format.print_string
+    "AESV8_GCM_8X_DEC_256_SUBROUTINE_SAFE hyps=0, axioms=3\n";;
