@@ -17446,6 +17446,8 @@ let () =
      "(list_of_seq (gcm_dec_nist_input inblock) nblk)); spelled entirely in "^
      "word_reversefields 8, zero word_bytereverse; derived from the FIPS-197 form "^
      "by spell + BREV_RF8_128) hyps=0, axioms=3\n");;
+
+
 (* ------------------------------------------------------------------------- *)
 (* Constant-time and memory safety proof.                                    *)
 (* ------------------------------------------------------------------------- *)
@@ -17517,10 +17519,22 @@ let pc_info (asl,_) =
     (sidx, off)
   with _ -> (-1, -3);;
 
-(* ---- DRIVE_TAC target maxsteps : recursive tactic form of drive_to ----
+(* ---- DRIVE_TAC target maxsteps ----
    Steps ARM instrs one at a time from the current state; when the PC becomes a
    symbolic if-term, applies WB_TAIL_RESOLVE2_TAC to make it concrete, then steps;
-   stops when PC = word (pc + target). Composes with THENL => committable. *)
+   stops when PC = word (pc + target).
+
+   This is GEN_PROVE_SAFETY_SPEC_TAC's own driver loop (common/consttime.ml:560-573:
+   find the `read PC` assumption, compare its RHS to the destination, else take one
+   more step) with one addition, which is why the stock tactic cannot be called here:
+   the nblk dispatch leaves the PC a symbolic if-term part-way through a leg, and the
+   stock loop has no resolver for that -- it only ever compares for equality, so it
+   would stop, having neither reached the destination nor made progress.  Resolving
+   such a PC by hand is what the corpus does at bignum_emontredc_8n.ml:1150
+   (UNDISCH the if-term PC, rewrite it concrete, DISCH, keep stepping).  Here that
+   would have to be repeated at every dispatch point of all 24 driven legs -- the
+   sixteen concrete nblk bands and the eight tail residues -- so the resolve step is
+   folded into the loop instead of being written out per band. ---- *)
 let rec DRIVE_TAC target maxsteps : tactic = fun (asl,w) ->
   if maxsteps <= 0 then failwith "DRIVE_TAC: maxsteps exhausted" else
   let (sidx, off) = pc_info (asl,w) in
@@ -17962,25 +17976,42 @@ let AESV8_GCM_8X_DEC_256_SAFE = prove
    is closed over the chosen variable's own application, so each branch closes by
    REFL / APPEND_ASSOC / DISCHARGE_MEMACCESS and UNIFY_REFL is never reached. *)
 
-(* Build the explicit wrapper f_events witness from the goal's own core f_events var. *)
-let build_wrapper_witness (asl:(string*thm)list) : term =
-  let fev = find_term (fun t -> is_var t &&
-     (let n = fst(dest_var t) in String.length n >= 15 && String.sub n 0 15 = "f_events_callee"))
-     (concl (assoc "CORE" asl)) in
-  mk_abs(`in_p:int64`, mk_abs(`key_p:int64`, mk_abs(`htbl_p:int64`,
-   mk_abs(`out_p:int64`, mk_abs(`xi_p:int64`, mk_abs(`ivec_p:int64`,
-   mk_abs(`nblk:num`, mk_abs(`pc:num`, mk_abs(`sp:int64`, mk_abs(`ra:int64`,
-    let core_app = list_mk_comb(fev, [`in_p:int64`;`key_p:int64`;`htbl_p:int64`;`out_p:int64`;`xi_p:int64`;`ivec_p:int64`;`nblk:num`;`pc:num`;`sp:int64`]) in
-    let nblk0 = `[EventJump (word (pc + 5956),ra:int64); EventJump (word (pc + 4),word (pc + 5952))]:(uarch_event)list` in
-    let epi = `[EventJump (word (pc + 4580),ra:int64); EventLoad (sp:int64,16); EventLoad (word_add sp (word 48),16); EventLoad (word_add sp (word 32),16); EventLoad (word_add sp (word 16),16)]:(uarch_event)list` in
-    let pro = `[EventStore (word_add sp (word 48),16); EventStore (word_add sp (word 32),16); EventStore (word_add sp (word 16),16); EventStore (sp:int64,16); EventJump (word (pc + 12),word (pc + 16)); EventJump (word (pc + 4),word (pc + 8))]:(uarch_event)list` in
-    mk_cond(`nblk:num = 0`, nblk0,
-      mk_comb(mk_comb(`APPEND:(uarch_event)list->(uarch_event)list->(uarch_event)list`, epi),
-        mk_comb(mk_comb(`APPEND:(uarch_event)list->(uarch_event)list->(uarch_event)list`, core_app), pro))))))))))))) ;;
+(* The witness in full: the prologue's four register spills and two guard jumps, the
+   core's own trace, and the epilogue's reloads and return jump, with the nblk=0 leg
+   branching straight from the guard to the return.  f_events_core is a placeholder for
+   the core's trace; the only part that cannot be written down is which variable holds
+   it, since ASSUME_CALLEE_SAFETY_TAILED_TAC mints that name from a counter of its own
+   (common/safety.ml:317). *)
+let wrapper_witness_template =
+ `\(in_p:int64) (key_p:int64) (htbl_p:int64) (out_p:int64) (xi_p:int64)
+   (ivec_p:int64) (nblk:num) (pc:num) (sp:int64) (ra:int64).
+     if nblk = 0
+     then [EventJump (word (pc + 5956),ra);
+           EventJump (word (pc + 4),word (pc + 5952))]
+     else APPEND
+          [EventJump (word (pc + 4580),ra); EventLoad (sp,16);
+           EventLoad (word_add sp (word 48),16);
+           EventLoad (word_add sp (word 32),16);
+           EventLoad (word_add sp (word 16),16)]
+          (APPEND
+           (f_events_core in_p key_p htbl_p out_p xi_p ivec_p nblk pc sp)
+          [EventStore (word_add sp (word 48),16);
+           EventStore (word_add sp (word 32),16);
+           EventStore (word_add sp (word 16),16); EventStore (sp,16);
+           EventJump (word (pc + 12),word (pc + 16));
+           EventJump (word (pc + 4),word (pc + 8))]):(uarch_event)list`;;
 
-let find_e2_rhs w =
-  let e2v = `e2:(uarch_event)list` in
-  rhs (find_term (fun t -> is_eq t && lhs t = e2v) w);;
+let f_events_core_placeholder =
+  find_term (fun t -> is_var t && name_of t = "f_events_core")
+            wrapper_witness_template;;
+
+(* Plug the core's chosen f_events variable into the template above.  The corpus reads
+   that variable the same way, by its name prefix: common/consttime.ml:634 and :949. *)
+let build_wrapper_witness (asl:(string*thm)list) : term =
+  let fev = find_term
+     (fun t -> is_var t && find_substring (name_of t) "f_events_callee" <> None)
+     (concl (assoc "CORE" asl)) in
+  subst [fev, f_events_core_placeholder] wrapper_witness_template;;
 
 let WRAPPER_SAFE_TAC coreth =
   ASSUME_CALLEE_SAFETY_TAILED_TAC coreth "CORE" THEN
@@ -18029,7 +18060,7 @@ let WRAPPER_SAFE_TAC coreth =
      REWRITE_TAC(!simulation_precanon_thms) THEN ARM_STEPS_TAC EXEC (10--15) THEN
      ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
      CONJ_TAC THENL
-      [ W(fun (asl,w) -> EXISTS_TAC (find_e2_rhs w)) THEN
+      [ HINT_EXISTS_REFL_TAC THEN
         REWRITE_TAC[GSYM APPEND_ASSOC; APPEND] THEN ASM_REWRITE_TAC[] THEN
         DISCHARGE_MEMACCESS_INBOUNDS_TAC;
         REWRITE_TAC[WORD_BLAST`(word_zx:int128->int64)(word_zx(x:int64))=x`] THEN CONV_TAC WORD_RULE ]];;
