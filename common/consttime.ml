@@ -34,6 +34,47 @@ find_stack_access_size `MAYCHANGE [memory :> bytes (stackpointer,264)]`;;
 find_stack_access_size `MAYCHANGE [memory :> bytes(z,8 * 8);
                     memory :> bytes(word_sub stackpointer (word 224),224)]`;;
 
+(* Parse a C buffer-size expression into a term of :num type. Multiplication
+   and integer division have equal precedence and associate to the left, as in
+   C. Splitting at the rightmost operator gives the corresponding syntax tree. *)
+let rec elemsz_to_hol c_var_to_hol (s:string): term =
+  let s = if starts_with ">=" s
+    then String.sub s 2 (String.length s - 2) else s in
+  let rightmost_muldiv =
+    let choose i j =
+      match i,j with
+      | None,None -> None
+      | Some i,None -> Some(i,'*')
+      | None,Some j -> Some(j,'/')
+      | Some i,Some j -> if i > j then Some(i,'*') else Some(j,'/') in
+    choose (String.rindex_opt s '*') (String.rindex_opt s '/') in
+  match rightmost_muldiv with
+  | Some(idx,op) ->
+      if idx = 0 || idx = String.length s - 1 then
+        failwith ("elemsz_to_hol: malformed expression: " ^ s)
+      else
+        let expr_lhs = String.sub s 0 idx in
+        let expr_rhs = String.sub s (idx+1) (String.length s - idx - 1) in
+        let hol_op = if op = '*' then "*" else "DIV" in
+        mk_binary hol_op
+          (elemsz_to_hol c_var_to_hol expr_lhs,
+           elemsz_to_hol c_var_to_hol expr_rhs)
+  | None ->
+      try mk_small_numeral (int_of_string s)
+      with Failure _ ->
+        let v = c_var_to_hol s in
+        match dest_type (type_of v) with
+        | ("num",_) -> v
+        | _ -> (* word ty *) mk_icomb (`val:(N)word->num`,v);;
+
+let () =
+  let test_var s =
+    assoc s ["bit_len",`bit_len:int64`; "a",`a:num`; "b",`b:num`; "c",`c:num`] in
+  assert (elemsz_to_hol test_var "bit_len/8" = `val (bit_len:int64) DIV 8`);
+  assert (elemsz_to_hol test_var "a/b/c" = `(a DIV b) DIV c`);
+  assert (elemsz_to_hol test_var "a*b/c" = `(a * b) DIV c`);
+  assert (elemsz_to_hol test_var "a/b*c" = `(a DIV b) * c`);;
+
 (* Create a safety spec. This returns a safety spec using ensures, as well
    as the universally quantified variables that are public information.
 
@@ -111,33 +152,6 @@ let gen_mk_safety_spec
       Some (find_term find_eq_returnaddress fnspec_precond)
     with Failure _ -> None in
 
-  (* An expression s to a term of :num type. *)
-  let rec elemsz_to_hol (s:string): term =
-    let s = if starts_with ">=" s
-      then String.sub s 2 (String.length s - 2) else s in
-
-    match String.index_opt s '*' with
-    | Some idx ->
-      let expr_lhs = String.sub s 0 idx in
-      let l = String.length s in
-      let expr_rhs = String.sub s (idx+1) (l - idx - 1) in
-      mk_binary "*" (elemsz_to_hol expr_lhs, elemsz_to_hol expr_rhs)
-    | None ->
-     (match String.index_opt s '/' with
-      | Some idx ->
-        (* integer division, e.g. a size given in the header as "bit_len/8" *)
-        let expr_lhs = String.sub s 0 idx in
-        let l = String.length s in
-        let expr_rhs = String.sub s (idx+1) (l - idx - 1) in
-        mk_binary "DIV" (elemsz_to_hol expr_lhs, elemsz_to_hol expr_rhs)
-      | None ->
-       (try mk_small_numeral (int_of_string s)
-        with Failure _ ->
-          let v = c_var_to_hol s in
-          match dest_type (type_of v) with
-          | ("num",_) -> v
-          | _ -> (* word ty *) mk_icomb (`val:(N)word->num`,v))) in
-
   (* memreads/writes without stackpointer and pc; (base pointer, size) list. *)
   let (memreads:(term*term)list), (memwrites:(term*term)list) =
     let fn =
@@ -145,7 +159,9 @@ let gen_mk_safety_spec
         c_mem_addr_to_hol (c_var_to_hol c_varname),
         (try mk_small_numeral (elemty_size * int_of_string range)
          with Failure _ ->
-           mk_binary "*" (elemsz_to_hol range, mk_small_numeral elemty_size))) in
+           mk_binary "*"
+             (elemsz_to_hol c_var_to_hol range,
+              mk_small_numeral elemty_size))) in
 
     map fn (meminputs @ memoutputs @ memtemps),
     map fn (memoutputs @ memtemps) in
