@@ -562,6 +562,10 @@ aes_gcm/aes128_gcm_dec.native: $(AES_GCM_PROOF_UTILS)
 aes_gcm/aes128_gcm_enc.native: $(AES_GCM_PROOF_UTILS)
 aes_gcm/aes256_gcm_dec.native: $(AES_GCM_PROOF_UTILS)
 aes_gcm/aes256_gcm_enc.native: $(AES_GCM_PROOF_UTILS)
+# The 8x whole-blocks decrypt proof loads them too, and the concrete-key
+# instances of htable_mem_8 in arm/proofs/utils/aes_gcm_htable_kat.ml.
+aes_gcm/aesv8_gcm_8x_dec_256_wb.native: $(AES_GCM_PROOF_UTILS) \
+                                        proofs/utils/aes_gcm_htable_kat.ml
 
 # aes_encrypt_decrypt tutorial concatenates proofs for both aes_encrypt.S and aes_decrypt.S
 tutorial/aes_encrypt_decrypt.native: tutorial/aes_encrypt_decrypt.ml \
