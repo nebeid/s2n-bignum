@@ -5,7 +5,7 @@
 
 (* ========================================================================= *)
 (* Recursive AES-256 counter-mode (CTR) ciphertext spec over an int128 block *)
-(* list. Part of the shared AES-GCM specification.                           *)
+(* list, used by the AES-256-GCM 8x decrypt proof.                           *)
 (*                                                                           *)
 (* CTR is symmetric: the same spec serves encrypt and decrypt because both   *)
 (* apply word_xor x (aes256_encrypt (gcm_ctr_inc_iter k ctr0) keys).         *)
@@ -21,39 +21,12 @@
 
 needs "arm/proofs/utils/gcm_ctr_helpers.ml";;
 needs "arm/proofs/utils/aes_encrypt_spec.ml";;
-(* ctr_block, the NIST counter block: 96-bit nonce followed by a 32-bit      *)
-(* big-endian counter.                                                       *)
-needs "arm/proofs/utils/aes_gcm_spec.ml";;
 (* Reuse the AES-XTS byte-list substrate: byte_list_at, bytes_to_int128,     *)
 (* int128_to_bytes, and the shared readback machinery. These are built on    *)
 (* aes256_encrypt, so no aes256_block_enc bridge is needed here.             *)
 needs "arm/proofs/utils/aes_xts_common.ml";;
 
-(* ========================================================================= *)
-(* The per-block CTR keystream term. Encrypt and decrypt use the same        *)
-(* keystream; CTR differs only in which side is supplied as `inblock`.       *)
-(* ========================================================================= *)
-
-(* One CTR keystream block for NIST counter index i, over the house          *)
-(* aes256_encrypt and the round keys as read from memory. (aes_ctr_block in  *)
-(* aes_gcm_spec.ml is the FIPS-197 form, over a block cipher parameter.)     *)
-(* The counter remains general; there is no hardcoded +2.                    *)
-(*                                                                           *)
-(* The ARM kernel loads the counter in little-endian memory order and runs   *)
-(* the house aes256_encrypt primitive, so the byte reversal belongs inside:  *)
-(*   aes256_encrypt (word_bytereverse (ctr_block nonce i)) rk                *)
-(* Moving the reversal outside aes256_encrypt produces a different word.     *)
-(*                                                                           *)
-(* Here `rk` is the round-key list exactly as read from memory. The exported *)
-(* FIPS-197 contracts convert every key with MAP (word_reversefields 8) and  *)
-(* convert the cipher result back. That relation is proved in                *)
-(* arm/proofs/utils/aes_cipher_bridge.ml.                                    *)
-let aes256_encrypt_ctr_block = new_definition
- `aes256_encrypt_ctr_block (nonce:96 word) (rk:int128 list) (i:num) : int128 =
-    aes256_encrypt (word_bytereverse (ctr_block nonce i)) rk`;;
-
 (* One CTR output block: data XOR the AES-256 keystream for block index k.   *)
-(* aes256_encrypt_ctr_block above is the keystream alone.                    *)
 (* This four-argument definition applies CTR to a plaintext/ciphertext block *)
 (* indexed by raw ctr0/k rather than by a NIST nonce/counter pair.           *)
 let aes_ctr_output_block = new_definition
