@@ -17754,7 +17754,8 @@ static size_t hw_gcm_decrypt_wb_min(const uint8_t *in, uint8_t *out, size_t len,
   const size_t len_blocks = len & kSizeTWithoutLower4Bits;
   if (!len_blocks) return 0;
   if (CRYPTO_is_ARMv8_GCM_8x_capable() && len >= min_len && key->rounds == 14) {
-    aesv8_gcm_8x_dec_256_wb(in, len_blocks * 8, out, Xi, ivec, key, Htable);
+    aesv8_gcm_8x_dec_256_wb(in, len_blocks * 8, out, (uint64_t *)Xi, ivec, key,
+                            Htable);
   } else {
     return 0;
   }
@@ -17947,7 +17948,8 @@ int test_aesv8_gcm_8x_dec_256_wb_guard(void)
 #ifdef __x86_64__
   return 1;
 #else
-  uint8_t key[32], ivec[16], xi[16], ivec0[16], xi0[16];
+  uint8_t key[32], ivec[16], ivec0[16];
+  uint64_t xi[2], xi0[2];
   s2n_bignum_AES_KEY ek;
   uint64_t Htable_v8[2 * 16];
   // Bad bit_lens must span the band aws-lc actually dispatches here (>= 256 B,
@@ -17961,7 +17963,7 @@ int test_aesv8_gcm_8x_dec_256_wb_guard(void)
 
   printf("Testing the aesv8_gcm_8x_dec_256_wb whole-blocks guard\n");
 
-  random_bytes(key, 32); random_bytes(ivec, 16); random_bytes(xi, 16);
+  random_bytes(key, 32); random_bytes(ivec, 16); random_bytes((uint8_t *)xi, 16);
   memcpy(ivec0, ivec, 16); memcpy(xi0, xi, 16);
   ref_aes256_expand_key(key, &ek); ek.rounds = 14;
   uint8_t zero[16] = {0}, Hbytes[16];
