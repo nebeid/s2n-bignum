@@ -17680,7 +17680,6 @@ int test_aes_gcm_htable(void)
   return 0;
 }
 
-
 int test_aes_xts_roundtrip(void)
 {
 #ifdef __x86_64__
