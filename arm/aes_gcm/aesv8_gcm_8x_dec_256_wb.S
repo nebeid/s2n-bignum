@@ -28,14 +28,15 @@
 // the caller's responsibility, as in AWS-LC's GCM layer, whose
 // crypto/fipsmodule/modes/gcm.c passes whole blocks only.
 //
-// The table "htable" is the full 192-byte Htable that gcm_init_v8 derives
-// from the subkey H = AES_K(0^128). Its twelve 16-byte entries hold, in
-// order, H, m(H,H^2), H^2, H^3, m(H^3,H^4), H^4, H^5, m(H^5,H^6), H^6, H^7,
-// m(H^7,H^8), H^8, where the powers are in the bit-reflected ("twisted")
-// representation that gcm_init_v8 uses and m(A,B) packs the Karatsuba middle
-// terms A.lo ^ A.hi (low 64 bits) and B.lo ^ B.hi (high 64 bits) of two
-// neighbouring powers into one entry. The reference implementation in
-// tests/ref_aes_gcm.c (ref_gcm_init_htable) constructs it independently.
+// The table "htable" is the twelve 16-byte entries (192 bytes) that
+// gcm_init_v8 writes at the start of its Htable, derived from the subkey
+// H = AES_K(0^128). They hold, in order, H, m(H,H^2), H^2, H^3, m(H^3,H^4),
+// H^4, H^5, m(H^5,H^6), H^6, H^7, m(H^7,H^8), H^8, where the powers are in
+// the bit-reflected ("twisted") representation that gcm_init_v8 uses and
+// m(A,B) packs the Karatsuba middle terms A.lo ^ A.hi (low 64 bits) and
+// B.lo ^ B.hi (high 64 bits) of two neighbouring powers into one entry. The
+// reference implementation in tests/ref_aes_gcm.c (ref_gcm_init_htable)
+// constructs the same table independently.
 // Of "key" only the 15 round keys (240 bytes) are read, not key->rounds, and
 // of "htable" only these 192 bytes.
 //
