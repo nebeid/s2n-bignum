@@ -82,7 +82,7 @@ let EL_LAST_BLOCKS = prove
    aes_ctr_full_tail_bytes) through the block-list tail-masker
    gcm_ghash_full_tail_blocks (nfull full blocks ++ masked block nfull), the GHASH
    analogue of aes_ctr_full_tail_bytes.  GHASHes the RAW input blocks (the one
-   genuine dec/enc difference — enc GHASHes gcm_ct_rec).
+   genuine dec/enc difference -- enc GHASHes gcm_ct_rec).
    ---------------------------------------------------------------------------- *)
 let gcm_ghash_full_tail_blocks = new_definition
  `gcm_ghash_full_tail_blocks (blks:int128 list) (nfull:num) (tail:num) : int128 list =

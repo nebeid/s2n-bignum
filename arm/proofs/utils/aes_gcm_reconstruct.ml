@@ -1,3 +1,8 @@
+(*
+ * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT-0
+ *)
+
 (* ========================================================================= *)
 (* AES tower reconstruction lemmas, shared across the AES-GCM                *)
 (* decrypt chain (wb bands, NIST convergence layer, future main-loop proof). *)
