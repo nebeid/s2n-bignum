@@ -107,25 +107,16 @@ let LENGTH_INT128_LIST_TO_BYTES = prove
   ASM_REWRITE_TAC[int128_list_to_bytes; LENGTH; LENGTH_APPEND;
                   LENGTH_INT128_TO_BYTES] THEN ARITH_TAC);;
 
-(* whole-block (tail = 16) byte ciphertext for the full block buffer.        *)
+(* Byte ciphertext of the whole block list.                                  *)
 let aes_ctr_bytes = new_definition
  `aes_ctr_bytes (ctr0:int128) (pts:int128 list) (keys:int128 list) : byte list =
     int128_list_to_bytes (aes_ctr ctr0 pts keys)`;;
 
 (* ========================================================================= *)
-(* Masked PARTIAL-TAIL byte_list_at bridge (1 <= bl <= 16 bytes).            *)
-(*                                                                           *)
-(* The binary reads a partial last block as a full 128-bit register and      *)
-(* writes a masked blend of the ciphertext and prior output. The low bl      *)
-(* bytes are ciphertext; the high 16-bl bytes retain the caller's output.    *)
-(* byte_list_at over bl bytes constrains only the low bl bytes, matching the *)
-(* first bl ciphertext bytes and the nfull=0 aes256_gcm_encrypt tail:        *)
-(* word_and ct (word (2 EXP (8*tail) - 1)).                                  *)
-(*                                                                           *)
-(* The byte-extraction sublemmas here (SUBWORD_BYTES_TO_INT128,              *)
-(* BYTE8_OF_BYTES128, EL_SUB_LIST_0 and EL_INT128_TO_BYTES) share names     *)
-(* with the encrypt-side spec. BYTES128_TO_BYTES8_THM already                *)
-(* lives in aes_xts_common.ml.                                               *)
+(* Byte-extraction sublemmas for the whole-block byte_list_at bridges of     *)
+(* the 8x decrypt proof: a bytes128 read seen as its 16 bytes8 reads, and    *)
+(* byte i of an int128 (or of a flattened int128 list) as a word_subword.    *)
+(* BYTES128_TO_BYTES8_THM itself lives in aes_xts_common.ml.                 *)
 (* ========================================================================= *)
 
 let BYTES128_TO_BYTES8_0 =
@@ -151,45 +142,11 @@ let BYTE8_OF_BYTES128 = prove(
   CONV_TAC EXPAND_CASES_CONV THEN
   REWRITE_TAC EL_16_8_CLAUSES THEN REWRITE_TAC[WORD_ADD_0]);;
 
-let EL_SUB_LIST_0 = prove(
- `!(l:A list) n i. i < n ==> EL i (SUB_LIST(0,n) l) = EL i l`,
-  LIST_INDUCT_TAC THEN REPEAT GEN_TAC THEN DISCH_TAC THENL
-   [REWRITE_TAC[SUB_LIST_CLAUSES];
-    ASM_CASES_TAC `n = 0` THENL [ASM_MESON_TAC[LT]; ALL_TAC] THEN
-    SUBGOAL_THEN `n = SUC(n-1)` SUBST1_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
-    REWRITE_TAC[SUB_LIST_CLAUSES] THEN
-    ASM_CASES_TAC `i = 0` THEN ASM_REWRITE_TAC[EL; HD; TL] THEN
-    SUBGOAL_THEN `i = SUC(i-1)` SUBST1_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
-    REWRITE_TAC[EL; TL] THEN
-    FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC]);;
-
 let EL_INT128_TO_BYTES = prove(
  `!w i. i < 16 ==> EL i (int128_to_bytes w):byte = word_subword w (8*i,8)`,
   GEN_TAC THEN REWRITE_TAC[int128_to_bytes] THEN
   CONV_TAC EXPAND_CASES_CONV THEN REWRITE_TAC EL_16_8_CLAUSES THEN
   CONV_TAC(DEPTH_CONV WORD_NUM_RED_CONV) THEN REWRITE_TAC[]);;
-
-(* ========================================================================= *)
-(* General N-block masked-tail byte_list_at bridge, analogous to             *)
-(* OUT_BRIDGE_GEN.                                                           *)
-(*                                                                           *)
-(* nfull full-block stores (each = EL k (aes_ctr ...)) + one masked partial  *)
-(* tail store (block nfull, low `tail` bytes ciphertext, high bytes outprev) *)
-(* ==> byte_list_at over the combined byte spec aes_ctr_full_tail_bytes, for *)
-(* val len = 16*nfull + tail, 1 <= tail <= 16.  Same shape as the           *)
-(* encrypt-side OUT_BRIDGE_GEN (byte-index case                              *)
-(* split, reusing the byte-extraction sublemmas above).                      *)
-(* ========================================================================= *)
-
-(* Byte ciphertext: nfull complete blocks followed by the first `tail` bytes *)
-(* of masked block nfull. This is the aes256_gcm_encrypt analogue.           *)
-let aes_ctr_full_tail_bytes = new_definition
- `aes_ctr_full_tail_bytes (ctr0:int128) (pts:int128 list) (keys:int128 list)
-                          (nfull:num) (tail:num) : byte list =
-    APPEND (int128_list_to_bytes (SUB_LIST (0,nfull) (aes_ctr ctr0 pts keys)))
-           (SUB_LIST (0,tail) (int128_to_bytes
-              (word_and (EL nfull (aes_ctr ctr0 pts keys))
-                        (word (2 EXP (8 * tail) - 1)))))`;;
 
 (* num DIV/MOD step lemmas for the int128_list_to_bytes per-byte unfolding.  *)
 let DIV16_STEP = prove
@@ -226,107 +183,3 @@ let EL_INT128_LIST_TO_BYTES = prove
      [ASM_ARITH_TAC; ALL_TAC] THEN
     SUBGOAL_THEN `16 <= i` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
     ASM_SIMP_TAC[DIV16_STEP; MOD16_STEP; EL; TL]]);;
-
-let LENGTH_INT128_LIST_TO_BYTES_SUBLIST = prove
- (`!cts nfull. nfull <= LENGTH cts
-     ==> LENGTH(int128_list_to_bytes (SUB_LIST (0,nfull) cts)) = 16 * nfull`,
-  REPEAT STRIP_TAC THEN
-  REWRITE_TAC[LENGTH_INT128_LIST_TO_BYTES; LENGTH_SUB_LIST] THEN
-  ASM_SIMP_TAC[ARITH_RULE `nfull <= n ==> MIN (0 + nfull) n - 0 = nfull`] THEN
-  ASM_ARITH_TAC);;
-
-let BYTE_LIST_AT_NBLOCK_CTR = prove(
- `!ctr0 pts keys nfull tail out_p (len:int64) outprev s.
-    1 <= tail /\ tail <= 16 /\ val len = 16 * nfull + tail /\ nfull < LENGTH pts /\
-    (!k. k < nfull
-         ==> read (memory :> bytes128 (word_add out_p (word (16 * k)))) s =
-             EL k (aes_ctr ctr0 pts keys)) /\
-    read (memory :> bytes128 (word_add out_p (word (16 * nfull)))) s =
-      word_xor (word_and (EL nfull (aes_ctr ctr0 pts keys))
-                         (word (2 EXP (8 * tail) - 1)))
-               (word_and outprev (word_not (word (2 EXP (8 * tail) - 1))))
-    ==> byte_list_at (aes_ctr_full_tail_bytes ctr0 pts keys nfull tail) out_p len s`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  REWRITE_TAC[byte_list_at; aes_ctr_full_tail_bytes] THEN
-  X_GEN_TAC `i:num` THEN ASM_REWRITE_TAC[] THEN DISCH_TAC THEN
-  SUBGOAL_THEN `LENGTH(int128_list_to_bytes (SUB_LIST (0,nfull) (aes_ctr ctr0 pts keys))) = 16 * nfull`
-     ASSUME_TAC THENL
-   [MATCH_MP_TAC LENGTH_INT128_LIST_TO_BYTES_SUBLIST THEN
-    ASM_SIMP_TAC[LENGTH_AES_CTR] THEN ASM_ARITH_TAC; ALL_TAC] THEN
-  ASM_CASES_TAC `i < 16 * nfull` THENL
-   [ASM_SIMP_TAC[EL_APPEND] THEN
-    SUBGOAL_THEN `i DIV 16 < nfull` ASSUME_TAC THENL
-     [ASM_SIMP_TAC[RDIV_LT_EQ; ARITH_EQ] THEN ASM_ARITH_TAC; ALL_TAC] THEN
-    SUBGOAL_THEN `i < 16 * LENGTH(SUB_LIST (0,nfull) (aes_ctr ctr0 pts keys))` ASSUME_TAC THENL
-     [ASM_SIMP_TAC[LENGTH_SUB_LIST; LENGTH_AES_CTR] THEN ASM_ARITH_TAC; ALL_TAC] THEN
-    ASM_SIMP_TAC[EL_INT128_LIST_TO_BYTES; EL_SUB_LIST_0] THEN
-    SUBGOAL_THEN `word_add out_p (word i):int64 =
-         word_add (word_add out_p (word (16 * (i DIV 16)))) (word (i MOD 16))`
-       SUBST1_TAC THENL
-     [SUBGOAL_THEN `i = 16 * (i DIV 16) + i MOD 16`
-        (fun th -> GEN_REWRITE_TAC (LAND_CONV o RAND_CONV o RAND_CONV) [th]) THENL
-       [MESON_TAC[DIVISION_SIMP]; ALL_TAC] THEN CONV_TAC WORD_RULE; ALL_TAC] THEN
-    MP_TAC(SPECL [`word_add out_p (word (16 * (i DIV 16))):int64`; `s:armstate`; `i MOD 16`]
-       BYTE8_OF_BYTES128) THEN
-    ANTS_TAC THENL [REWRITE_TAC[MOD_LT_EQ; ARITH_EQ]; ALL_TAC] THEN
-    DISCH_THEN(fun th -> GEN_REWRITE_TAC (LAND_CONV o ONCE_DEPTH_CONV) [th]) THEN
-    FIRST_X_ASSUM(fun th -> if is_forall(concl th) then MP_TAC(SPEC `i DIV 16` th) else NO_TAC) THEN
-    ASM_REWRITE_TAC[] THEN DISCH_THEN SUBST1_TAC THEN REFL_TAC;
-    ASM_SIMP_TAC[EL_APPEND] THEN
-    ABBREV_TAC `j = i - 16 * nfull` THEN
-    SUBGOAL_THEN `j < tail /\ j < 16 /\ i = 16 * nfull + j` STRIP_ASSUME_TAC THENL
-     [EXPAND_TAC "j" THEN ASM_ARITH_TAC; ALL_TAC] THEN
-    ASM_SIMP_TAC[EL_SUB_LIST_0; EL_INT128_TO_BYTES] THEN
-    SUBGOAL_THEN `word_add out_p (word (16 * nfull + j)):int64 =
-         word_add (word_add out_p (word (16 * nfull))) (word j)` SUBST1_TAC THENL
-     [CONV_TAC WORD_RULE; ALL_TAC] THEN
-    MP_TAC(SPECL [`word_add out_p (word (16 * nfull)):int64`; `s:armstate`; `j:num`]
-       BYTE8_OF_BYTES128) THEN
-    ANTS_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
-    DISCH_THEN(fun th -> GEN_REWRITE_TAC (LAND_CONV o ONCE_DEPTH_CONV) [th]) THEN
-    FIRST_X_ASSUM(fun th ->
-       if (try lhs(concl th) =
-            `read (memory :> bytes128 (word_add out_p (word (16 * nfull)))) s` with _ -> false)
-       then GEN_REWRITE_TAC (LAND_CONV o ONCE_DEPTH_CONV) [th] else NO_TAC) THEN
-    REWRITE_TAC[WORD_EQ_BITS_ALT; BIT_WORD_SUBWORD; BIT_WORD_XOR; BIT_WORD_AND; BIT_WORD_NOT;
-                BIT_MASK_WORD; DIMINDEX_8; DIMINDEX_128] THEN
-    X_GEN_TAC `b:num` THEN STRIP_TAC THEN
-    SUBGOAL_THEN `8 * j + b < 8 * tail` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
-    SUBGOAL_THEN `8 * j + b < 128` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
-    ASM_REWRITE_TAC[]]);;
-
-(* ----------------------------------------------------------------------------
-   WHOLE-BLOCK (tail = 16) collapse: the masked full+tail byte buffer equals the
-   plain whole-block aes_ctr_bytes when the tail mask is all-ones.  Used by the
-   whole-blocks-only decrypt variant (aesv8_gcm_8x_dec_256_wb) wrappers.
-   ---------------------------------------------------------------------------- *)
-let WORD_AND_ALLONES_128 = prove
- (`!x:int128. word_and x (word (2 EXP (8 * 16) - 1)) = x`,
-  GEN_TAC THEN CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN CONV_TAC WORD_BLAST);;
-
-let SUB_LIST_16_INT128_TO_BYTES = prove
- (`!w:int128. SUB_LIST (0,16) (int128_to_bytes w) = int128_to_bytes w`,
-  GEN_TAC THEN MATCH_MP_TAC SUB_LIST_LENGTH_IMPLIES THEN
-  REWRITE_TAC[LENGTH_INT128_TO_BYTES]);;
-
-let AES_CTR_FULL_TAIL_BYTES_WHOLE = prove
- (`!ctr0 pts keys nfull.
-     nfull + 1 = LENGTH pts
-     ==> aes_ctr_full_tail_bytes ctr0 pts keys nfull 16 =
-         aes_ctr_bytes ctr0 pts keys`,
-  REPEAT STRIP_TAC THEN
-  REWRITE_TAC[aes_ctr_full_tail_bytes; aes_ctr_bytes; WORD_AND_ALLONES_128] THEN
-  REWRITE_TAC[SUB_LIST_16_INT128_TO_BYTES] THEN
-  SUBGOAL_THEN `LENGTH (aes_ctr ctr0 pts keys) = nfull + 1` MP_TAC THENL
-   [ASM_REWRITE_TAC[LENGTH_AES_CTR]; ALL_TAC] THEN
-  SPEC_TAC(`aes_ctr ctr0 pts keys`,`l:int128 list`) THEN
-  SPEC_TAC(`nfull:num`,`n:num`) THEN
-  INDUCT_TAC THEN LIST_INDUCT_TAC THEN
-  REWRITE_TAC[LENGTH; ADD_CLAUSES; NOT_SUC; SUC_INJ;
-              ARITH_RULE `~(0 = 1)`] THENL
-   [REWRITE_TAC[ARITH_RULE `SUC k = 1 <=> k = 0`; LENGTH_EQ_NIL] THEN
-    DISCH_THEN SUBST1_TAC THEN
-    REWRITE_TAC[SUB_LIST_CLAUSES; int128_list_to_bytes; APPEND; EL; HD; APPEND_NIL];
-    DISCH_TAC THEN REWRITE_TAC[SUB_LIST_CLAUSES; int128_list_to_bytes] THEN
-    REWRITE_TAC[EL; TL; GSYM APPEND_ASSOC] THEN AP_TERM_TAC THEN
-    FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_REWRITE_TAC[]]);;

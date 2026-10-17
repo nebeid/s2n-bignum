@@ -14,6 +14,15 @@
 (*                                                                            *)
 (* inc32 is the NIST SP 800-38D increment; see the BEGIN/END block below.   *)
 (*                                                                            *)
+(* Why this counter vocabulary is private, next to the shared ctr_block of   *)
+(* aes_gcm_spec.ml: gcm_ctr_inc is the update in exactly the form the ARM    *)
+(* simulation produces (rev32, add, rev32 on the top lane of the ivec        *)
+(* register), so the simulated postconditions of the 8x decrypt proof are    *)
+(* stated in gcm_ctr_inc / gcm_ctr_inc_iter (and in the proof's own          *)
+(* gcm_ctr_add and gcm_ctr_raw).  Restating them would mean re-simulating;   *)
+(* instead the exported theorems are moved to ctr_block nonce c through      *)
+(* GCM_CTR_INC_ITER_INC32 below and the ctr_block bridge in the proof.       *)
+(*                                                                            *)
 (* No CHEAT_TAC, no new axioms.  Depends only on base.ml (word primitives).   *)
 (* ========================================================================= *)
 
@@ -98,9 +107,12 @@ let GCM_CTR_INC_LANES = prove(
 (* ========================================================================= *)
 
 (* inc32 per NIST SP 800-38D Section 6.2.  Self-contained (word primitives
-   only, zero dependencies).
-   TODO: drop this definition and `needs "common/gcm.ml"` instead, once a
-   shared inc32 is available there. *)
+   only, zero dependencies).  It is the same definition as common/gcm.ml's
+   inc32, so loading both files is a benign redefinition.  It is repeated here
+   because common/gcm.ml also defines the rest of the SP 800-38D spec and
+   runs its KATs at load time, which this proof does not need.
+   TODO: drop this definition and `needs "common/gcm.ml"` instead, once the
+   KATs are split out of that file. *)
 let inc32 = new_definition
  `inc32 (cb:128 word) : 128 word =
     let top96:96 word = word_subword cb (32,96) in

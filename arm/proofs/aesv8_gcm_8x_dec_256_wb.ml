@@ -2444,7 +2444,7 @@ let WB_TAIL_1_TAC ivtac =
      if is_eq(concl th) && (try lhs(concl th) = `read Q19 s343` with _ -> false)
      then GEN_REWRITE_TAC LAND_CONV [th] else NO_TAC) THEN CONV_TAC WORD_BLAST;
    ALL_TAC] THEN
-  (* 344 = str q19,[x3] (tag store); exit at pc+4560 *)
+  (* 344 = st1 {v19.16b},[x3] (tag store); exit at pc+4560 *)
   ARM_VSTEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC [344] THEN
   DISCARD_COUNTER_ONLY_TAC THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
@@ -2530,7 +2530,7 @@ let WB_TAIL_2_TAC ivtac =
      if is_eq(concl th) && (try lhs(concl th) = `read Q19 s357` with _ -> false)
      then GEN_REWRITE_TAC LAND_CONV [th] else NO_TAC) THEN CONV_TAC WORD_BLAST;
    ALL_TAC] THEN
-  (* 358 = str q19,[x3] (tag store); exit at pc+4560 *)
+  (* 358 = st1 {v19.16b},[x3] (tag store); exit at pc+4560 *)
   ARM_VSTEPS_TAC AESV8_GCM_8X_DEC_256_WB_EXEC [358] THEN
   DISCARD_COUNTER_ONLY_TAC THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
@@ -3081,12 +3081,10 @@ let INPUT_BYTES_TO_BYTE128_LANES = prove
     ANTS_TAC THENL [ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC; ALL_TAC] THEN
     DISCH_THEN(MP_TAC o SPEC `k:num`) THEN ASM_REWRITE_TAC[]]);;
 
-(* ---- WB_FRONT_BUF construction (route A: harvest the s265 state) ----------
-   The postcond has 8 raw 13-round aese/aesmc towers (~2666ch each) that cannot
-   be hand-written, and the printed statement does NOT reparse (type annots
-   lost).  So: run the front once against a MINIMAL postcond, harvest the s265
-   assumptions into the real postcond term, assemble the goal, prove.  The
-   front therefore simulates twice (once to harvest, once in the proof). ---- *)
+(* ---- WB_FRONT_BUF construction --------------------------------------------
+   The postcondition is the simulated front's s265 state (wb_front_postcond
+   below, with its 8 in-flight 13-round keystream towers folded to aes13), built
+   with term builders, so the front is simulated once, in the proof. ---- *)
 
 let wb_front_pre_tm = `\s. aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc /\
           read PC s = word (pc + 0x20) /\ read SP s = stackpointer /\
@@ -3152,19 +3150,11 @@ let mk_wb_front_goal postcond =
               `ensures arm PPP QQQ CCC` in
   list_mk_forall(wb_front_vars, mk_imp(wb_front_hyps_tm, ens));;
 
-(* The s265 postcondition, embedded as a fully-type-annotated literal so the
-   front simulates ONCE (in the WB_FRONT_BUF proof).
-   COMPACT FORM: the 8 in-flight keystream towers are folded to
-   aes13 (gcm_ctr_inc^i ctr0) k0..k13 (GSYM aes13 + GSYM GCM_CTR_INCi_LANES),
-   which shrinks the raw harvested term from ~83k to ~19k chars and makes the
-   Q-register conjuncts readable.  The WB_FRONT_BUF proof applies the same fold
-   to the simulated assumptions (wb_front_fold_tac) before final-state matching.
-   Provenance: the conjunction of the aligned_bytes_loaded fact and every
-   `read _ s265 = _` assumption of the simulated front's final state (with s265
-   abstracted to s), folded with
-     (REWRITE_CONV[GSYM aes13] THENC REWRITE_CONV(map GSYM wb_ctr_lanes_thms)),
-   printed with print_types_of_subterms := 2, and with every "(&:num->int)"
-   replaced by "(int_of_num:num->int)" (the bare & does not reparse). *)
+(* The s265 postcondition wb_front_postcond (below) is stated in COMPACT FORM:
+   the 8 in-flight keystream towers are folded to aes13 (gcm_ctr_inc^i ctr0)
+   k0..k13 (GSYM aes13 + GSYM GCM_CTR_INCi_LANES), which makes the Q-register
+   conjuncts readable.  The WB_FRONT_BUF proof applies the same fold to the
+   simulated assumptions (wb_front_fold_tac) before final-state matching. *)
 let wb_ctr_lanes_thms =
   [GCM_CTR_INC_LANES; GCM_CTR_INC2_LANES; GCM_CTR_INC3_LANES; GCM_CTR_INC4_LANES;
    GCM_CTR_INC5_LANES; GCM_CTR_INC6_LANES; GCM_CTR_INC7_LANES];;
@@ -3178,7 +3168,10 @@ let wb_front_fold_tac =
    Sec-4 invariant pins Q30 = gcm_ctr_raw (word (8*i+13)) ctr0.  Its algebra
    lemmas (SUBW_RAW_*, GCM_CTR_RAW_INCR, REV32_FOLD_TAC) are body-only, Sec 9b.
    rev32(gcm_ctr_raw w ctr0) = gcm_ctr_add w ctr0 (the AES input for block w);
-   word_add (gcm_ctr_raw w ctr0) (word 2^96) = gcm_ctr_raw (word_add w 1) ctr0. *)
+   word_add (gcm_ctr_raw w ctr0) (word 2^96) = gcm_ctr_raw (word_add w 1) ctr0.
+   Like gcm_ctr_inc and gcm_ctr_add it is machine-level vocabulary, the
+   register value the simulation produces, so it stays private; no exported
+   statement mentions it. *)
 let gcm_ctr_raw_def = new_definition
  `gcm_ctr_raw (w:32 word) (ctr0:int128) : int128 =
    word_join
@@ -3196,729 +3189,133 @@ let gcm_ctr_raw_def = new_definition
       (word_join (word_join (word_subword ctr0 (0,8):8 word) (word_subword ctr0 (8,8):8 word):16 word)
         (word_join (word_subword ctr0 (16,8):8 word) (word_subword ctr0 (24,8):8 word):16 word):32 word):64 word):int128`;;
 
-let wb_front_postcond = parse_term {|\(s:armstate).
-    (aligned_bytes_loaded:armstate->(64)word->((8)word)list->bool)
-    (s:armstate)
-    ((word:num->(64)word) (pc:num))
-    (aesv8_gcm_8x_dec_256_wb_mc:((8)word)list) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (PC:(armstate,(64)word)component)
-    (s:armstate) =
-    (word:num->(64)word) ((pc:num) + 3828) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q24:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((polyval_dot:(128)word->(128)word->(128)word)
-         ((polyval_dot:(128)word->(128)word->(128)word)
-          ((polyval_dot:(128)word->(128)word->(128)word)
-           ((byteswap128:(128)word->(128)word) (h:(128)word))
-          ((byteswap128:(128)word->(128)word) (h:(128)word)))
-         ((byteswap128:(128)word->(128)word) (h:(128)word)))
-        ((byteswap128:(128)word->(128)word) (h:(128)word)))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word)))))
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((polyval_dot:(128)word->(128)word->(128)word)
-         ((polyval_dot:(128)word->(128)word->(128)word)
-          ((byteswap128:(128)word->(128)word) (h:(128)word))
-         ((byteswap128:(128)word->(128)word) (h:(128)word)))
-        ((byteswap128:(128)word->(128)word) (h:(128)word)))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q25:(armstate,(128)word)component)
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((polyval_dot:(128)word->(128)word->(128)word)
-         ((polyval_dot:(128)word->(128)word->(128)word)
-          ((polyval_dot:(128)word->(128)word->(128)word)
-           ((byteswap128:(128)word->(128)word) (h:(128)word))
-          ((byteswap128:(128)word->(128)word) (h:(128)word)))
-         ((byteswap128:(128)word->(128)word) (h:(128)word)))
-        ((byteswap128:(128)word->(128)word) (h:(128)word)))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))) /\
-    ((read:(armstate,bool)component->armstate->bool)
-     (NF:(armstate,bool)component)
-     (s:armstate) <=>
-     (ival:(64)word->int)
-     ((word_sub:(64)word->(64)word->(64)word)
-      ((word:num->(64)word) (16 * (nblk:num)))
-     ((word:num->(64)word) 112)) <
-     (int_of_num:num->int)0) /\
-    ((read:(armstate,bool)component->armstate->bool)
-     (ZF:(armstate,bool)component)
-     (s:armstate) <=>
-     (val:(64)word->num)
-     ((word_sub:(64)word->(64)word->(64)word)
-      ((word:num->(64)word) (16 * (nblk:num)))
-     ((word:num->(64)word) 112)) =
-     0) /\
-    ((read:(armstate,bool)component->armstate->bool)
-     (CF:(armstate,bool)component)
-     (s:armstate) <=>
-     112 <= (val:(64)word->num) ((word:num->(64)word) (16 * (nblk:num)))) /\
-    ((read:(armstate,bool)component->armstate->bool)
-     (VF:(armstate,bool)component)
-     (s:armstate) <=>
-     ~((ival:(64)word->int) ((word:num->(64)word) (16 * (nblk:num))) -
-       (int_of_num:num->int)112 =
-       (ival:(64)word->int)
-       ((word_sub:(64)word->(64)word->(64)word)
-        ((word:num->(64)word) (16 * (nblk:num)))
-       ((word:num->(64)word) 112)))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q16:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_subword:(256)word->num#num->(128)word)
-    ((word_join:(128)word->(128)word->(256)word)
-     ((word_bytereverse:(128)word->(128)word) (xi:(128)word))
-    ((word_bytereverse:(128)word->(128)word) (xi:(128)word)))
-    (64,128) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q7:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))))))))
-    (k0:(128)word)
-    (k1:(128)word)
-    (k2:(128)word)
-    (k3:(128)word)
-    (k4:(128)word)
-    (k5:(128)word)
-    (k6:(128)word)
-    (k7:(128)word)
-    (k8:(128)word)
-    (k9:(128)word)
-    (k10:(128)word)
-    (k11:(128)word)
-    (k12:(128)word)
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q6:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word)))))))
-    (k0:(128)word)
-    (k1:(128)word)
-    (k2:(128)word)
-    (k3:(128)word)
-    (k4:(128)word)
-    (k5:(128)word)
-    (k6:(128)word)
-    (k7:(128)word)
-    (k8:(128)word)
-    (k9:(128)word)
-    (k10:(128)word)
-    (k11:(128)word)
-    (k12:(128)word)
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q0:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-    (ctr0:(128)word)
-    (k0:(128)word)
-    (k1:(128)word)
-    (k2:(128)word)
-    (k3:(128)word)
-    (k4:(128)word)
-    (k5:(128)word)
-    (k6:(128)word)
-    (k7:(128)word)
-    (k8:(128)word)
-    (k9:(128)word)
-    (k10:(128)word)
-    (k11:(128)word)
-    (k12:(128)word)
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q1:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))
-    (k0:(128)word)
-    (k1:(128)word)
-    (k2:(128)word)
-    (k3:(128)word)
-    (k4:(128)word)
-    (k5:(128)word)
-    (k6:(128)word)
-    (k7:(128)word)
-    (k8:(128)word)
-    (k9:(128)word)
-    (k10:(128)word)
-    (k11:(128)word)
-    (k12:(128)word)
-    (k13:(128)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes64:(64)word->((64)word->(8)word,(64)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (stackpointer:(64)word)
-     ((word:num->(64)word) 64)))
-    (s:armstate) =
-    (word:num->(64)word) 13979173243358019584 /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes64:(64)word->((64)word->(8)word,(64)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (stackpointer:(64)word)
-     ((word:num->(64)word) 72)))
-    (s:armstate) =
-    (word:num->(64)word) 0 /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X11:(armstate,(64)word)component)
-    (s:armstate) =
-    (key_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X9:(armstate,(64)word)component)
-    (s:armstate) =
-    (word:num->(64)word) (16 * (nblk:num)) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (SP:(armstate,(64)word)component)
-    (s:armstate) =
-    (stackpointer:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X1:(armstate,(64)word)component)
-    (s:armstate) =
-    (word:num->(64)word) (128 * (nblk:num)) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X2:(armstate,(64)word)component)
-    (s:armstate) =
-    (out_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X3:(armstate,(64)word)component)
-    (s:armstate) =
-    (xi_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X6:(armstate,(64)word)component)
-    (s:armstate) =
-    (htbl_p:(64)word) /\
-    (read:(armstate,num)component->armstate->num)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes:(64)word#num->((64)word->(8)word,num)component)
-     ((in_p:(64)word),16 * (nblk:num)))
-    (s:armstate) =
-    (num_of_bytelist:((8)word)list->num) (ibytes:((8)word)list) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     (xi_p:(64)word))
-    (s:armstate) =
-    (xi:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     (ivec_p:(64)word))
-    (s:armstate) =
-    (ctr0:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     (key_p:(64)word))
-    (s:armstate) =
-    (k0:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 16)))
-    (s:armstate) =
-    (k1:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 32)))
-    (s:armstate) =
-    (k2:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 48)))
-    (s:armstate) =
-    (k3:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 64)))
-    (s:armstate) =
-    (k4:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 80)))
-    (s:armstate) =
-    (k5:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 96)))
-    (s:armstate) =
-    (k6:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 112)))
-    (s:armstate) =
-    (k7:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 128)))
-    (s:armstate) =
-    (k8:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 144)))
-    (s:armstate) =
-    (k9:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 160)))
-    (s:armstate) =
-    (k10:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 176)))
-    (s:armstate) =
-    (k11:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 192)))
-    (s:armstate) =
-    (k12:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 208)))
-    (s:armstate) =
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 224)))
-    (s:armstate) =
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     (htbl_p:(64)word))
-    (s:armstate) =
-    (h:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 16)))
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((byteswap128:(128)word->(128)word) (h:(128)word))
-    ((byteswap128:(128)word->(128)word) (h:(128)word)))))
-    ((karatsuba_mid:(128)word->(64)word) (h:(128)word)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 32)))
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((byteswap128:(128)word->(128)word) (h:(128)word))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 48)))
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((byteswap128:(128)word->(128)word) (h:(128)word))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 64)))
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((byteswap128:(128)word->(128)word) (h:(128)word))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word)))))
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((byteswap128:(128)word->(128)word) (h:(128)word))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 80)))
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((byteswap128:(128)word->(128)word) (h:(128)word))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 96)))
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((byteswap128:(128)word->(128)word) (h:(128)word))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 112)))
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((polyval_dot:(128)word->(128)word->(128)word)
-         ((byteswap128:(128)word->(128)word) (h:(128)word))
-        ((byteswap128:(128)word->(128)word) (h:(128)word)))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word)))))
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((byteswap128:(128)word->(128)word) (h:(128)word))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 128)))
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((polyval_dot:(128)word->(128)word->(128)word)
-         ((byteswap128:(128)word->(128)word) (h:(128)word))
-        ((byteswap128:(128)word->(128)word) (h:(128)word)))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 144)))
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((polyval_dot:(128)word->(128)word->(128)word)
-         ((polyval_dot:(128)word->(128)word->(128)word)
-          ((byteswap128:(128)word->(128)word) (h:(128)word))
-         ((byteswap128:(128)word->(128)word) (h:(128)word)))
-        ((byteswap128:(128)word->(128)word) (h:(128)word)))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 160)))
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((polyval_dot:(128)word->(128)word->(128)word)
-         ((polyval_dot:(128)word->(128)word->(128)word)
-          ((polyval_dot:(128)word->(128)word->(128)word)
-           ((byteswap128:(128)word->(128)word) (h:(128)word))
-          ((byteswap128:(128)word->(128)word) (h:(128)word)))
-         ((byteswap128:(128)word->(128)word) (h:(128)word)))
-        ((byteswap128:(128)word->(128)word) (h:(128)word)))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word)))))
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((polyval_dot:(128)word->(128)word->(128)word)
-         ((polyval_dot:(128)word->(128)word->(128)word)
-          ((byteswap128:(128)word->(128)word) (h:(128)word))
-         ((byteswap128:(128)word->(128)word) (h:(128)word)))
-        ((byteswap128:(128)word->(128)word) (h:(128)word)))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 176)))
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((polyval_dot:(128)word->(128)word->(128)word)
-         ((polyval_dot:(128)word->(128)word->(128)word)
-          ((polyval_dot:(128)word->(128)word->(128)word)
-           ((byteswap128:(128)word->(128)word) (h:(128)word))
-          ((byteswap128:(128)word->(128)word) (h:(128)word)))
-         ((byteswap128:(128)word->(128)word) (h:(128)word)))
-        ((byteswap128:(128)word->(128)word) (h:(128)word)))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     (in_p:(64)word))
-    (s:armstate) =
-    (bytes_to_int128:((8)word)list->(128)word)
-    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (0,16)
-    (ibytes:((8)word)list)) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X16:(armstate,(64)word)component)
-    (s:armstate) =
-    (ivec_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X10:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_add:(64)word->(64)word->(64)word) (stackpointer:(64)word)
-    ((word:num->(64)word) 64) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X15:(armstate,(64)word)component)
-    (s:armstate) =
-    (word:num->(64)word) 4294967296 /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q31:(armstate,(128)word)component)
-    (s:armstate) =
-    (word:num->(128)word) 79228162514264337593543950336 /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q19:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_bytereverse:(128)word->(128)word) (xi:(128)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X4:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-    ((word:num->(64)word) (16 * (nblk:num))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q27:(armstate,(128)word)component)
-    (s:armstate) =
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q26:(armstate,(128)word)component)
-    (s:armstate) =
-    (k12:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q28:(armstate,(128)word)component)
-    (s:armstate) =
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q5:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))))))
-    (k0:(128)word)
-    (k1:(128)word)
-    (k2:(128)word)
-    (k3:(128)word)
-    (k4:(128)word)
-    (k5:(128)word)
-    (k6:(128)word)
-    (k7:(128)word)
-    (k8:(128)word)
-    (k9:(128)word)
-    (k10:(128)word)
-    (k11:(128)word)
-    (k12:(128)word)
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q2:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word)))
-    (k0:(128)word)
-    (k1:(128)word)
-    (k2:(128)word)
-    (k3:(128)word)
-    (k4:(128)word)
-    (k5:(128)word)
-    (k6:(128)word)
-    (k7:(128)word)
-    (k8:(128)word)
-    (k9:(128)word)
-    (k10:(128)word)
-    (k11:(128)word)
-    (k12:(128)word)
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q4:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word)))))
-    (k0:(128)word)
-    (k1:(128)word)
-    (k2:(128)word)
-    (k3:(128)word)
-    (k4:(128)word)
-    (k5:(128)word)
-    (k6:(128)word)
-    (k7:(128)word)
-    (k8:(128)word)
-    (k9:(128)word)
-    (k10:(128)word)
-    (k11:(128)word)
-    (k12:(128)word)
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q3:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))))
-    (k0:(128)word)
-    (k1:(128)word)
-    (k2:(128)word)
-    (k3:(128)word)
-    (k4:(128)word)
-    (k5:(128)word)
-    (k6:(128)word)
-    (k7:(128)word)
-    (k8:(128)word)
-    (k9:(128)word)
-    (k10:(128)word)
-    (k11:(128)word)
-    (k12:(128)word)
-    (k13:(128)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X5:(armstate,(64)word)component)
-    (s:armstate) =
-    (word:num->(64)word) (16 * (nblk:num)) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X0:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-    ((word:num->(64)word) 16) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q9:(armstate,(128)word)component)
-    (s:armstate) =
-    (bytes_to_int128:((8)word)list->(128)word)
-    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (0,16)
-    (ibytes:((8)word)list))|};;
+(* ---- term builders for the simulated postconditions ------------------------
+   wb_front_postcond (below), wbn_front_prefix259_postcond,
+   wbn_front_prefix_postcond, wbn_front_postcond_i0 and wbn_prepretail_post_raw
+   each describe the final state of a simulation (of the front, the shared
+   prefix or the prepretail): the aligned_bytes_loaded fact and every
+   `read _ sN = _` assumption (folded by wb_front_fold_tac), with sN abstracted
+   to s, in the order the simulator leaves them.  They are built from the term
+   families below. *)
+
+(* h-power towers: dot j = polyval_dot^(j-1) over byteswap128 h *)
+let rec hdot j = if j = 1 then `byteswap128 h`
+  else mk_comb(mk_comb(`polyval_dot:int128->int128->int128`, hdot (j-1)), `byteswap128 h`);;
+(* counter i: gcm_ctr_inc^i ctr0 *)
+let mk_ctr i =
+  let rec go n = if n = 0 then `ctr0:int128`
+    else mk_comb(`gcm_ctr_inc`, go (n-1)) in go i;;
+(* input block i as the 128-bit lane the kernel loads *)
+let mk_cph i = subst [mk_small_numeral(16*i),`nnn:num`]
+  `bytes_to_int128 (SUB_LIST (nnn,16) (ibytes:byte list))`;;
+
+(* the conjunct `read c s = v`, and the postcondition \s. c1 /\ ... /\ cn *)
+let wbp_rd c v = mk_eq(list_mk_icomb "read" [c; `s:armstate`], v);;
+let wbp_post cs = mk_abs(`s:armstate`, list_mk_conj cs);;
+(* the 13-round keystream tower aes13 ctr k0 .. k13 *)
+let wbp_aes13 ctr =
+  list_mk_comb(`aes13`, ctr :: map (fun i -> mk_var("k"^string_of_int i,`:int128`)) (0--13));;
+(* htable_mem_dec slot values: H^j (h itself for j = 1), and the packed
+   karatsuba mids of H^(j+1) and H^j *)
+let wbp_hpow j = if j = 1 then `h:int128` else mk_comb(`byteswap128`, hdot j);;
+let wbp_hmid j = mk_comb(mk_comb(`word_join:int64->int64->int128`,
+  mk_comb(`karatsuba_mid`, wbp_hpow (j+1))), mk_comb(`karatsuba_mid`, wbp_hpow j));;
+(* read (memory :> bytes128 (base + 16 * i)) s *)
+let wbp_mem128 base i =
+  let addr = if i = 0 then base
+    else subst [base,`bbb:int64`; mk_small_numeral(16*i),`nnn:num`] `word_add bbb (word nnn):int64` in
+  subst [addr,`aaa:int64`] `read (memory :> bytes128 (aaa:int64)) s:int128`;;
+(* the key schedule k0 .. k14 and the 12 htable_mem_dec slots, as read from memory *)
+let wbp_key_reads =
+  map (fun i -> mk_eq(wbp_mem128 `key_p:int64` i, mk_var("k"^string_of_int i,`:int128`))) (0--14);;
+let wbp_htable_reads =
+  conjuncts(rhs(concl((REWRITE_CONV[htable_mem_dec] THENC TOP_DEPTH_CONV let_CONV)
+    `htable_mem_dec h htbl_p s`)));;
+(* NZCV after cmp a, #n and after cmp a, b *)
+let wbp_cmpi_flags a n = map (subst [a,`aaa:int64`; mk_small_numeral n,`nnn:num`])
+  [`read NF s <=> ival (word_sub aaa (word nnn):int64) < &0`;
+   `read ZF s <=> val (word_sub aaa (word nnn):int64) = 0`;
+   `read CF s <=> nnn <= val (aaa:int64)`;
+   `read VF s <=> ~(ival (aaa:int64) - &nnn = ival (word_sub aaa (word nnn):int64))`];;
+let wbp_cmp_flags a b = map (subst [a,`aaa:int64`; b,`bbb:int64`])
+  [`read NF s <=> ival (word_sub aaa bbb:int64) < &0`;
+   `read ZF s <=> val (word_sub aaa bbb:int64) = 0`;
+   `read CF s <=> val (bbb:int64) <= val (aaa:int64)`;
+   `read VF s <=> ~(ival (aaa:int64) - ival (bbb:int64) = ival (word_sub aaa bbb:int64))`];;
+(* the raw counter words: wbp_bytes4 x [a;b;c;d] joins the bytes of x at bit
+   offsets a, b, c, d; wbp_lane b is the 32-bit lane of ctr0 at bit b grouped as
+   gcm_ctr_raw groups it, wbp_revlane b the same bytes in the opposite order *)
+let wbp_bytes4 x offs =
+  let byte k = mk_comb(mk_icomb(`word_subword:A word->num#num->8 word`, x),
+                       mk_pair(mk_small_numeral k, `8`)) in
+  let j16 a b = mk_comb(mk_comb(`word_join:8 word->8 word->16 word`, a), b)
+  and j32 a b = mk_comb(mk_comb(`word_join:16 word->16 word->32 word`, a), b) in
+  match map byte offs with
+    [a;b;c;d] -> j32 (j16 a b) (j16 c d)
+  | _ -> failwith "wbp_bytes4";;
+let wbp_lane b = wbp_bytes4 `ctr0:int128` [b; b+8; b+16; b+24];;
+let wbp_revlane b = wbp_bytes4 `ctr0:int128` [b+24; b+16; b+8; b];;
+let wbp_add32 x n = mk_comb(mk_comb(`word_add:32 word->32 word->32 word`, x),
+                            mk_comb(`word:num->32 word`, mk_small_numeral n));;
+let wbp_join128 a b c d =
+  let j64 x y = mk_comb(mk_comb(`word_join:32 word->32 word->64 word`, x), y) in
+  mk_comb(mk_comb(`word_join:64 word->64 word->128 word`, j64 a b), j64 c d);;
+(* v30 after the front's add v30 steps: top lane + w, then + 1; the other lanes + 0 *)
+let wbp_raw_acc w =
+  wbp_join128 (wbp_add32 (wbp_add32 (wbp_lane 96) w) 1) (wbp_add32 (wbp_lane 64) 0)
+              (wbp_add32 (wbp_lane 32) 0) (wbp_add32 (wbp_lane 0) 0);;
+(* rev32 of the raw counter with top lane + w: the AES input block for counter w *)
+let wbp_rev_ctr w =
+  wbp_join128 (wbp_bytes4 (wbp_add32 (wbp_lane 96) w) [0; 8; 16; 24])
+              (wbp_revlane 64) (wbp_revlane 32) (wbp_revlane 0);;
+(* the registers the prologue sets up for the whole kernel (Q19 holds xi reversed) *)
+let wbp_ctx xi =
+  [`read X16 s = ivec_p`;
+   `read X10 s = word_add stackpointer (word 64)`;
+   `read X15 s = word 4294967296`;
+   `read Q31 s = word 79228162514264337593543950336`;
+   wbp_rd `Q19` (mk_comb(`word_bytereverse:int128->int128`, xi));
+   `read X4 s = word_add in_p (word (16 * nblk))`;
+   `read Q27 s = k13`;
+   `read Q26 s = k12`;
+   `read Q28 s = k14`];;
+(* decrypted block i, word_xor (word_xor cph_i (aes13 ctr_i k0..k13)) k14, and its store *)
+let wbp_pt i = mk_comb(mk_comb(`word_xor:int128->int128->int128`,
+  mk_comb(mk_comb(`word_xor:int128->int128->int128`, mk_cph i), wbp_aes13 (mk_ctr i))), `k14:int128`);;
+let wbp_out i = mk_eq(wbp_mem128 `out_p:int64` i, wbp_pt i);;
+
+let wb_front_postcond = wbp_post
+ ([`aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
+   `read PC s = word (pc + 3828)`;
+   wbp_rd `Q24` (wbp_hmid 7);
+   wbp_rd `Q25` (wbp_hpow 8)] @
+  wbp_cmpi_flags `word (16 * nblk):int64` 112 @
+  [`read Q16 s = word_subword (word_join (word_bytereverse (xi:int128)) (word_bytereverse xi):256 word) (64,128)`;
+   wbp_rd `Q7` (wbp_aes13 (mk_ctr 7));
+   wbp_rd `Q6` (wbp_aes13 (mk_ctr 6));
+   wbp_rd `Q0` (wbp_aes13 (mk_ctr 0));
+   wbp_rd `Q1` (wbp_aes13 (mk_ctr 1));
+   `read (memory :> bytes64 (word_add stackpointer (word 64))) s = word 13979173243358019584`;
+   `read (memory :> bytes64 (word_add stackpointer (word 72))) s = word 0`;
+   `read X11 s = key_p`;
+   `read X9 s = word (16 * nblk)`;
+   `read SP s = stackpointer`;
+   `read X1 s = word (128 * nblk)`;
+   `read X2 s = out_p`;
+   `read X3 s = xi_p`;
+   `read X6 s = htbl_p`;
+   `read (memory :> bytes (in_p,16 * nblk)) s = num_of_bytelist ibytes`;
+   `read (memory :> bytes128 xi_p) s = xi`;
+   `read (memory :> bytes128 ivec_p) s = ctr0`] @
+  wbp_key_reads @ wbp_htable_reads @
+  [mk_eq(wbp_mem128 `in_p:int64` 0, mk_cph 0)] @ wbp_ctx `xi:int128` @
+  [wbp_rd `Q5` (wbp_aes13 (mk_ctr 5));
+   wbp_rd `Q2` (wbp_aes13 (mk_ctr 2));
+   wbp_rd `Q4` (wbp_aes13 (mk_ctr 4));
+   wbp_rd `Q3` (wbp_aes13 (mk_ctr 3));
+   `read X5 s = word (16 * nblk)`;
+   `read X0 s = word_add in_p (word 16)`;
+   wbp_rd `Q9` (mk_cph 0)]);;
 
 (* ivec M2: carry the advanced raw counter Q30 in the front
    postcond so the <=8 DISPATCH bands + the shared WB_TAIL_GEN2_r (which prove
@@ -4132,721 +3529,40 @@ let mk_wbn_prefix259_goal postcond =
               `ensures arm PPP QQQ CCC` in
   list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_uni_tm, ens));;
 
-(* The s259 prefix postcond (state at the 0x44c b.ge, pre-branch), embedded as a
-   fully type-annotated literal so the shared prefix simulates ONCE.  X5 is the
-   general word_add(word(128*((nblk-1)DIV8)))in_p and ALL raw NF/VF/ZF/CF flag
-   facts are KEPT (each consumer's post-branch leg resolves the branch in its band).
-   Produced as wb_front_postcond above, from the final state of
-   WBN_FRONT_PREFIX259_TAC THEN wb_front_fold_tac. *)
-let wbn_front_prefix259_postcond = parse_term {|\(s:armstate).
-    (aligned_bytes_loaded:armstate->(64)word->((8)word)list->bool)
-    (s:armstate)
-    ((word:num->(64)word) (pc:num))
-    (aesv8_gcm_8x_dec_256_wb_mc:((8)word)list) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (PC:(armstate,(64)word)component)
-    (s:armstate) =
-    (word:num->(64)word) ((pc:num) + 1100) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q7:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))))))))
-    (k0:(128)word)
-    (k1:(128)word)
-    (k2:(128)word)
-    (k3:(128)word)
-    (k4:(128)word)
-    (k5:(128)word)
-    (k6:(128)word)
-    (k7:(128)word)
-    (k8:(128)word)
-    (k9:(128)word)
-    (k10:(128)word)
-    (k11:(128)word)
-    (k12:(128)word)
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q6:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word)))))))
-    (k0:(128)word)
-    (k1:(128)word)
-    (k2:(128)word)
-    (k3:(128)word)
-    (k4:(128)word)
-    (k5:(128)word)
-    (k6:(128)word)
-    (k7:(128)word)
-    (k8:(128)word)
-    (k9:(128)word)
-    (k10:(128)word)
-    (k11:(128)word)
-    (k12:(128)word)
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q0:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-    (ctr0:(128)word)
-    (k0:(128)word)
-    (k1:(128)word)
-    (k2:(128)word)
-    (k3:(128)word)
-    (k4:(128)word)
-    (k5:(128)word)
-    (k6:(128)word)
-    (k7:(128)word)
-    (k8:(128)word)
-    (k9:(128)word)
-    (k10:(128)word)
-    (k11:(128)word)
-    (k12:(128)word)
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q1:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))
-    (k0:(128)word)
-    (k1:(128)word)
-    (k2:(128)word)
-    (k3:(128)word)
-    (k4:(128)word)
-    (k5:(128)word)
-    (k6:(128)word)
-    (k7:(128)word)
-    (k8:(128)word)
-    (k9:(128)word)
-    (k10:(128)word)
-    (k11:(128)word)
-    (k12:(128)word)
-    (k13:(128)word) /\
-    ((read:(armstate,bool)component->armstate->bool)
-     (NF:(armstate,bool)component)
-     (s:armstate) <=>
-     (ival:(64)word->int)
-     ((word_sub:(64)word->(64)word->(64)word) (in_p:(64)word)
-     ((word_add:(64)word->(64)word->(64)word)
-      ((word:num->(64)word) (128 * ((nblk:num) - 1) DIV 8))
-     (in_p:(64)word))) <
-     (int_of_num:num->int)0) /\
-    ((read:(armstate,bool)component->armstate->bool)
-     (ZF:(armstate,bool)component)
-     (s:armstate) <=>
-     (val:(64)word->num)
-     ((word_sub:(64)word->(64)word->(64)word) (in_p:(64)word)
-     ((word_add:(64)word->(64)word->(64)word)
-      ((word:num->(64)word) (128 * ((nblk:num) - 1) DIV 8))
-     (in_p:(64)word))) =
-     0) /\
-    ((read:(armstate,bool)component->armstate->bool)
-     (CF:(armstate,bool)component)
-     (s:armstate) <=>
-     (val:(64)word->num)
-     ((word_add:(64)word->(64)word->(64)word)
-      ((word:num->(64)word) (128 * ((nblk:num) - 1) DIV 8))
-     (in_p:(64)word)) <=
-     (val:(64)word->num) (in_p:(64)word)) /\
-    ((read:(armstate,bool)component->armstate->bool)
-     (VF:(armstate,bool)component)
-     (s:armstate) <=>
-     ~((ival:(64)word->int) (in_p:(64)word) -
-       (ival:(64)word->int)
-       ((word_add:(64)word->(64)word->(64)word)
-        ((word:num->(64)word) (128 * ((nblk:num) - 1) DIV 8))
-       (in_p:(64)word)) =
-       (ival:(64)word->int)
-       ((word_sub:(64)word->(64)word->(64)word) (in_p:(64)word)
-       ((word_add:(64)word->(64)word->(64)word)
-        ((word:num->(64)word) (128 * ((nblk:num) - 1) DIV 8))
-       (in_p:(64)word))))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q30:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_add:(32)word->(32)word->(32)word)
-      ((word_add:(32)word->(32)word->(32)word)
-       ((word_join:(16)word->(16)word->(32)word)
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (96,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (104,8)))
-       ((word_join:(8)word->(8)word->(16)word)
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (112,8))
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-      ((word:num->(32)word) 7))
-     ((word:num->(32)word) 1))
-    ((word_add:(32)word->(32)word->(32)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (64,8))
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (72,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (80,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (88,8))))
-    ((word:num->(32)word) 0)))
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_add:(32)word->(32)word->(32)word)
-      ((word_join:(16)word->(16)word->(32)word)
-       ((word_join:(8)word->(8)word->(16)word)
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (32,8))
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (40,8)))
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (48,8))
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (56,8))))
-     ((word:num->(32)word) 0))
-    ((word_add:(32)word->(32)word->(32)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (0,8))
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (8,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (16,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (24,8))))
-    ((word:num->(32)word) 0))) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X5:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_add:(64)word->(64)word->(64)word)
-    ((word:num->(64)word) (128 * ((nblk:num) - 1) DIV 8))
-    (in_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes64:(64)word->((64)word->(8)word,(64)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (stackpointer:(64)word)
-     ((word:num->(64)word) 64)))
-    (s:armstate) =
-    (word:num->(64)word) 13979173243358019584 /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes64:(64)word->((64)word->(8)word,(64)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (stackpointer:(64)word)
-     ((word:num->(64)word) 72)))
-    (s:armstate) =
-    (word:num->(64)word) 0 /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X11:(armstate,(64)word)component)
-    (s:armstate) =
-    (key_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X9:(armstate,(64)word)component)
-    (s:armstate) =
-    (word:num->(64)word) (16 * (nblk:num)) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (SP:(armstate,(64)word)component)
-    (s:armstate) =
-    (stackpointer:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X0:(armstate,(64)word)component)
-    (s:armstate) =
-    (in_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X1:(armstate,(64)word)component)
-    (s:armstate) =
-    (word:num->(64)word) (128 * (nblk:num)) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X2:(armstate,(64)word)component)
-    (s:armstate) =
-    (out_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X3:(armstate,(64)word)component)
-    (s:armstate) =
-    (xi_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X6:(armstate,(64)word)component)
-    (s:armstate) =
-    (htbl_p:(64)word) /\
-    (read:(armstate,num)component->armstate->num)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes:(64)word#num->((64)word->(8)word,num)component)
-     ((in_p:(64)word),16 * (nblk:num)))
-    (s:armstate) =
-    (num_of_bytelist:((8)word)list->num) (ibytes:((8)word)list) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     (xi_p:(64)word))
-    (s:armstate) =
-    (xi:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     (ivec_p:(64)word))
-    (s:armstate) =
-    (ctr0:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     (key_p:(64)word))
-    (s:armstate) =
-    (k0:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 16)))
-    (s:armstate) =
-    (k1:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 32)))
-    (s:armstate) =
-    (k2:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 48)))
-    (s:armstate) =
-    (k3:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 64)))
-    (s:armstate) =
-    (k4:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 80)))
-    (s:armstate) =
-    (k5:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 96)))
-    (s:armstate) =
-    (k6:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 112)))
-    (s:armstate) =
-    (k7:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 128)))
-    (s:armstate) =
-    (k8:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 144)))
-    (s:armstate) =
-    (k9:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 160)))
-    (s:armstate) =
-    (k10:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 176)))
-    (s:armstate) =
-    (k11:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 192)))
-    (s:armstate) =
-    (k12:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 208)))
-    (s:armstate) =
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 224)))
-    (s:armstate) =
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     (htbl_p:(64)word))
-    (s:armstate) =
-    (h:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 16)))
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((byteswap128:(128)word->(128)word) (h:(128)word))
-    ((byteswap128:(128)word->(128)word) (h:(128)word)))))
-    ((karatsuba_mid:(128)word->(64)word) (h:(128)word)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 32)))
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((byteswap128:(128)word->(128)word) (h:(128)word))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 48)))
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((byteswap128:(128)word->(128)word) (h:(128)word))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 64)))
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((byteswap128:(128)word->(128)word) (h:(128)word))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word)))))
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((byteswap128:(128)word->(128)word) (h:(128)word))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 80)))
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((byteswap128:(128)word->(128)word) (h:(128)word))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 96)))
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((byteswap128:(128)word->(128)word) (h:(128)word))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 112)))
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((polyval_dot:(128)word->(128)word->(128)word)
-         ((byteswap128:(128)word->(128)word) (h:(128)word))
-        ((byteswap128:(128)word->(128)word) (h:(128)word)))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word)))))
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((byteswap128:(128)word->(128)word) (h:(128)word))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 128)))
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((polyval_dot:(128)word->(128)word->(128)word)
-         ((byteswap128:(128)word->(128)word) (h:(128)word))
-        ((byteswap128:(128)word->(128)word) (h:(128)word)))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 144)))
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((polyval_dot:(128)word->(128)word->(128)word)
-         ((polyval_dot:(128)word->(128)word->(128)word)
-          ((byteswap128:(128)word->(128)word) (h:(128)word))
-         ((byteswap128:(128)word->(128)word) (h:(128)word)))
-        ((byteswap128:(128)word->(128)word) (h:(128)word)))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 160)))
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((polyval_dot:(128)word->(128)word->(128)word)
-         ((polyval_dot:(128)word->(128)word->(128)word)
-          ((polyval_dot:(128)word->(128)word->(128)word)
-           ((byteswap128:(128)word->(128)word) (h:(128)word))
-          ((byteswap128:(128)word->(128)word) (h:(128)word)))
-         ((byteswap128:(128)word->(128)word) (h:(128)word)))
-        ((byteswap128:(128)word->(128)word) (h:(128)word)))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word)))))
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((polyval_dot:(128)word->(128)word->(128)word)
-         ((polyval_dot:(128)word->(128)word->(128)word)
-          ((byteswap128:(128)word->(128)word) (h:(128)word))
-         ((byteswap128:(128)word->(128)word) (h:(128)word)))
-        ((byteswap128:(128)word->(128)word) (h:(128)word)))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 176)))
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((polyval_dot:(128)word->(128)word->(128)word)
-         ((polyval_dot:(128)word->(128)word->(128)word)
-          ((polyval_dot:(128)word->(128)word->(128)word)
-           ((byteswap128:(128)word->(128)word) (h:(128)word))
-          ((byteswap128:(128)word->(128)word) (h:(128)word)))
-         ((byteswap128:(128)word->(128)word) (h:(128)word)))
-        ((byteswap128:(128)word->(128)word) (h:(128)word)))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     (in_p:(64)word))
-    (s:armstate) =
-    (bytes_to_int128:((8)word)list->(128)word)
-    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (0,16)
-    (ibytes:((8)word)list)) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X16:(armstate,(64)word)component)
-    (s:armstate) =
-    (ivec_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X10:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_add:(64)word->(64)word->(64)word) (stackpointer:(64)word)
-    ((word:num->(64)word) 64) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X15:(armstate,(64)word)component)
-    (s:armstate) =
-    (word:num->(64)word) 4294967296 /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q31:(armstate,(128)word)component)
-    (s:armstate) =
-    (word:num->(128)word) 79228162514264337593543950336 /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q19:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_bytereverse:(128)word->(128)word) (xi:(128)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X4:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-    ((word:num->(64)word) (16 * (nblk:num))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q27:(armstate,(128)word)component)
-    (s:armstate) =
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q26:(armstate,(128)word)component)
-    (s:armstate) =
-    (k12:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q28:(armstate,(128)word)component)
-    (s:armstate) =
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q5:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))))))
-    (k0:(128)word)
-    (k1:(128)word)
-    (k2:(128)word)
-    (k3:(128)word)
-    (k4:(128)word)
-    (k5:(128)word)
-    (k6:(128)word)
-    (k7:(128)word)
-    (k8:(128)word)
-    (k9:(128)word)
-    (k10:(128)word)
-    (k11:(128)word)
-    (k12:(128)word)
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q2:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word)))
-    (k0:(128)word)
-    (k1:(128)word)
-    (k2:(128)word)
-    (k3:(128)word)
-    (k4:(128)word)
-    (k5:(128)word)
-    (k6:(128)word)
-    (k7:(128)word)
-    (k8:(128)word)
-    (k9:(128)word)
-    (k10:(128)word)
-    (k11:(128)word)
-    (k12:(128)word)
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q4:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word)))))
-    (k0:(128)word)
-    (k1:(128)word)
-    (k2:(128)word)
-    (k3:(128)word)
-    (k4:(128)word)
-    (k5:(128)word)
-    (k6:(128)word)
-    (k7:(128)word)
-    (k8:(128)word)
-    (k9:(128)word)
-    (k10:(128)word)
-    (k11:(128)word)
-    (k12:(128)word)
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q3:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word)
-    ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))))
-    (k0:(128)word)
-    (k1:(128)word)
-    (k2:(128)word)
-    (k3:(128)word)
-    (k4:(128)word)
-    (k5:(128)word)
-    (k6:(128)word)
-    (k7:(128)word)
-    (k8:(128)word)
-    (k9:(128)word)
-    (k10:(128)word)
-    (k11:(128)word)
-    (k12:(128)word)
-    (k13:(128)word)|};;
+(* The s259 prefix postcond (state at the 0x44c b.ge, pre-branch), so the shared
+   prefix simulates ONCE.  X5 is the general word_add(word(128*((nblk-1)DIV8)))in_p
+   and ALL raw NF/VF/ZF/CF flag facts are KEPT (each consumer's post-branch leg
+   resolves the branch in its band).  Built like wb_front_postcond above, as the
+   final state of WBN_FRONT_PREFIX259_TAC THEN wb_front_fold_tac. *)
+let wbn_front_prefix259_postcond = wbp_post
+ ([`aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
+   `read PC s = word (pc + 1100)`;
+   wbp_rd `Q7` (wbp_aes13 (mk_ctr 7));
+   wbp_rd `Q6` (wbp_aes13 (mk_ctr 6));
+   wbp_rd `Q0` (wbp_aes13 (mk_ctr 0));
+   wbp_rd `Q1` (wbp_aes13 (mk_ctr 1))] @
+  wbp_cmp_flags `in_p:int64` `word_add (word (128 * (nblk - 1) DIV 8)) in_p:int64` @
+  [wbp_rd `Q30` (wbp_raw_acc 7);
+   `read X5 s = word_add (word (128 * (nblk - 1) DIV 8)) in_p`;
+   `read (memory :> bytes64 (word_add stackpointer (word 64))) s = word 13979173243358019584`;
+   `read (memory :> bytes64 (word_add stackpointer (word 72))) s = word 0`;
+   `read X11 s = key_p`;
+   `read X9 s = word (16 * nblk)`;
+   `read SP s = stackpointer`;
+   `read X0 s = in_p`;
+   `read X1 s = word (128 * nblk)`;
+   `read X2 s = out_p`;
+   `read X3 s = xi_p`;
+   `read X6 s = htbl_p`;
+   `read (memory :> bytes (in_p,16 * nblk)) s = num_of_bytelist ibytes`;
+   `read (memory :> bytes128 xi_p) s = xi`;
+   `read (memory :> bytes128 ivec_p) s = ctr0`] @
+  wbp_key_reads @ wbp_htable_reads @
+  [mk_eq(wbp_mem128 `in_p:int64` 0, mk_cph 0)] @ wbp_ctx `xi:int128` @
+  [wbp_rd `Q5` (wbp_aes13 (mk_ctr 5));
+   wbp_rd `Q2` (wbp_aes13 (mk_ctr 2));
+   wbp_rd `Q4` (wbp_aes13 (mk_ctr 4));
+   wbp_rd `Q3` (wbp_aes13 (mk_ctr 3))]);;
 
 (* THE SHARED 259-PREFIX LEMMA (proved ONCE; ~225s sim). *)
 let WBN_FRONT_PREFIX_259 = prove(mk_wbn_prefix259_goal wbn_front_prefix259_postcond,
@@ -4902,11 +3618,6 @@ let WB_FRONT_BUF = prove(mk_wb_front_goal wb_front_postcond,
 Gc.compact();;
 
 (* ---- buffer-form band statements ------------------------------------------ *)
-let mk_cph i = subst [mk_small_numeral(16*i),`nnn:num`]
-  `bytes_to_int128 (SUB_LIST (nnn,16) (ibytes:byte list))`;;
-let mk_ctr i =
-  let rec go n = if n = 0 then `ctr0:int128`
-    else mk_comb(`gcm_ctr_inc`, go (n-1)) in go i;;
 let mk_outp_read i =
   let addr = if i = 0 then `out_p:int64`
     else subst [mk_small_numeral(16*i),`nnn:num`] `word_add out_p (word nnn):int64` in
@@ -5025,9 +3736,6 @@ let fdbl_at k =
                 Q16;Q17;Q18;Q19;Q20;Q21;Q22;Q23;Q24;Q25;Q26;Q27;Q28;Q29;Q30;Q31]` in
   mk_binop `(,,):(armstate->armstate->bool)->(armstate->armstate->bool)->(armstate->armstate->bool)` fs fs;;
 
-(* h-power towers: dot j = polyval_dot^(j-1) over byteswap128 h *)
-let rec hdot j = if j = 1 then `byteswap128 h`
-  else mk_comb(mk_comb(`polyval_dot:int128->int128->int128`, hdot (j-1)), `byteswap128 h`);;
 let mk_habbrev j =
   let hv = mk_var("h"^string_of_int j, `:int128`) in
   ABBREV_TAC (mk_eq(hv, mk_comb(`byteswap128:int128->int128`, hdot j))) THEN
@@ -5296,8 +4004,9 @@ let GCM_CTR_RAW_INCR = prove
 (* ------------------------------------------------------------------------- *)
 (* ivec M2: the band-tail ivec write-back closer.                             *)
 (*                                                                            *)
-(* Each band r stores rev32(v30) to [ivec_p] (str q30,[x16], .S:1468 cascade /*)
-(* :1698 drain).  With Q30 = gcm_ctr_raw (word 8) ctr0 carried in from the    *)
+(* Each band r stores rev32(v30) to [ivec_p] (str q30,[x16] at                *)
+(* L256_dec_blocks_less_than_1 in the cascade, or in L256_dec_exact8_drain).  *)
+(* With Q30 = gcm_ctr_raw (word 8) ctr0 carried in from the                   *)
 (* front postcond, the store value is Q30 after (8-r) `sub v30`               *)
 (* decrements -- gcm_ctr_raw (word 8) minus (8-r) = gcm_ctr_raw (word r), and *)
 (* rev32 of that = gcm_ctr_add (word r) = gcm_ctr_inc_iter r ctr0.  The close  *)
@@ -6351,9 +5060,7 @@ let WB_FUSED_3BLOCK = prove(
      gcm_ctr_inc(gcm_ctr_inc)) so it never touches the wrong conjunct: the
      block-0 closer (JOIN_IS_CTR0 + WORD_RULE) does not terminate on the
      un-normalized +2 tower. *)
-  (fun (asl,w) -> Printf.printf "POST-ENSURES-FINAL reached, goal-len=%d nasl=%d\n%!" (String.length(string_of_term w)) (length asl); ALL_TAC (asl,w)) THEN
   REPEAT CONJ_TAC THEN
-  (fun (asl,w) -> Printf.printf "SUBGOAL len=%d\n%!" (String.length(string_of_term w)); ALL_TAC (asl,w)) THEN
   (* The guards are POSITIVE and mutually exclusive, and XI runs first: xi's
      goal (word_bytereverse gval = word_bytereverse GPA) has no gcm_ctr_inc, so
      a negative block-0 guard ("fail if gcm_ctr_inc") would accept it and run
@@ -6367,16 +5074,13 @@ let WB_FUSED_3BLOCK = prove(
         if not(can (find_term (fun t -> try fst(dest_const(fst(strip_comb t)))="ghash_polyval_acc" with _->false)) w
               || can (find_term (fun t -> t = `gval:int128`)) w)
         then failwith "not-xi" else
-        (Printf.printf "XI-ENTER len=%d\n%!" (String.length(string_of_term w));
-         let r =
-           (TRY(AP_THM_TAC THEN AP_TERM_TAC) THEN AP_TERM_TAC THEN
-            FIRST_X_ASSUM(SUBST1_TAC o SYM o
-              check (fun th -> try rhs(concl th) = `gval:int128` &&
-                                   (match lhs(concl th) with
-                                    | Comb(Comb(Const("ghash_polyval_acc",_),_),_) -> true | _ -> false)
-                               with _ -> false)) THEN
-            REFL_TAC) (asl,w) in
-         Printf.printf "XI-CLOSED\n%!"; r))
+        (TRY(AP_THM_TAC THEN AP_TERM_TAC) THEN AP_TERM_TAC THEN
+         FIRST_X_ASSUM(SUBST1_TAC o SYM o
+           check (fun th -> try rhs(concl th) = `gval:int128` &&
+                                (match lhs(concl th) with
+                                 | Comb(Comb(Const("ghash_polyval_acc",_),_),_) -> true | _ -> false)
+                            with _ -> false)) THEN
+         REFL_TAC) (asl,w))
       THEN NO_TAC) THEN
   (* ivec half (RHS = gcm_ctr_inc_iter 3) *)
   TRY((fun (asl,w) ->
@@ -6418,12 +5122,8 @@ let WB_FUSED_3BLOCK = prove(
      the SIM, so close via the pre-computed direct implication WB3_FRAME_IMP
      (built before the SIM: `frame s0 s183 ==> goal s0 s183`, no eta-redex):
      discard to the MAYCHANGE assumption, then one MATCH_MP+ACCEPT. *)
-  (fun (asl,w) -> Printf.printf "MC-ENTER len=%d nasl=%d\n%!" (String.length(string_of_term w)) (length asl); ALL_TAC (asl,w)) THEN
   DISCARD_ASSUMPTIONS_TAC (fun th -> not(maychange_term(concl th))) THEN
-  (fun (asl,w) -> Printf.printf "MC-PRE-APPLY nasl=%d\n%!" (length asl); ALL_TAC (asl,w)) THEN
-  FIRST_X_ASSUM(fun th -> ACCEPT_TAC(MATCH_MP WB3_FRAME_IMP th)) THEN
-  (fun (asl,w) -> Printf.printf "MC-DONE-LEMMA\n%!"; ALL_TAC (asl,w)));;
-Printf.printf "ALL-SUBGOALS-DONE, entering prove-replay\n%!";;
+  FIRST_X_ASSUM(fun th -> ACCEPT_TAC(MATCH_MP WB3_FRAME_IMP th)));;
 
 (* ==== k=4 fused body ==== *)
 (* WB_FUSED_4BLOCK (k=4): the k=3 structure extended to 4 windows.
@@ -6700,7 +5400,6 @@ let WB_FUSED_4BLOCK = prove(
     `word_add (word_add (out_p:int64) (word 32)) (word 8) = word_add out_p (word 40)`;
     WORD_RULE
     `word_add (word_add (out_p:int64) (word 48)) (word 8) = word_add out_p (word 56)`] THEN
-  (fun (asl,w) -> Printf.printf "POST-ENSURES-FINAL goal-len=%d nasl=%d\n%!" (String.length(string_of_term w)) (length asl); ALL_TAC (asl,w)) THEN
   REPEAT CONJ_TAC THEN
   (* XI (RHS = word_bytereverse of ghash_polyval_acc / gval) *)
   TRY((fun (asl,w) ->
@@ -6771,16 +5470,9 @@ let WB_FUSED_4BLOCK = prove(
          REWRITE_TAC[aes256_encrypt_round; aese; aesmc] THEN
          CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
          REWRITE_TAC[WORD_XOR_ASSOC] THEN CONV_TAC WORD_BLAST) (asl,w)) THEN NO_TAC) THEN
-  (* MAYCHANGE: discard non-maychange to nasl=1, then MATCH_MP the pre-computed WB4_FRAME_IMP.
-     Safety net: if MATCH_MP fails (frame ordering mismatch), DUMP the exact accumulated frame. *)
-  (fun (asl,w) -> Printf.printf "MC-ENTER len=%d nasl=%d\n%!" (String.length(string_of_term w)) (length asl); ALL_TAC (asl,w)) THEN
+  (* MAYCHANGE: discard non-maychange to nasl=1, then MATCH_MP the pre-computed WB4_FRAME_IMP. *)
   DISCARD_ASSUMPTIONS_TAC (fun th -> not(maychange_term(concl th))) THEN
-  (fun (asl,w) -> Printf.printf "MC-PRE-APPLY nasl=%d\n%!" (length asl);
-     (List.iter (fun (_,th) -> if maychange_term(concl th) then
-        Printf.printf "=== ACTUAL-FRAME:\n%s\n%!" (string_of_term (concl th))) asl);
-     ALL_TAC (asl,w)) THEN
-  FIRST_X_ASSUM(fun th -> ACCEPT_TAC(MATCH_MP WB4_FRAME_IMP th)) THEN
-  (fun (asl,w) -> Printf.printf "MC-DONE-LEMMA\n%!"; ALL_TAC (asl,w)));;
+  FIRST_X_ASSUM(fun th -> ACCEPT_TAC(MATCH_MP WB4_FRAME_IMP th)));;
 
 (* ========================================================================= *)
 (* FUSED->BAND bridge: derive mk_band_goal k from WB_FUSED_kBLOCK             *)
@@ -6925,9 +5617,9 @@ let BYTE_LIST_AT_TO_READ_BYTES = prove
   ASM_REWRITE_TAC[LE_REFL] THEN DISCH_THEN(fun th -> ASM_REWRITE_TAC[GSYM th]));;
 
 (* ---- step 2: whole-blocks output bridge (per-block stores -> byte_list_at).
-   Whole-blocks analogue of BYTE_LIST_AT_NBLOCK_CTR: specialize at tail=16 via
-   AES_CTR_FULL_TAIL_BYTES_WHOLE; the all-ones mask makes outprev irrelevant
-   (word 0 witness). *)
+   Byte i of the output is byte i MOD 16 of block i DIV 16
+   (EL_INT128_LIST_TO_BYTES), read off that block's bytes128 store
+   (BYTE8_OF_BYTES128); the input-side mirror is WBN_INPUT_ASSEMBLE. *)
 let BYTE_LIST_AT_WHOLE_CTR = prove
  (`!ctr0 pts keys n out_p (len:int64) s.
     1 <= n /\ n = LENGTH pts /\ val len = 16 * n /\
@@ -6935,19 +5627,25 @@ let BYTE_LIST_AT_WHOLE_CTR = prove
                    EL j (aes_ctr ctr0 pts keys))
     ==> byte_list_at (aes_ctr_bytes ctr0 pts keys) out_p len s`,
   REPEAT GEN_TAC THEN STRIP_TAC THEN
-  SUBGOAL_THEN `aes_ctr_bytes ctr0 pts keys = aes_ctr_full_tail_bytes ctr0 pts keys (n - 1) 16` SUBST1_TAC THENL
-   [CONV_TAC SYM_CONV THEN MATCH_MP_TAC AES_CTR_FULL_TAIL_BYTES_WHOLE THEN ASM_ARITH_TAC; ALL_TAC] THEN
-  MATCH_MP_TAC BYTE_LIST_AT_NBLOCK_CTR THEN
-  EXISTS_TAC `word 0:int128` THEN
-  REPEAT CONJ_TAC THENL
-   [ARITH_TAC;
-    ARITH_TAC;
-    ASM_ARITH_TAC;
-    ASM_ARITH_TAC;
-    REPEAT STRIP_TAC THEN FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC;
-    REWRITE_TAC[WORD_AND_ALLONES_128] THEN
-    REWRITE_TAC[WORD_RULE `word_xor x (word_and (word 0) y) = x`] THEN
-    FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC]);;
+  REWRITE_TAC[byte_list_at; aes_ctr_bytes] THEN
+  X_GEN_TAC `i:num` THEN ASM_REWRITE_TAC[] THEN DISCH_TAC THEN
+  SUBGOAL_THEN `i DIV 16 < n` ASSUME_TAC THENL
+   [ASM_SIMP_TAC[RDIV_LT_EQ; ARITH_EQ] THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  MP_TAC(SPECL [`aes_ctr ctr0 pts keys`; `i:num`] EL_INT128_LIST_TO_BYTES) THEN
+  REWRITE_TAC[LENGTH_AES_CTR] THEN
+  ANTS_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  DISCH_THEN SUBST1_TAC THEN
+  SUBGOAL_THEN
+    `word_add out_p (word i):int64 =
+     word_add (word_add out_p (word (16 * (i DIV 16)))) (word (i MOD 16))`
+    SUBST1_TAC THENL
+   [SUBGOAL_THEN `i = 16 * (i DIV 16) + i MOD 16`
+      (fun th -> GEN_REWRITE_TAC (LAND_CONV o RAND_CONV o RAND_CONV) [th]) THENL
+     [MESON_TAC[DIVISION_SIMP]; ALL_TAC] THEN CONV_TAC WORD_RULE; ALL_TAC] THEN
+  MP_TAC(SPECL [`word_add out_p (word (16 * (i DIV 16))):int64`; `s:armstate`;
+                `i MOD 16`] BYTE8_OF_BYTES128) THEN
+  ANTS_TAC THENL [REWRITE_TAC[MOD_LT_EQ; ARITH_EQ]; ALL_TAC] THEN
+  DISCH_THEN SUBST1_TAC THEN ASM_SIMP_TAC[]);;
 
 (* ---- step 3: per-band EL facts builder (generalizes the hand AES_CTR_k_EL). *)
 let build_aes_ctr_el k =
@@ -7821,10 +6519,9 @@ let GCM_CTR_RAW_ABSORB_NUM = prove
 (*    bulk-8 segment 269..295; the 0x4bc b.ge (step 296) FALLS THROUGH to     *)
 (*    the loop head via WB_PTRCMP_FLAGS + D_GT_128.                           *)
 (*                                                                            *)
-(* As for the <=8-block WB_FRONT_BUF, the 8 in-flight keystream towers      *)
-(* cannot be hand-written, so the s288 postcondition was harvested from a     *)
-(* front sim (folded to aes13 + gcm_ctr_inc^k lanes by wb_front_fold_tac)    *)
-(* and is embedded below as a fully-type-annotated literal.                   *)
+(* As for the <=8-block WB_FRONT_BUF, the s288 postcondition is the final    *)
+(* state of the front sim (folded to aes13 + gcm_ctr_inc^k lanes by          *)
+(* wb_front_fold_tac), built below with the term builders.                    *)
 (* ------------------------------------------------------------------------- *)
 
 (* nblk>8 front hypotheses: swap the (1<=nblk /\ nblk<=8) prefix of the <=8-block chain's
@@ -7942,1008 +6639,44 @@ let mk_wbn_prefix_goal postcond =
               `ensures arm PPP QQQ CCC` in
   list_mk_forall(wb_front_vars, mk_imp(wbn_front_hyps_ge9_tm, ens));;
 
-(* The s287 prefix postcondition (state at the 0x4bc b.ge, pre-branch), embedded
-   as a fully type-annotated literal so the shared front simulates ONCE.  Keeps
-   ALL raw `read _ s287 = _` facts INCLUDING the NF/VF/ZF/CF flag facts the 0x4bc
-   b.ge reads (so each consumer's step-296 leg can resolve the branch in its band).
-   Produced as wb_front_postcond, from the final state of the prefix sim
-   (WBN_FRONT_PREFIX's tactic up to the 0x4bc b.ge, THEN wb_front_fold_tac). *)
-let wbn_front_prefix_postcond = parse_term {|\(s:armstate).
-    (aligned_bytes_loaded:armstate->(64)word->((8)word)list->bool)
-    (s:armstate)
-    ((word:num->(64)word) (pc:num))
-    (aesv8_gcm_8x_dec_256_wb_mc:((8)word)list) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (PC:(armstate,(64)word)component)
-    (s:armstate) =
-    (word:num->(64)word) ((pc:num) + 1212) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q30:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_add:(32)word->(32)word->(32)word)
-      ((word_add:(32)word->(32)word->(32)word)
-       ((word_join:(16)word->(16)word->(32)word)
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (96,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (104,8)))
-       ((word_join:(8)word->(8)word->(16)word)
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (112,8))
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-      ((word:num->(32)word) 12))
-     ((word:num->(32)word) 1))
-    ((word_add:(32)word->(32)word->(32)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (64,8))
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (72,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (80,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (88,8))))
-    ((word:num->(32)word) 0)))
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_add:(32)word->(32)word->(32)word)
-      ((word_join:(16)word->(16)word->(32)word)
-       ((word_join:(8)word->(8)word->(16)word)
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (32,8))
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (40,8)))
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (48,8))
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (56,8))))
-     ((word:num->(32)word) 0))
-    ((word_add:(32)word->(32)word->(32)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (0,8))
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (8,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (16,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (24,8))))
-    ((word:num->(32)word) 0))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
-     ((word:num->(64)word) 96)))
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_xor:(128)word->(128)word->(128)word)
-     ((bytes_to_int128:((8)word)list->(128)word)
-     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (96,16)
-     (ibytes:((8)word)list)))
-    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word)))))))
-     (k0:(128)word)
-     (k1:(128)word)
-     (k2:(128)word)
-     (k3:(128)word)
-     (k4:(128)word)
-     (k5:(128)word)
-     (k6:(128)word)
-     (k7:(128)word)
-     (k8:(128)word)
-     (k9:(128)word)
-     (k10:(128)word)
-     (k11:(128)word)
-     (k12:(128)word)
-    (k13:(128)word)))
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
-     ((word:num->(64)word) 112)))
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_xor:(128)word->(128)word->(128)word)
-     ((bytes_to_int128:((8)word)list->(128)word)
-     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (112,16)
-     (ibytes:((8)word)list)))
-    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))))))))
-     (k0:(128)word)
-     (k1:(128)word)
-     (k2:(128)word)
-     (k3:(128)word)
-     (k4:(128)word)
-     (k5:(128)word)
-     (k6:(128)word)
-     (k7:(128)word)
-     (k8:(128)word)
-     (k9:(128)word)
-     (k10:(128)word)
-     (k11:(128)word)
-     (k12:(128)word)
-    (k13:(128)word)))
-    (k14:(128)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X2:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
-    ((word:num->(64)word) 128) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
-     ((word:num->(64)word) 64)))
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_xor:(128)word->(128)word->(128)word)
-     ((bytes_to_int128:((8)word)list->(128)word)
-     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (64,16)
-     (ibytes:((8)word)list)))
-    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word)))))
-     (k0:(128)word)
-     (k1:(128)word)
-     (k2:(128)word)
-     (k3:(128)word)
-     (k4:(128)word)
-     (k5:(128)word)
-     (k6:(128)word)
-     (k7:(128)word)
-     (k8:(128)word)
-     (k9:(128)word)
-     (k10:(128)word)
-     (k11:(128)word)
-     (k12:(128)word)
-    (k13:(128)word)))
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
-     ((word:num->(64)word) 80)))
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_xor:(128)word->(128)word->(128)word)
-     ((bytes_to_int128:((8)word)list->(128)word)
-     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (80,16)
-     (ibytes:((8)word)list)))
-    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))))))
-     (k0:(128)word)
-     (k1:(128)word)
-     (k2:(128)word)
-     (k3:(128)word)
-     (k4:(128)word)
-     (k5:(128)word)
-     (k6:(128)word)
-     (k7:(128)word)
-     (k8:(128)word)
-     (k9:(128)word)
-     (k10:(128)word)
-     (k11:(128)word)
-     (k12:(128)word)
-    (k13:(128)word)))
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q3:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(32)word->num#num->(8)word)
-        ((word_add:(32)word->(32)word->(32)word)
-         ((word_join:(16)word->(16)word->(32)word)
-          ((word_join:(8)word->(8)word->(16)word)
-           ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-           (96,8))
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (104,8)))
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (112,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (120,8))))
-        ((word:num->(32)word) 11))
-       (0,8))
-      ((word_subword:(32)word->num#num->(8)word)
-       ((word_add:(32)word->(32)word->(32)word)
-        ((word_join:(16)word->(16)word->(32)word)
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (96,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (104,8)))
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (112,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-       ((word:num->(32)word) 11))
-      (8,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(32)word->num#num->(8)word)
-       ((word_add:(32)word->(32)word->(32)word)
-        ((word_join:(16)word->(16)word->(32)word)
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (96,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (104,8)))
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (112,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-       ((word:num->(32)word) 11))
-      (16,8))
-     ((word_subword:(32)word->num#num->(8)word)
-      ((word_add:(32)word->(32)word->(32)word)
-       ((word_join:(16)word->(16)word->(32)word)
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (96,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (104,8)))
-       ((word_join:(8)word->(8)word->(16)word)
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (112,8))
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-      ((word:num->(32)word) 11))
-     (24,8))))
-    ((word_join:(16)word->(16)word->(32)word)
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (88,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (80,8)))
-    ((word_join:(8)word->(8)word->(16)word)
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (72,8))
-    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (64,8)))))
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (56,8))
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (48,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (40,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (32,8))))
-    ((word_join:(16)word->(16)word->(32)word)
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (24,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (16,8)))
-    ((word_join:(8)word->(8)word->(16)word)
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (8,8))
-    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (0,8))))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
-     ((word:num->(64)word) 32)))
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_xor:(128)word->(128)word->(128)word)
-     ((bytes_to_int128:((8)word)list->(128)word)
-     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (32,16)
-     (ibytes:((8)word)list)))
-    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word)))
-     (k0:(128)word)
-     (k1:(128)word)
-     (k2:(128)word)
-     (k3:(128)word)
-     (k4:(128)word)
-     (k5:(128)word)
-     (k6:(128)word)
-     (k7:(128)word)
-     (k8:(128)word)
-     (k9:(128)word)
-     (k10:(128)word)
-     (k11:(128)word)
-     (k12:(128)word)
-    (k13:(128)word)))
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
-     ((word:num->(64)word) 48)))
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_xor:(128)word->(128)word->(128)word)
-     ((bytes_to_int128:((8)word)list->(128)word)
-     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (48,16)
-     (ibytes:((8)word)list)))
-    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))))
-     (k0:(128)word)
-     (k1:(128)word)
-     (k2:(128)word)
-     (k3:(128)word)
-     (k4:(128)word)
-     (k5:(128)word)
-     (k6:(128)word)
-     (k7:(128)word)
-     (k8:(128)word)
-     (k9:(128)word)
-     (k10:(128)word)
-     (k11:(128)word)
-     (k12:(128)word)
-    (k13:(128)word)))
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q0:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(32)word->num#num->(8)word)
-        ((word_add:(32)word->(32)word->(32)word)
-         ((word_join:(16)word->(16)word->(32)word)
-          ((word_join:(8)word->(8)word->(16)word)
-           ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-           (96,8))
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (104,8)))
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (112,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (120,8))))
-        ((word:num->(32)word) 8))
-       (0,8))
-      ((word_subword:(32)word->num#num->(8)word)
-       ((word_add:(32)word->(32)word->(32)word)
-        ((word_join:(16)word->(16)word->(32)word)
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (96,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (104,8)))
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (112,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-       ((word:num->(32)word) 8))
-      (8,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(32)word->num#num->(8)word)
-       ((word_add:(32)word->(32)word->(32)word)
-        ((word_join:(16)word->(16)word->(32)word)
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (96,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (104,8)))
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (112,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-       ((word:num->(32)word) 8))
-      (16,8))
-     ((word_subword:(32)word->num#num->(8)word)
-      ((word_add:(32)word->(32)word->(32)word)
-       ((word_join:(16)word->(16)word->(32)word)
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (96,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (104,8)))
-       ((word_join:(8)word->(8)word->(16)word)
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (112,8))
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-      ((word:num->(32)word) 8))
-     (24,8))))
-    ((word_join:(16)word->(16)word->(32)word)
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (88,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (80,8)))
-    ((word_join:(8)word->(8)word->(16)word)
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (72,8))
-    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (64,8)))))
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (56,8))
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (48,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (40,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (32,8))))
-    ((word_join:(16)word->(16)word->(32)word)
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (24,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (16,8)))
-    ((word_join:(8)word->(8)word->(16)word)
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (8,8))
-    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (0,8))))) /\
-    ((read:(armstate,bool)component->armstate->bool)
-     (NF:(armstate,bool)component)
-     (s:armstate) <=>
-     (ival:(64)word->int)
-     ((word_sub:(64)word->(64)word->(64)word)
-      ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-      ((word:num->(64)word) 128))
-     ((word_add:(64)word->(64)word->(64)word)
-      ((word:num->(64)word) (128 * ((nblk:num) - 1) DIV 8))
-     (in_p:(64)word))) <
-     (int_of_num:num->int)0) /\
-    ((read:(armstate,bool)component->armstate->bool)
-     (ZF:(armstate,bool)component)
-     (s:armstate) <=>
-     (val:(64)word->num)
-     ((word_sub:(64)word->(64)word->(64)word)
-      ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-      ((word:num->(64)word) 128))
-     ((word_add:(64)word->(64)word->(64)word)
-      ((word:num->(64)word) (128 * ((nblk:num) - 1) DIV 8))
-     (in_p:(64)word))) =
-     0) /\
-    ((read:(armstate,bool)component->armstate->bool)
-     (CF:(armstate,bool)component)
-     (s:armstate) <=>
-     (val:(64)word->num)
-     ((word_add:(64)word->(64)word->(64)word)
-      ((word:num->(64)word) (128 * ((nblk:num) - 1) DIV 8))
-     (in_p:(64)word)) <=
-     (val:(64)word->num)
-     ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-     ((word:num->(64)word) 128))) /\
-    ((read:(armstate,bool)component->armstate->bool)
-     (VF:(armstate,bool)component)
-     (s:armstate) <=>
-     ~((ival:(64)word->int)
-       ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-       ((word:num->(64)word) 128)) -
-       (ival:(64)word->int)
-       ((word_add:(64)word->(64)word->(64)word)
-        ((word:num->(64)word) (128 * ((nblk:num) - 1) DIV 8))
-       (in_p:(64)word)) =
-       (ival:(64)word->int)
-       ((word_sub:(64)word->(64)word->(64)word)
-        ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-        ((word:num->(64)word) 128))
-       ((word_add:(64)word->(64)word->(64)word)
-        ((word:num->(64)word) (128 * ((nblk:num) - 1) DIV 8))
-       (in_p:(64)word))))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q12:(armstate,(128)word)component)
-    (s:armstate) =
-    (bytes_to_int128:((8)word)list->(128)word)
-    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (64,16)
-    (ibytes:((8)word)list)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q13:(armstate,(128)word)component)
-    (s:armstate) =
-    (bytes_to_int128:((8)word)list->(128)word)
-    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (80,16)
-    (ibytes:((8)word)list)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q8:(armstate,(128)word)component)
-    (s:armstate) =
-    (bytes_to_int128:((8)word)list->(128)word)
-    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (0,16)
-    (ibytes:((8)word)list)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q9:(armstate,(128)word)component)
-    (s:armstate) =
-    (bytes_to_int128:((8)word)list->(128)word)
-    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (16,16)
-    (ibytes:((8)word)list)) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X5:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_add:(64)word->(64)word->(64)word)
-    ((word:num->(64)word) (128 * ((nblk:num) - 1) DIV 8))
-    (in_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes64:(64)word->((64)word->(8)word,(64)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (stackpointer:(64)word)
-     ((word:num->(64)word) 64)))
-    (s:armstate) =
-    (word:num->(64)word) 13979173243358019584 /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes64:(64)word->((64)word->(8)word,(64)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (stackpointer:(64)word)
-     ((word:num->(64)word) 72)))
-    (s:armstate) =
-    (word:num->(64)word) 0 /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X11:(armstate,(64)word)component)
-    (s:armstate) =
-    (key_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X9:(armstate,(64)word)component)
-    (s:armstate) =
-    (word:num->(64)word) (16 * (nblk:num)) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (SP:(armstate,(64)word)component)
-    (s:armstate) =
-    (stackpointer:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X1:(armstate,(64)word)component)
-    (s:armstate) =
-    (word:num->(64)word) (128 * (nblk:num)) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X3:(armstate,(64)word)component)
-    (s:armstate) =
-    (xi_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X6:(armstate,(64)word)component)
-    (s:armstate) =
-    (htbl_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X16:(armstate,(64)word)component)
-    (s:armstate) =
-    (ivec_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X10:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_add:(64)word->(64)word->(64)word) (stackpointer:(64)word)
-    ((word:num->(64)word) 64) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X15:(armstate,(64)word)component)
-    (s:armstate) =
-    (word:num->(64)word) 4294967296 /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q31:(armstate,(128)word)component)
-    (s:armstate) =
-    (word:num->(128)word) 79228162514264337593543950336 /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q19:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_bytereverse:(128)word->(128)word) (xi:(128)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X4:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-    ((word:num->(64)word) (16 * (nblk:num))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q27:(armstate,(128)word)component)
-    (s:armstate) =
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q26:(armstate,(128)word)component)
-    (s:armstate) =
-    (k12:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q28:(armstate,(128)word)component)
-    (s:armstate) =
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q11:(armstate,(128)word)component)
-    (s:armstate) =
-    (bytes_to_int128:((8)word)list->(128)word)
-    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (48,16)
-    (ibytes:((8)word)list)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q10:(armstate,(128)word)component)
-    (s:armstate) =
-    (bytes_to_int128:((8)word)list->(128)word)
-    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (32,16)
-    (ibytes:((8)word)list)) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X0:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-    ((word:num->(64)word) 128) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q15:(armstate,(128)word)component)
-    (s:armstate) =
-    (bytes_to_int128:((8)word)list->(128)word)
-    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (112,16)
-    (ibytes:((8)word)list)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q14:(armstate,(128)word)component)
-    (s:armstate) =
-    (bytes_to_int128:((8)word)list->(128)word)
-    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (96,16)
-    (ibytes:((8)word)list)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
-     ((word:num->(64)word) 16)))
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_xor:(128)word->(128)word->(128)word)
-     ((bytes_to_int128:((8)word)list->(128)word)
-     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (16,16)
-     (ibytes:((8)word)list)))
-    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))
-     (k0:(128)word)
-     (k1:(128)word)
-     (k2:(128)word)
-     (k3:(128)word)
-     (k4:(128)word)
-     (k5:(128)word)
-     (k6:(128)word)
-     (k7:(128)word)
-     (k8:(128)word)
-     (k9:(128)word)
-     (k10:(128)word)
-     (k11:(128)word)
-     (k12:(128)word)
-    (k13:(128)word)))
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     (out_p:(64)word))
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_xor:(128)word->(128)word->(128)word)
-     ((bytes_to_int128:((8)word)list->(128)word)
-     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (0,16)
-     (ibytes:((8)word)list)))
-    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-     (ctr0:(128)word)
-     (k0:(128)word)
-     (k1:(128)word)
-     (k2:(128)word)
-     (k3:(128)word)
-     (k4:(128)word)
-     (k5:(128)word)
-     (k6:(128)word)
-     (k7:(128)word)
-     (k8:(128)word)
-     (k9:(128)word)
-     (k10:(128)word)
-     (k11:(128)word)
-     (k12:(128)word)
-    (k13:(128)word)))
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q5:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_xor:(128)word->(128)word->(128)word)
-     ((bytes_to_int128:((8)word)list->(128)word)
-     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (80,16)
-     (ibytes:((8)word)list)))
-    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))))))
-     (k0:(128)word)
-     (k1:(128)word)
-     (k2:(128)word)
-     (k3:(128)word)
-     (k4:(128)word)
-     (k5:(128)word)
-     (k6:(128)word)
-     (k7:(128)word)
-     (k8:(128)word)
-     (k9:(128)word)
-     (k10:(128)word)
-     (k11:(128)word)
-     (k12:(128)word)
-    (k13:(128)word)))
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q1:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(32)word->num#num->(8)word)
-        ((word_add:(32)word->(32)word->(32)word)
-         ((word_join:(16)word->(16)word->(32)word)
-          ((word_join:(8)word->(8)word->(16)word)
-           ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-           (96,8))
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (104,8)))
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (112,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (120,8))))
-        ((word:num->(32)word) 9))
-       (0,8))
-      ((word_subword:(32)word->num#num->(8)word)
-       ((word_add:(32)word->(32)word->(32)word)
-        ((word_join:(16)word->(16)word->(32)word)
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (96,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (104,8)))
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (112,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-       ((word:num->(32)word) 9))
-      (8,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(32)word->num#num->(8)word)
-       ((word_add:(32)word->(32)word->(32)word)
-        ((word_join:(16)word->(16)word->(32)word)
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (96,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (104,8)))
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (112,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-       ((word:num->(32)word) 9))
-      (16,8))
-     ((word_subword:(32)word->num#num->(8)word)
-      ((word_add:(32)word->(32)word->(32)word)
-       ((word_join:(16)word->(16)word->(32)word)
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (96,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (104,8)))
-       ((word_join:(8)word->(8)word->(16)word)
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (112,8))
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-      ((word:num->(32)word) 9))
-     (24,8))))
-    ((word_join:(16)word->(16)word->(32)word)
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (88,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (80,8)))
-    ((word_join:(8)word->(8)word->(16)word)
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (72,8))
-    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (64,8)))))
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (56,8))
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (48,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (40,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (32,8))))
-    ((word_join:(16)word->(16)word->(32)word)
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (24,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (16,8)))
-    ((word_join:(8)word->(8)word->(16)word)
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (8,8))
-    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (0,8))))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q2:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(32)word->num#num->(8)word)
-        ((word_add:(32)word->(32)word->(32)word)
-         ((word_join:(16)word->(16)word->(32)word)
-          ((word_join:(8)word->(8)word->(16)word)
-           ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-           (96,8))
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (104,8)))
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (112,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (120,8))))
-        ((word:num->(32)word) 10))
-       (0,8))
-      ((word_subword:(32)word->num#num->(8)word)
-       ((word_add:(32)word->(32)word->(32)word)
-        ((word_join:(16)word->(16)word->(32)word)
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (96,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (104,8)))
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (112,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-       ((word:num->(32)word) 10))
-      (8,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(32)word->num#num->(8)word)
-       ((word_add:(32)word->(32)word->(32)word)
-        ((word_join:(16)word->(16)word->(32)word)
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (96,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (104,8)))
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (112,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-       ((word:num->(32)word) 10))
-      (16,8))
-     ((word_subword:(32)word->num#num->(8)word)
-      ((word_add:(32)word->(32)word->(32)word)
-       ((word_join:(16)word->(16)word->(32)word)
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (96,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (104,8)))
-       ((word_join:(8)word->(8)word->(16)word)
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (112,8))
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-      ((word:num->(32)word) 10))
-     (24,8))))
-    ((word_join:(16)word->(16)word->(32)word)
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (88,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (80,8)))
-    ((word_join:(8)word->(8)word->(16)word)
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (72,8))
-    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (64,8)))))
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (56,8))
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (48,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (40,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (32,8))))
-    ((word_join:(16)word->(16)word->(32)word)
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (24,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (16,8)))
-    ((word_join:(8)word->(8)word->(16)word)
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (8,8))
-    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (0,8))))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q6:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_xor:(128)word->(128)word->(128)word)
-     ((bytes_to_int128:((8)word)list->(128)word)
-     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (96,16)
-     (ibytes:((8)word)list)))
-    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word)))))))
-     (k0:(128)word)
-     (k1:(128)word)
-     (k2:(128)word)
-     (k3:(128)word)
-     (k4:(128)word)
-     (k5:(128)word)
-     (k6:(128)word)
-     (k7:(128)word)
-     (k8:(128)word)
-     (k9:(128)word)
-     (k10:(128)word)
-     (k11:(128)word)
-     (k12:(128)word)
-    (k13:(128)word)))
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q7:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_xor:(128)word->(128)word->(128)word)
-     ((bytes_to_int128:((8)word)list->(128)word)
-     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (112,16)
-     (ibytes:((8)word)list)))
-    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))))))))
-     (k0:(128)word)
-     (k1:(128)word)
-     (k2:(128)word)
-     (k3:(128)word)
-     (k4:(128)word)
-     (k5:(128)word)
-     (k6:(128)word)
-     (k7:(128)word)
-     (k8:(128)word)
-     (k9:(128)word)
-     (k10:(128)word)
-     (k11:(128)word)
-     (k12:(128)word)
-    (k13:(128)word)))
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q4:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(32)word->num#num->(8)word)
-        ((word_add:(32)word->(32)word->(32)word)
-         ((word_join:(16)word->(16)word->(32)word)
-          ((word_join:(8)word->(8)word->(16)word)
-           ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-           (96,8))
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (104,8)))
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (112,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (120,8))))
-        ((word:num->(32)word) 12))
-       (0,8))
-      ((word_subword:(32)word->num#num->(8)word)
-       ((word_add:(32)word->(32)word->(32)word)
-        ((word_join:(16)word->(16)word->(32)word)
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (96,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (104,8)))
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (112,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-       ((word:num->(32)word) 12))
-      (8,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(32)word->num#num->(8)word)
-       ((word_add:(32)word->(32)word->(32)word)
-        ((word_join:(16)word->(16)word->(32)word)
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (96,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (104,8)))
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (112,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-       ((word:num->(32)word) 12))
-      (16,8))
-     ((word_subword:(32)word->num#num->(8)word)
-      ((word_add:(32)word->(32)word->(32)word)
-       ((word_join:(16)word->(16)word->(32)word)
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (96,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (104,8)))
-       ((word_join:(8)word->(8)word->(16)word)
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (112,8))
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-      ((word:num->(32)word) 12))
-     (24,8))))
-    ((word_join:(16)word->(16)word->(32)word)
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (88,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (80,8)))
-    ((word_join:(8)word->(8)word->(16)word)
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (72,8))
-    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (64,8)))))
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (56,8))
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (48,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (40,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (32,8))))
-    ((word_join:(16)word->(16)word->(32)word)
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (24,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (16,8)))
-    ((word_join:(8)word->(8)word->(16)word)
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (8,8))
-    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (0,8)))))|};;
+(* The s287 prefix postcondition (state at the 0x4bc b.ge, pre-branch), so the
+   shared front simulates ONCE.  Keeps ALL raw `read _ s287 = _` facts INCLUDING
+   the NF/VF/ZF/CF flag facts the 0x4bc b.ge reads (so each consumer's step-296
+   leg can resolve the branch in its band).  Built like wb_front_postcond, as the
+   final state of the prefix sim (WBN_FRONT_PREFIX's tactic up to the 0x4bc
+   b.ge, THEN wb_front_fold_tac). *)
+let wbn_front_prefix_postcond = wbp_post
+ ([`aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
+   `read PC s = word (pc + 1212)`;
+   wbp_rd `Q30` (wbp_raw_acc 12);
+   wbp_out 6; wbp_out 7;
+   `read X2 s = word_add out_p (word 128)`;
+   wbp_out 4; wbp_out 5;
+   wbp_rd `Q3` (wbp_rev_ctr 11);
+   wbp_out 2; wbp_out 3;
+   wbp_rd `Q0` (wbp_rev_ctr 8)] @
+  wbp_cmp_flags `word_add in_p (word 128):int64`
+                `word_add (word (128 * (nblk - 1) DIV 8)) in_p:int64` @
+  [wbp_rd `Q12` (mk_cph 4); wbp_rd `Q13` (mk_cph 5);
+   wbp_rd `Q8` (mk_cph 0); wbp_rd `Q9` (mk_cph 1);
+   `read X5 s = word_add (word (128 * (nblk - 1) DIV 8)) in_p`;
+   `read (memory :> bytes64 (word_add stackpointer (word 64))) s = word 13979173243358019584`;
+   `read (memory :> bytes64 (word_add stackpointer (word 72))) s = word 0`;
+   `read X11 s = key_p`;
+   `read X9 s = word (16 * nblk)`;
+   `read SP s = stackpointer`;
+   `read X1 s = word (128 * nblk)`;
+   `read X3 s = xi_p`;
+   `read X6 s = htbl_p`] @
+  wbp_ctx `xi:int128` @
+  [wbp_rd `Q11` (mk_cph 3); wbp_rd `Q10` (mk_cph 2);
+   `read X0 s = word_add in_p (word 128)`;
+   wbp_rd `Q15` (mk_cph 7); wbp_rd `Q14` (mk_cph 6);
+   wbp_out 1; wbp_out 0;
+   wbp_rd `Q5` (wbp_pt 5);
+   wbp_rd `Q1` (wbp_rev_ctr 9); wbp_rd `Q2` (wbp_rev_ctr 10);
+   wbp_rd `Q6` (wbp_pt 6); wbp_rd `Q7` (wbp_pt 7);
+   wbp_rd `Q4` (wbp_rev_ctr 12)]);;
 
 (* input lanes 0..7 established at s267 (the >=9 post-branch leg reads blocks
    0..7 via the ldp q8-q15 at 0x448+); follows from the s267 input-memory fact.
@@ -8993,980 +6726,17 @@ let WBN_FRONT_PREFIX = prove(mk_wbn_prefix_goal wbn_front_prefix_postcond,
     REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
     REPEAT CONJ_TAC THEN MONOTONE_MAYCHANGE_TAC]);;
 
-(* The s288 postcondition (the i=0 loop invariant), embedded as a fully
-   type-annotated literal so the front simulates ONCE (in the WBN_FRONT_BUF
-   proof below), as for the <=8-block chain's wb_front_postcond.  Produced the
-   same way, from the final state of the front sim at the loop head
-   (THEN wb_front_fold_tac); this postcond has no bare & integer literals, so no
-   int_of_num substitution was needed. *)
-let wbn_front_postcond_i0 = parse_term {|\(s:armstate).
-    (aligned_bytes_loaded:armstate->(64)word->((8)word)list->bool)
-    (s:armstate)
-    ((word:num->(64)word) (pc:num))
-    (aesv8_gcm_8x_dec_256_wb_mc:((8)word)list) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (PC:(armstate,(64)word)component)
-    (s:armstate) =
-    (word:num->(64)word) ((pc:num) + 1216) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q4:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(32)word->num#num->(8)word)
-        ((word_add:(32)word->(32)word->(32)word)
-         ((word_join:(16)word->(16)word->(32)word)
-          ((word_join:(8)word->(8)word->(16)word)
-           ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-           (96,8))
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (104,8)))
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (112,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (120,8))))
-        ((word:num->(32)word) 12))
-       (0,8))
-      ((word_subword:(32)word->num#num->(8)word)
-       ((word_add:(32)word->(32)word->(32)word)
-        ((word_join:(16)word->(16)word->(32)word)
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (96,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (104,8)))
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (112,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-       ((word:num->(32)word) 12))
-      (8,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(32)word->num#num->(8)word)
-       ((word_add:(32)word->(32)word->(32)word)
-        ((word_join:(16)word->(16)word->(32)word)
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (96,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (104,8)))
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (112,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-       ((word:num->(32)word) 12))
-      (16,8))
-     ((word_subword:(32)word->num#num->(8)word)
-      ((word_add:(32)word->(32)word->(32)word)
-       ((word_join:(16)word->(16)word->(32)word)
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (96,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (104,8)))
-       ((word_join:(8)word->(8)word->(16)word)
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (112,8))
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-      ((word:num->(32)word) 12))
-     (24,8))))
-    ((word_join:(16)word->(16)word->(32)word)
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (88,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (80,8)))
-    ((word_join:(8)word->(8)word->(16)word)
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (72,8))
-    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (64,8)))))
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (56,8))
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (48,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (40,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (32,8))))
-    ((word_join:(16)word->(16)word->(32)word)
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (24,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (16,8)))
-    ((word_join:(8)word->(8)word->(16)word)
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (8,8))
-    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (0,8))))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q7:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_xor:(128)word->(128)word->(128)word)
-     ((bytes_to_int128:((8)word)list->(128)word)
-     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (112,16)
-     (ibytes:((8)word)list)))
-    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))))))))
-     (k0:(128)word)
-     (k1:(128)word)
-     (k2:(128)word)
-     (k3:(128)word)
-     (k4:(128)word)
-     (k5:(128)word)
-     (k6:(128)word)
-     (k7:(128)word)
-     (k8:(128)word)
-     (k9:(128)word)
-     (k10:(128)word)
-     (k11:(128)word)
-     (k12:(128)word)
-    (k13:(128)word)))
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q6:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_xor:(128)word->(128)word->(128)word)
-     ((bytes_to_int128:((8)word)list->(128)word)
-     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (96,16)
-     (ibytes:((8)word)list)))
-    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word)))))))
-     (k0:(128)word)
-     (k1:(128)word)
-     (k2:(128)word)
-     (k3:(128)word)
-     (k4:(128)word)
-     (k5:(128)word)
-     (k6:(128)word)
-     (k7:(128)word)
-     (k8:(128)word)
-     (k9:(128)word)
-     (k10:(128)word)
-     (k11:(128)word)
-     (k12:(128)word)
-    (k13:(128)word)))
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q2:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(32)word->num#num->(8)word)
-        ((word_add:(32)word->(32)word->(32)word)
-         ((word_join:(16)word->(16)word->(32)word)
-          ((word_join:(8)word->(8)word->(16)word)
-           ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-           (96,8))
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (104,8)))
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (112,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (120,8))))
-        ((word:num->(32)word) 10))
-       (0,8))
-      ((word_subword:(32)word->num#num->(8)word)
-       ((word_add:(32)word->(32)word->(32)word)
-        ((word_join:(16)word->(16)word->(32)word)
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (96,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (104,8)))
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (112,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-       ((word:num->(32)word) 10))
-      (8,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(32)word->num#num->(8)word)
-       ((word_add:(32)word->(32)word->(32)word)
-        ((word_join:(16)word->(16)word->(32)word)
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (96,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (104,8)))
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (112,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-       ((word:num->(32)word) 10))
-      (16,8))
-     ((word_subword:(32)word->num#num->(8)word)
-      ((word_add:(32)word->(32)word->(32)word)
-       ((word_join:(16)word->(16)word->(32)word)
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (96,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (104,8)))
-       ((word_join:(8)word->(8)word->(16)word)
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (112,8))
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-      ((word:num->(32)word) 10))
-     (24,8))))
-    ((word_join:(16)word->(16)word->(32)word)
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (88,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (80,8)))
-    ((word_join:(8)word->(8)word->(16)word)
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (72,8))
-    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (64,8)))))
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (56,8))
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (48,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (40,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (32,8))))
-    ((word_join:(16)word->(16)word->(32)word)
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (24,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (16,8)))
-    ((word_join:(8)word->(8)word->(16)word)
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (8,8))
-    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (0,8))))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q1:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(32)word->num#num->(8)word)
-        ((word_add:(32)word->(32)word->(32)word)
-         ((word_join:(16)word->(16)word->(32)word)
-          ((word_join:(8)word->(8)word->(16)word)
-           ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-           (96,8))
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (104,8)))
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (112,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (120,8))))
-        ((word:num->(32)word) 9))
-       (0,8))
-      ((word_subword:(32)word->num#num->(8)word)
-       ((word_add:(32)word->(32)word->(32)word)
-        ((word_join:(16)word->(16)word->(32)word)
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (96,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (104,8)))
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (112,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-       ((word:num->(32)word) 9))
-      (8,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(32)word->num#num->(8)word)
-       ((word_add:(32)word->(32)word->(32)word)
-        ((word_join:(16)word->(16)word->(32)word)
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (96,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (104,8)))
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (112,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-       ((word:num->(32)word) 9))
-      (16,8))
-     ((word_subword:(32)word->num#num->(8)word)
-      ((word_add:(32)word->(32)word->(32)word)
-       ((word_join:(16)word->(16)word->(32)word)
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (96,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (104,8)))
-       ((word_join:(8)word->(8)word->(16)word)
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (112,8))
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-      ((word:num->(32)word) 9))
-     (24,8))))
-    ((word_join:(16)word->(16)word->(32)word)
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (88,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (80,8)))
-    ((word_join:(8)word->(8)word->(16)word)
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (72,8))
-    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (64,8)))))
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (56,8))
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (48,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (40,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (32,8))))
-    ((word_join:(16)word->(16)word->(32)word)
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (24,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (16,8)))
-    ((word_join:(8)word->(8)word->(16)word)
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (8,8))
-    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (0,8))))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q5:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_xor:(128)word->(128)word->(128)word)
-     ((bytes_to_int128:((8)word)list->(128)word)
-     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (80,16)
-     (ibytes:((8)word)list)))
-    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))))))
-     (k0:(128)word)
-     (k1:(128)word)
-     (k2:(128)word)
-     (k3:(128)word)
-     (k4:(128)word)
-     (k5:(128)word)
-     (k6:(128)word)
-     (k7:(128)word)
-     (k8:(128)word)
-     (k9:(128)word)
-     (k10:(128)word)
-     (k11:(128)word)
-     (k12:(128)word)
-    (k13:(128)word)))
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     (out_p:(64)word))
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_xor:(128)word->(128)word->(128)word)
-     ((bytes_to_int128:((8)word)list->(128)word)
-     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (0,16)
-     (ibytes:((8)word)list)))
-    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-     (ctr0:(128)word)
-     (k0:(128)word)
-     (k1:(128)word)
-     (k2:(128)word)
-     (k3:(128)word)
-     (k4:(128)word)
-     (k5:(128)word)
-     (k6:(128)word)
-     (k7:(128)word)
-     (k8:(128)word)
-     (k9:(128)word)
-     (k10:(128)word)
-     (k11:(128)word)
-     (k12:(128)word)
-    (k13:(128)word)))
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
-     ((word:num->(64)word) 16)))
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_xor:(128)word->(128)word->(128)word)
-     ((bytes_to_int128:((8)word)list->(128)word)
-     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (16,16)
-     (ibytes:((8)word)list)))
-    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))
-     (k0:(128)word)
-     (k1:(128)word)
-     (k2:(128)word)
-     (k3:(128)word)
-     (k4:(128)word)
-     (k5:(128)word)
-     (k6:(128)word)
-     (k7:(128)word)
-     (k8:(128)word)
-     (k9:(128)word)
-     (k10:(128)word)
-     (k11:(128)word)
-     (k12:(128)word)
-    (k13:(128)word)))
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q14:(armstate,(128)word)component)
-    (s:armstate) =
-    (bytes_to_int128:((8)word)list->(128)word)
-    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (96,16)
-    (ibytes:((8)word)list)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q15:(armstate,(128)word)component)
-    (s:armstate) =
-    (bytes_to_int128:((8)word)list->(128)word)
-    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (112,16)
-    (ibytes:((8)word)list)) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X0:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-    ((word:num->(64)word) 128) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q10:(armstate,(128)word)component)
-    (s:armstate) =
-    (bytes_to_int128:((8)word)list->(128)word)
-    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (32,16)
-    (ibytes:((8)word)list)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q11:(armstate,(128)word)component)
-    (s:armstate) =
-    (bytes_to_int128:((8)word)list->(128)word)
-    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (48,16)
-    (ibytes:((8)word)list)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q28:(armstate,(128)word)component)
-    (s:armstate) =
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q26:(armstate,(128)word)component)
-    (s:armstate) =
-    (k12:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q27:(armstate,(128)word)component)
-    (s:armstate) =
-    (k13:(128)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X4:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-    ((word:num->(64)word) (16 * (nblk:num))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q19:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_bytereverse:(128)word->(128)word) (xi:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q31:(armstate,(128)word)component)
-    (s:armstate) =
-    (word:num->(128)word) 79228162514264337593543950336 /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X15:(armstate,(64)word)component)
-    (s:armstate) =
-    (word:num->(64)word) 4294967296 /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X10:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_add:(64)word->(64)word->(64)word) (stackpointer:(64)word)
-    ((word:num->(64)word) 64) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X16:(armstate,(64)word)component)
-    (s:armstate) =
-    (ivec_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X6:(armstate,(64)word)component)
-    (s:armstate) =
-    (htbl_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X3:(armstate,(64)word)component)
-    (s:armstate) =
-    (xi_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X1:(armstate,(64)word)component)
-    (s:armstate) =
-    (word:num->(64)word) (128 * (nblk:num)) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (SP:(armstate,(64)word)component)
-    (s:armstate) =
-    (stackpointer:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X9:(armstate,(64)word)component)
-    (s:armstate) =
-    (word:num->(64)word) (16 * (nblk:num)) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X11:(armstate,(64)word)component)
-    (s:armstate) =
-    (key_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes64:(64)word->((64)word->(8)word,(64)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (stackpointer:(64)word)
-     ((word:num->(64)word) 72)))
-    (s:armstate) =
-    (word:num->(64)word) 0 /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes64:(64)word->((64)word->(8)word,(64)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (stackpointer:(64)word)
-     ((word:num->(64)word) 64)))
-    (s:armstate) =
-    (word:num->(64)word) 13979173243358019584 /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X5:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_add:(64)word->(64)word->(64)word)
-    ((word:num->(64)word) (128 * ((nblk:num) - 1) DIV 8))
-    (in_p:(64)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q9:(armstate,(128)word)component)
-    (s:armstate) =
-    (bytes_to_int128:((8)word)list->(128)word)
-    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (16,16)
-    (ibytes:((8)word)list)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q8:(armstate,(128)word)component)
-    (s:armstate) =
-    (bytes_to_int128:((8)word)list->(128)word)
-    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (0,16)
-    (ibytes:((8)word)list)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q13:(armstate,(128)word)component)
-    (s:armstate) =
-    (bytes_to_int128:((8)word)list->(128)word)
-    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (80,16)
-    (ibytes:((8)word)list)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q12:(armstate,(128)word)component)
-    (s:armstate) =
-    (bytes_to_int128:((8)word)list->(128)word)
-    ((SUB_LIST:num#num->((8)word)list->((8)word)list) (64,16)
-    (ibytes:((8)word)list)) /\
-    ((read:(armstate,bool)component->armstate->bool)
-     (CF:(armstate,bool)component)
-     (s:armstate) <=>
-     (val:(64)word->num)
-     ((word_add:(64)word->(64)word->(64)word)
-      ((word:num->(64)word) (128 * ((nblk:num) - 1) DIV 8))
-     (in_p:(64)word)) <=
-     (val:(64)word->num)
-     ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-     ((word:num->(64)word) 128))) /\
-    ((read:(armstate,bool)component->armstate->bool)
-     (ZF:(armstate,bool)component)
-     (s:armstate) <=>
-     (val:(64)word->num)
-     ((word_sub:(64)word->(64)word->(64)word)
-      ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-      ((word:num->(64)word) 128))
-     ((word_add:(64)word->(64)word->(64)word)
-      ((word:num->(64)word) (128 * ((nblk:num) - 1) DIV 8))
-     (in_p:(64)word))) =
-     0) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q0:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(32)word->num#num->(8)word)
-        ((word_add:(32)word->(32)word->(32)word)
-         ((word_join:(16)word->(16)word->(32)word)
-          ((word_join:(8)word->(8)word->(16)word)
-           ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-           (96,8))
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (104,8)))
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (112,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (120,8))))
-        ((word:num->(32)word) 8))
-       (0,8))
-      ((word_subword:(32)word->num#num->(8)word)
-       ((word_add:(32)word->(32)word->(32)word)
-        ((word_join:(16)word->(16)word->(32)word)
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (96,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (104,8)))
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (112,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-       ((word:num->(32)word) 8))
-      (8,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(32)word->num#num->(8)word)
-       ((word_add:(32)word->(32)word->(32)word)
-        ((word_join:(16)word->(16)word->(32)word)
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (96,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (104,8)))
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (112,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-       ((word:num->(32)word) 8))
-      (16,8))
-     ((word_subword:(32)word->num#num->(8)word)
-      ((word_add:(32)word->(32)word->(32)word)
-       ((word_join:(16)word->(16)word->(32)word)
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (96,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (104,8)))
-       ((word_join:(8)word->(8)word->(16)word)
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (112,8))
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-      ((word:num->(32)word) 8))
-     (24,8))))
-    ((word_join:(16)word->(16)word->(32)word)
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (88,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (80,8)))
-    ((word_join:(8)word->(8)word->(16)word)
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (72,8))
-    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (64,8)))))
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (56,8))
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (48,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (40,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (32,8))))
-    ((word_join:(16)word->(16)word->(32)word)
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (24,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (16,8)))
-    ((word_join:(8)word->(8)word->(16)word)
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (8,8))
-    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (0,8))))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
-     ((word:num->(64)word) 48)))
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_xor:(128)word->(128)word->(128)word)
-     ((bytes_to_int128:((8)word)list->(128)word)
-     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (48,16)
-     (ibytes:((8)word)list)))
-    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))))
-     (k0:(128)word)
-     (k1:(128)word)
-     (k2:(128)word)
-     (k3:(128)word)
-     (k4:(128)word)
-     (k5:(128)word)
-     (k6:(128)word)
-     (k7:(128)word)
-     (k8:(128)word)
-     (k9:(128)word)
-     (k10:(128)word)
-     (k11:(128)word)
-     (k12:(128)word)
-    (k13:(128)word)))
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
-     ((word:num->(64)word) 32)))
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_xor:(128)word->(128)word->(128)word)
-     ((bytes_to_int128:((8)word)list->(128)word)
-     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (32,16)
-     (ibytes:((8)word)list)))
-    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word)))
-     (k0:(128)word)
-     (k1:(128)word)
-     (k2:(128)word)
-     (k3:(128)word)
-     (k4:(128)word)
-     (k5:(128)word)
-     (k6:(128)word)
-     (k7:(128)word)
-     (k8:(128)word)
-     (k9:(128)word)
-     (k10:(128)word)
-     (k11:(128)word)
-     (k12:(128)word)
-    (k13:(128)word)))
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q3:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(32)word->num#num->(8)word)
-        ((word_add:(32)word->(32)word->(32)word)
-         ((word_join:(16)word->(16)word->(32)word)
-          ((word_join:(8)word->(8)word->(16)word)
-           ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-           (96,8))
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (104,8)))
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (112,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (120,8))))
-        ((word:num->(32)word) 11))
-       (0,8))
-      ((word_subword:(32)word->num#num->(8)word)
-       ((word_add:(32)word->(32)word->(32)word)
-        ((word_join:(16)word->(16)word->(32)word)
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (96,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (104,8)))
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (112,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-       ((word:num->(32)word) 11))
-      (8,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(32)word->num#num->(8)word)
-       ((word_add:(32)word->(32)word->(32)word)
-        ((word_join:(16)word->(16)word->(32)word)
-         ((word_join:(8)word->(8)word->(16)word)
-          ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-          (96,8))
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (104,8)))
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word)
-         (112,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-       ((word:num->(32)word) 11))
-      (16,8))
-     ((word_subword:(32)word->num#num->(8)word)
-      ((word_add:(32)word->(32)word->(32)word)
-       ((word_join:(16)word->(16)word->(32)word)
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (96,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (104,8)))
-       ((word_join:(8)word->(8)word->(16)word)
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (112,8))
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-      ((word:num->(32)word) 11))
-     (24,8))))
-    ((word_join:(16)word->(16)word->(32)word)
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (88,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (80,8)))
-    ((word_join:(8)word->(8)word->(16)word)
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (72,8))
-    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (64,8)))))
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (56,8))
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (48,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (40,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (32,8))))
-    ((word_join:(16)word->(16)word->(32)word)
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (24,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (16,8)))
-    ((word_join:(8)word->(8)word->(16)word)
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (8,8))
-    ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (0,8))))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
-     ((word:num->(64)word) 80)))
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_xor:(128)word->(128)word->(128)word)
-     ((bytes_to_int128:((8)word)list->(128)word)
-     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (80,16)
-     (ibytes:((8)word)list)))
-    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))))))
-     (k0:(128)word)
-     (k1:(128)word)
-     (k2:(128)word)
-     (k3:(128)word)
-     (k4:(128)word)
-     (k5:(128)word)
-     (k6:(128)word)
-     (k7:(128)word)
-     (k8:(128)word)
-     (k9:(128)word)
-     (k10:(128)word)
-     (k11:(128)word)
-     (k12:(128)word)
-    (k13:(128)word)))
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
-     ((word:num->(64)word) 64)))
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_xor:(128)word->(128)word->(128)word)
-     ((bytes_to_int128:((8)word)list->(128)word)
-     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (64,16)
-     (ibytes:((8)word)list)))
-    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word)))))
-     (k0:(128)word)
-     (k1:(128)word)
-     (k2:(128)word)
-     (k3:(128)word)
-     (k4:(128)word)
-     (k5:(128)word)
-     (k6:(128)word)
-     (k7:(128)word)
-     (k8:(128)word)
-     (k9:(128)word)
-     (k10:(128)word)
-     (k11:(128)word)
-     (k12:(128)word)
-    (k13:(128)word)))
-    (k14:(128)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X2:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
-    ((word:num->(64)word) 128) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
-     ((word:num->(64)word) 112)))
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_xor:(128)word->(128)word->(128)word)
-     ((bytes_to_int128:((8)word)list->(128)word)
-     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (112,16)
-     (ibytes:((8)word)list)))
-    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word))))))))
-     (k0:(128)word)
-     (k1:(128)word)
-     (k2:(128)word)
-     (k3:(128)word)
-     (k4:(128)word)
-     (k5:(128)word)
-     (k6:(128)word)
-     (k7:(128)word)
-     (k8:(128)word)
-     (k9:(128)word)
-     (k10:(128)word)
-     (k11:(128)word)
-     (k12:(128)word)
-    (k13:(128)word)))
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
-     ((word:num->(64)word) 96)))
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_xor:(128)word->(128)word->(128)word)
-     ((bytes_to_int128:((8)word)list->(128)word)
-     ((SUB_LIST:num#num->((8)word)list->((8)word)list) (96,16)
-     (ibytes:((8)word)list)))
-    ((aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word)
-     ((gcm_ctr_inc:(128)word->(128)word) (ctr0:(128)word)))))))
-     (k0:(128)word)
-     (k1:(128)word)
-     (k2:(128)word)
-     (k3:(128)word)
-     (k4:(128)word)
-     (k5:(128)word)
-     (k6:(128)word)
-     (k7:(128)word)
-     (k8:(128)word)
-     (k9:(128)word)
-     (k10:(128)word)
-     (k11:(128)word)
-     (k12:(128)word)
-    (k13:(128)word)))
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q30:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_add:(32)word->(32)word->(32)word)
-      ((word_add:(32)word->(32)word->(32)word)
-       ((word_join:(16)word->(16)word->(32)word)
-        ((word_join:(8)word->(8)word->(16)word)
-         ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (96,8))
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (104,8)))
-       ((word_join:(8)word->(8)word->(16)word)
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (112,8))
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (120,8))))
-      ((word:num->(32)word) 12))
-     ((word:num->(32)word) 1))
-    ((word_add:(32)word->(32)word->(32)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (64,8))
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (72,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (80,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (88,8))))
-    ((word:num->(32)word) 0)))
-    ((word_join:(32)word->(32)word->(64)word)
-     ((word_add:(32)word->(32)word->(32)word)
-      ((word_join:(16)word->(16)word->(32)word)
-       ((word_join:(8)word->(8)word->(16)word)
-        ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (32,8))
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (40,8)))
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (48,8))
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (56,8))))
-     ((word:num->(32)word) 0))
-    ((word_add:(32)word->(32)word->(32)word)
-     ((word_join:(16)word->(16)word->(32)word)
-      ((word_join:(8)word->(8)word->(16)word)
-       ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (0,8))
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (8,8)))
-     ((word_join:(8)word->(8)word->(16)word)
-      ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (16,8))
-     ((word_subword:(128)word->num#num->(8)word) (ctr0:(128)word) (24,8))))
-    ((word:num->(32)word) 0)))|};;
+(* The s288 postcondition (the i=0 loop invariant), so the front simulates ONCE
+   (in the WBN_FRONT_BUF proof below), as for the <=8-block chain's
+   wb_front_postcond: the final state of the front sim at the loop head (THEN
+   wb_front_fold_tac).  It holds the facts of wbn_front_prefix_postcond one step
+   later, after the 0x4bc b.ge: in reverse order, with PC = pc+1216 and without
+   the NF and VF facts. *)
+let wbn_front_postcond_i0 =
+  let cs = conjuncts(snd(dest_abs wbn_front_prefix_postcond)) in
+  let nf_vf c = try mem (rand(rator(lhs c))) [`NF`; `VF`] with Failure _ -> false in
+  wbp_post (hd cs :: `read PC s = word (pc + 1216)` ::
+            filter (not o nf_vf) (rev (tl (tl cs))));;
 
 (* WBN_FRONT_BUF: the FRONT-N theorem.  Its postcond = the i=0 loop invariant
    (two-stream pipelined form): q8..q15 = RAW ct blocks 0..7 pending fold,
@@ -10391,16 +7161,28 @@ let BODY_Q19_CLOSE_ALGEBRA = prove
 (* the byteform LHS below (over OPAQUE PL/PH/PM -- the sim keeps them abbreviated *)
 (* so the reduce window stays small).  This lemma says that byteform is         *)
 (* polyval_reduce_prop3 (pack_corrected PL PH PM) -- the pre-byte-reversal prop3 *)
-(* on the Karatsuba-corrected packed value.  It is the machine analogue of      *)
-(* the reduce identity of common/ghash_nblock_karatsuba.ml (same reduce,         *)
-(* proven the same way: KARATSUBA_LIMB_* to reduce the pack lanes, then two      *)
-(* pmul abbreviations (wa/wv) so the residual is a pure opaque-atom bit identity *)
-(* closed by WORD_BLAST).  The s326 OUTPUT is byteform, while the INPUT       *)
-(* triple lives at s289                                                         *)
-(* (R1'): here the OUTPUT = prop3 o pack_corrected of the INPUT triple, no outer *)
-(* word_reversefields -- exactly matching BODY_Q19_CLOSE_ALGEBRA's prop3 RHS.    *)
-(* NOTE: the 4 KARATSUBA_LIMB_* must be listed individually -- the bundled CONJ  *)
-(* KARATSUBA_LIMBS does NOT rewrite via REWRITE_TAC (nested-CONJ matcher).       *)
+(* on the Karatsuba-corrected packed value.  The s326 OUTPUT is byteform, while *)
+(* the INPUT triple lives at s289; the OUTPUT is prop3 o pack_corrected of the  *)
+(* INPUT triple, with no outer word_reversefields -- exactly matching           *)
+(* BODY_Q19_CLOSE_ALGEBRA's prop3 RHS.                                           *)
+(*                                                                             *)
+(* It is derived from the shared statement of this reduction pattern,          *)
+(* POLYVAL_REDUCE_G2 (aes_gcm_common.ml): pack_corrected (the zx/shl packing   *)
+(* the N-block Karatsuba layer of common/ghash_nblock_karatsuba.ml is stated   *)
+(* in) is karatsuba_join, so the RHS is polyval_reduce_g2 PL PH PM, and the    *)
+(* byteform is the same xor of the same two pmuls up to rearrangement.  The    *)
+(* statement keeps pack_corrected because KARA_ACC_PACK_HELPER, which packs    *)
+(* the eight per-block triples in the Q19 close below, is stated with it.      *)
+(* --------------------------------------------------------------------------- *)
+let PACK_CORRECTED_KARATSUBA_JOIN = prove
+ (`!pl ph pm:int128. pack_corrected pl ph pm = karatsuba_join pl ph pm`,
+  REWRITE_TAC[pack_corrected; karatsuba_join] THEN BITBLAST_TAC);;
+
+let POLYVAL_REDUCE_G2_KARATSUBA_JOIN = prove
+ (`!p1 p2 p3:int128.
+     polyval_reduce_g2 p1 p2 p3 = polyval_reduce_prop3 (karatsuba_join p1 p2 p3)`,
+  REWRITE_TAC[karatsuba_join; POLYVAL_REDUCE_G2]);;
+
 let WBN_MACHINE_REDUCE_IS_PROP3_PACK = prove
  (`!PL PH PM:int128.
      word_xor
@@ -10426,40 +7208,26 @@ let WBN_MACHINE_REDUCE_IS_PROP3_PACK = prove
       (word 13979173243358019584 :64 word)) =
      polyval_reduce_prop3 (pack_corrected PL PH PM)`,
   REPEAT GEN_TAC THEN
-  REWRITE_TAC[pack_corrected; polyval_reduce_prop3; LET_DEF; LET_END_DEF] THEN
+  REWRITE_TAC[PACK_CORRECTED_KARATSUBA_JOIN;
+              GSYM POLYVAL_REDUCE_G2_KARATSUBA_JOIN] THEN
+  REWRITE_TAC[polyval_reduce_g2; LET_DEF; LET_END_DEF] THEN
   CONV_TAC(DEPTH_CONV BETA_CONV) THEN
-  SUBGOAL_THEN
-   `word_subword (word_join (PL:int128) (PL:int128) :256 word) (64,128) :128 word =
-    word_join (word_subword PL (0,64):64 word) (word_subword PL (64,64):64 word)`
-   SUBST1_TAC THENL [CONV_TAC WORD_BLAST; ALL_TAC] THEN
-  REWRITE_TAC[KARATSUBA_LIMB_0_63; KARATSUBA_LIMB_64_127;
-              KARATSUBA_LIMB_128_191; KARATSUBA_LIMB_192_255] THEN
-  ABBREV_TAC `wa:int128 = word_pmul (word_subword (PL:int128) (0,64):64 word)
+  ABBREV_TAC `w1:int128 = word_pmul (word_subword (PL:int128) (0,64):64 word)
                                     (word 13979173243358019584:64 word)` THEN
   SUBGOAL_THEN
    `word_subword
-      (word_xor (word_xor (word_xor (word_xor PM PL) PH) (wa:int128))
-                (word_join (word_subword (PL:int128) (0,64):64 word)
-                           (word_subword PL (64,64):64 word)))
+      (word_xor (word_xor (word_xor (word_xor PM PL) PH) (w1:int128))
+                (word_subword (word_join (PL:int128) PL :256 word) (64,128)))
       (0,64) :64 word =
-    word_xor (word_xor (word_subword (PL:int128) (64,64):64 word)
-                       (word_subword (word_xor (word_xor PL PH) PM) (0,64):64 word))
-             (word_subword (wa:int128) (0,64):64 word)`
-   SUBST1_TAC THENL [CONV_TAC WORD_BLAST; ALL_TAC] THEN
-  ABBREV_TAC `wv:int128 = word_pmul
-     (word_xor (word_xor (word_subword (PL:int128) (64,64):64 word)
-                         (word_subword (word_xor (word_xor PL PH) PM) (0,64):64 word))
-               (word_subword (wa:int128) (0,64):64 word))
+    word_xor (word_xor (word_subword w1 (0,64)) (word_subword PL (64,64)))
+             (word_subword (word_xor (word_xor PL PH) PM) (0,64))`
+   SUBST1_TAC THENL [BITBLAST_TAC; ALL_TAC] THEN
+  ABBREV_TAC `w2:int128 = word_pmul
+     (word_xor (word_xor (word_subword (w1:int128) (0,64):64 word)
+                         (word_subword (PL:int128) (64,64)))
+               (word_subword (word_xor (word_xor PL PH) PM) (0,64)))
      (word 13979173243358019584:64 word)` THEN
-  (* Rather than one monolithic `CONV_TAC WORD_BLAST` over PL/PH/PM as full
-     128-bit free vars, reconstruct the LHS result as word_join of its two
-     64-bit lanes (QQ0SPLIT), split the resulting word_join=word_join with
-     JOIN_EQ_SPLIT, and close each 64-bit lane with the WB_TAIL lane finisher
-     (LANE_FINISH_Z_TAC = WORD_SIMPLE_SUBWORD_CONV + subword rewrites +
-     WORD_RULE).  Same idiom as WB_TAIL_3..8's Q19 close. *)
-  GEN_REWRITE_TAC (LAND_CONV o ONCE_DEPTH_CONV) [QQ0SPLIT] THEN
-  REWRITE_TAC[WORD_SUBWORD_SUBWORD; JOIN_SUBWORD_RULES; WORD_SUBWORD_XOR] THEN
-  REWRITE_TAC[JOIN_EQ_SPLIT] THEN CONJ_TAC THEN LANE_FINISH_Z_TAC);;
+  BITBLAST_TAC);;
 
 (* ------------------------------------------------------------------------- *)
 (* BLOCK-ALGEBRA reconciliation                                               *)
@@ -10503,10 +7271,11 @@ let LANE_COLLAPSE = prove
 (* blocks A and B).  The (64,64)/(0,64) sub-lane of the XOR of the hi-join and  *)
 (* lo-join recovers each single block's (lo XOR hi) mid-input. *)
 (* The mid-input lane extractors used by the Q19 reduce.  Only the              *)
-(* swapped-RHS PM_LANE_HI'/LO' variants below are consumed (build_q19_reduce_*  *)
-(* at :1154/:1247): they spell the extracted mid-input in the (0,64)^(64,64)    *)
-(* lane order that karatsuba_block_pm produces (word_pmul's first arg is atomic *)
-(* to WORD_RULE, so the lane XOR must match SYNTACTICALLY, not up to comm).     *)
+(* swapped-RHS PM_LANE_HI'/LO' variants below are consumed (by                  *)
+(* build_q19_reduce_clean and build_q19_reduce_clean_idx): they spell the       *)
+(* extracted mid-input in the (0,64)^(64,64) lane order that karatsuba_block_pm *)
+(* produces (word_pmul's first arg is atomic to WORD_RULE, so the lane XOR must *)
+(* match SYNTACTICALLY, not up to comm).                                        *)
 let PM_LANE_HI' = prove
  (`!A B:int128.
     word_subword (word_xor (word_join (word_subword (A:int128) (64,64):64 word) (word_subword (B:int128) (64,64):64 word):128 word)
@@ -11073,10 +7842,10 @@ let WBN_INV_RAW_SPLIT = prove
 (* register whose first use is a READ and which the invariant fails to pin     *)
 (* (Q0..Q4, Q19, Q31 are live-in AND already pinned).                          *)
 (*                                                                            *)
-(* WBN_FRONT_BUF DID harvest a Q30 conjunct (its postcond conjunct 46), as a   *)
+(* WBN_FRONT_BUF DID keep a Q30 conjunct (the last of its postcond), as a      *)
 (* raw bit-tower; Sec 4's generalization to symbolic i simply dropped it.      *)
 (* The value at the loop head (iteration i) is gcm_ctr_raw (word (8*i+13)) ctr0*)
-(* -- CONFIRMED: WBN_FRONT_BUF's conjunct-46 term = gcm_ctr_raw (word 13) ctr0 *)
+(* -- CONFIRMED: that conjunct's term = gcm_ctr_raw (word 13) ctr0             *)
 (* at i=0 (proved via gcm_ctr_raw_def + WORD_RULE add-merge + WORD_ADD_0).      *)
 (*                                                                            *)
 (* gcm_ctr_raw w ctr0 is the counter in the "byte-grouped, top-lane += w"      *)
@@ -11170,9 +7939,9 @@ let CTR_RAW_INCR_FOLD_TAC (qd:string) (sn:string) (wtm:term) : tactic =
 (* on this 4-memory-region frame (the MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_  *)
 (* ABI macro doesn't canonicalize into the ASSIGNS sequence ABSORB expects).  *)
 (* FIX: expand the ABI macro FIRST, then MAYCHANGE_IDEMPOT_TAC succeeds (~2s). *)
-(* up2_pth is a verbatim re-proof of ENSURES_WHILE_UP2_TAC's internal pth, and *)
-(* UP2_ABI_TAC is the closure at common/relational.ml:2137 with the ABI       *)
-(* expand spliced into the idempotence CONJ_TAC leg.                          *)
+(* up2_pth re-proves the internal pth of ENSURES_WHILE_UP2_TAC (in            *)
+(* common/relational.ml), and UP2_ABI_TAC is that tactic's up-count closure   *)
+(* with the ABI expand spliced into the idempotence CONJ_TAC leg.             *)
 (* ------------------------------------------------------------------------- *)
 
 (* the applied PC-free core, as a (num->armstate->bool) and as a \i s. abstr. *)
@@ -11187,7 +7956,7 @@ let wbn_core_applied =
 let wbn_core_iv = list_mk_abs([`i:num`;`s:armstate`],
   mk_comb(mk_comb(wbn_core_applied,`i:num`),`s:armstate`));;
 
-(* ENSURES_WHILE_UP2_TAC's internal `pth` (common/relational.ml:1974), re-proved
+(* ENSURES_WHILE_UP2_TAC's internal `pth` (common/relational.ml), re-proved
    here so we can reach it with an ABI-aware idempotence discharge. *)
 let up2_pth = prove(
   `forall k pc1 pc2 (loopinv:num->A->bool) C precond postcond
@@ -11863,727 +8632,45 @@ Gc.compact();;
 (*   NF/ZF/CF/VF on word_sub(in_p+16nblk)(in_p+128(k+1)) vs 112 [-> r=... calc] *)
 (* ========================================================================= *)
 
-(* This raw harvested literal states Q16/Q19 at a FRESH unconstrained xi'
+(* The s313 state of the prepretail sim, built like wb_front_postcond.  This raw
+   postcondition states Q16/Q19 at a FRESH unconstrained xi'
    (read Q19 s = word_bytereverse xi', Q16 = its staging).  As written that is
    FALSE (word_bytereverse is a bijection + the ARM model is deterministic, so
    `!xi'. hyps ==> ensures ... Q19 = word_bytereverse xi'` cannot hold).  It is
-   kept verbatim as `_raw` only as the substitution source; the SOUND post
+   kept as `_raw` only as the substitution source; the SOUND post
    `wbn_prepretail_post` below pins xi' to the real caught-up accumulator. *)
-let wbn_prepretail_post_raw = parse_term {|\(s:armstate).
-    (aligned_bytes_loaded:armstate->(64)word->((8)word)list->bool)
-    (s:armstate)
-    ((word:num->(64)word) (pc:num))
-    (aesv8_gcm_8x_dec_256_wb_mc:((8)word)list) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (PC:(armstate,(64)word)component)
-    (s:armstate) =
-    (word:num->(64)word) ((pc:num) + 3828) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q24:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((polyval_dot:(128)word->(128)word->(128)word)
-         ((polyval_dot:(128)word->(128)word->(128)word)
-          ((polyval_dot:(128)word->(128)word->(128)word)
-           ((byteswap128:(128)word->(128)word) (h:(128)word))
-          ((byteswap128:(128)word->(128)word) (h:(128)word)))
-         ((byteswap128:(128)word->(128)word) (h:(128)word)))
-        ((byteswap128:(128)word->(128)word) (h:(128)word)))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word)))))
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((polyval_dot:(128)word->(128)word->(128)word)
-         ((polyval_dot:(128)word->(128)word->(128)word)
-          ((byteswap128:(128)word->(128)word) (h:(128)word))
-         ((byteswap128:(128)word->(128)word) (h:(128)word)))
-        ((byteswap128:(128)word->(128)word) (h:(128)word)))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q25:(armstate,(128)word)component)
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((polyval_dot:(128)word->(128)word->(128)word)
-         ((polyval_dot:(128)word->(128)word->(128)word)
-          ((polyval_dot:(128)word->(128)word->(128)word)
-           ((byteswap128:(128)word->(128)word) (h:(128)word))
-          ((byteswap128:(128)word->(128)word) (h:(128)word)))
-         ((byteswap128:(128)word->(128)word) (h:(128)word)))
-        ((byteswap128:(128)word->(128)word) (h:(128)word)))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))) /\
-    ((read:(armstate,bool)component->armstate->bool)
-     (NF:(armstate,bool)component)
-     (s:armstate) <=>
-     (ival:(64)word->int)
-     ((word_sub:(64)word->(64)word->(64)word)
-      ((word_sub:(64)word->(64)word->(64)word)
-       ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-       ((word:num->(64)word) (16 * (nblk:num))))
-      ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-      ((word:num->(64)word) (128 * (((nblk:num) - 9) DIV 8 + 1)))))
-     ((word:num->(64)word) 112)) <
-     (int_of_num:num->int)0) /\
-    ((read:(armstate,bool)component->armstate->bool)
-     (ZF:(armstate,bool)component)
-     (s:armstate) <=>
-     (val:(64)word->num)
-     ((word_sub:(64)word->(64)word->(64)word)
-      ((word_sub:(64)word->(64)word->(64)word)
-       ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-       ((word:num->(64)word) (16 * (nblk:num))))
-      ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-      ((word:num->(64)word) (128 * (((nblk:num) - 9) DIV 8 + 1)))))
-     ((word:num->(64)word) 112)) =
-     0) /\
-    ((read:(armstate,bool)component->armstate->bool)
-     (CF:(armstate,bool)component)
-     (s:armstate) <=>
-     112 <=
-     (val:(64)word->num)
-     ((word_sub:(64)word->(64)word->(64)word)
-      ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-      ((word:num->(64)word) (16 * (nblk:num))))
-     ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-     ((word:num->(64)word) (128 * (((nblk:num) - 9) DIV 8 + 1)))))) /\
-    ((read:(armstate,bool)component->armstate->bool)
-     (VF:(armstate,bool)component)
-     (s:armstate) <=>
-     ~((ival:(64)word->int)
-       ((word_sub:(64)word->(64)word->(64)word)
-        ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-        ((word:num->(64)word) (16 * (nblk:num))))
-       ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-       ((word:num->(64)word) (128 * (((nblk:num) - 9) DIV 8 + 1))))) -
-       (int_of_num:num->int)112 =
-       (ival:(64)word->int)
-       ((word_sub:(64)word->(64)word->(64)word)
-        ((word_sub:(64)word->(64)word->(64)word)
-         ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-         ((word:num->(64)word) (16 * (nblk:num))))
-        ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-        ((word:num->(64)word) (128 * (((nblk:num) - 9) DIV 8 + 1)))))
-       ((word:num->(64)word) 112)))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q16:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_subword:(256)word->num#num->(128)word)
-    ((word_join:(128)word->(128)word->(256)word)
-     ((word_bytereverse:(128)word->(128)word) (xi':(128)word))
-    ((word_bytereverse:(128)word->(128)word) (xi':(128)word)))
-    (64,128) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q7:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-    ((gcm_ctr_add:(32)word->(128)word->(128)word)
-     ((word:num->(32)word) (8 * ((nblk:num) - 9) DIV 8 + 15))
-    (ctr0:(128)word))
-    (k0:(128)word)
-    (k1:(128)word)
-    (k2:(128)word)
-    (k3:(128)word)
-    (k4:(128)word)
-    (k5:(128)word)
-    (k6:(128)word)
-    (k7:(128)word)
-    (k8:(128)word)
-    (k9:(128)word)
-    (k10:(128)word)
-    (k11:(128)word)
-    (k12:(128)word)
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q6:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-    ((gcm_ctr_add:(32)word->(128)word->(128)word)
-     ((word:num->(32)word) (8 * ((nblk:num) - 9) DIV 8 + 14))
-    (ctr0:(128)word))
-    (k0:(128)word)
-    (k1:(128)word)
-    (k2:(128)word)
-    (k3:(128)word)
-    (k4:(128)word)
-    (k5:(128)word)
-    (k6:(128)word)
-    (k7:(128)word)
-    (k8:(128)word)
-    (k9:(128)word)
-    (k10:(128)word)
-    (k11:(128)word)
-    (k12:(128)word)
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q0:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-    ((gcm_ctr_add:(32)word->(128)word->(128)word)
-     ((word:num->(32)word) (8 * ((nblk:num) - 9) DIV 8 + 8))
-    (ctr0:(128)word))
-    (k0:(128)word)
-    (k1:(128)word)
-    (k2:(128)word)
-    (k3:(128)word)
-    (k4:(128)word)
-    (k5:(128)word)
-    (k6:(128)word)
-    (k7:(128)word)
-    (k8:(128)word)
-    (k9:(128)word)
-    (k10:(128)word)
-    (k11:(128)word)
-    (k12:(128)word)
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q1:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-    ((gcm_ctr_add:(32)word->(128)word->(128)word)
-     ((word:num->(32)word) (8 * ((nblk:num) - 9) DIV 8 + 9))
-    (ctr0:(128)word))
-    (k0:(128)word)
-    (k1:(128)word)
-    (k2:(128)word)
-    (k3:(128)word)
-    (k4:(128)word)
-    (k5:(128)word)
-    (k6:(128)word)
-    (k7:(128)word)
-    (k8:(128)word)
-    (k9:(128)word)
-    (k10:(128)word)
-    (k11:(128)word)
-    (k12:(128)word)
-    (k13:(128)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes64:(64)word->((64)word->(8)word,(64)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (stackpointer:(64)word)
-     ((word:num->(64)word) 64)))
-    (s:armstate) =
-    (word:num->(64)word) 13979173243358019584 /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X11:(armstate,(64)word)component)
-    (s:armstate) =
-    (key_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X9:(armstate,(64)word)component)
-    (s:armstate) =
-    (word:num->(64)word) (16 * (nblk:num)) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (SP:(armstate,(64)word)component)
-    (s:armstate) =
-    (stackpointer:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X1:(armstate,(64)word)component)
-    (s:armstate) =
-    (word:num->(64)word) (128 * (nblk:num)) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X2:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
-    ((word:num->(64)word) (128 * (((nblk:num) - 9) DIV 8 + 1))) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X3:(armstate,(64)word)component)
-    (s:armstate) =
-    (xi_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X6:(armstate,(64)word)component)
-    (s:armstate) =
-    (htbl_p:(64)word) /\
-    (read:(armstate,num)component->armstate->num)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes:(64)word#num->((64)word->(8)word,num)component)
-     ((in_p:(64)word),16 * (nblk:num)))
-    (s:armstate) =
-    (num_of_bytelist:((8)word)list->num) (ibytes:((8)word)list) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     (key_p:(64)word))
-    (s:armstate) =
-    (k0:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 16)))
-    (s:armstate) =
-    (k1:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 32)))
-    (s:armstate) =
-    (k2:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 48)))
-    (s:armstate) =
-    (k3:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 64)))
-    (s:armstate) =
-    (k4:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 80)))
-    (s:armstate) =
-    (k5:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 96)))
-    (s:armstate) =
-    (k6:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 112)))
-    (s:armstate) =
-    (k7:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 128)))
-    (s:armstate) =
-    (k8:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 144)))
-    (s:armstate) =
-    (k9:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 160)))
-    (s:armstate) =
-    (k10:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 176)))
-    (s:armstate) =
-    (k11:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 192)))
-    (s:armstate) =
-    (k12:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 208)))
-    (s:armstate) =
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (key_p:(64)word)
-     ((word:num->(64)word) 224)))
-    (s:armstate) =
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     (htbl_p:(64)word))
-    (s:armstate) =
-    (h:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 16)))
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((byteswap128:(128)word->(128)word) (h:(128)word))
-    ((byteswap128:(128)word->(128)word) (h:(128)word)))))
-    ((karatsuba_mid:(128)word->(64)word) (h:(128)word)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 32)))
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((byteswap128:(128)word->(128)word) (h:(128)word))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 48)))
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((byteswap128:(128)word->(128)word) (h:(128)word))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 64)))
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((byteswap128:(128)word->(128)word) (h:(128)word))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word)))))
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((byteswap128:(128)word->(128)word) (h:(128)word))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 80)))
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((byteswap128:(128)word->(128)word) (h:(128)word))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 96)))
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((byteswap128:(128)word->(128)word) (h:(128)word))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 112)))
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((polyval_dot:(128)word->(128)word->(128)word)
-         ((byteswap128:(128)word->(128)word) (h:(128)word))
-        ((byteswap128:(128)word->(128)word) (h:(128)word)))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word)))))
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((byteswap128:(128)word->(128)word) (h:(128)word))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 128)))
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((polyval_dot:(128)word->(128)word->(128)word)
-         ((byteswap128:(128)word->(128)word) (h:(128)word))
-        ((byteswap128:(128)word->(128)word) (h:(128)word)))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 144)))
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((polyval_dot:(128)word->(128)word->(128)word)
-         ((polyval_dot:(128)word->(128)word->(128)word)
-          ((byteswap128:(128)word->(128)word) (h:(128)word))
-         ((byteswap128:(128)word->(128)word) (h:(128)word)))
-        ((byteswap128:(128)word->(128)word) (h:(128)word)))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 160)))
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((polyval_dot:(128)word->(128)word->(128)word)
-         ((polyval_dot:(128)word->(128)word->(128)word)
-          ((polyval_dot:(128)word->(128)word->(128)word)
-           ((byteswap128:(128)word->(128)word) (h:(128)word))
-          ((byteswap128:(128)word->(128)word) (h:(128)word)))
-         ((byteswap128:(128)word->(128)word) (h:(128)word)))
-        ((byteswap128:(128)word->(128)word) (h:(128)word)))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word)))))
-    ((karatsuba_mid:(128)word->(64)word)
-    ((byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((polyval_dot:(128)word->(128)word->(128)word)
-         ((polyval_dot:(128)word->(128)word->(128)word)
-          ((byteswap128:(128)word->(128)word) (h:(128)word))
-         ((byteswap128:(128)word->(128)word) (h:(128)word)))
-        ((byteswap128:(128)word->(128)word) (h:(128)word)))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (htbl_p:(64)word)
-     ((word:num->(64)word) 176)))
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((polyval_dot:(128)word->(128)word->(128)word)
-     ((polyval_dot:(128)word->(128)word->(128)word)
-      ((polyval_dot:(128)word->(128)word->(128)word)
-       ((polyval_dot:(128)word->(128)word->(128)word)
-        ((polyval_dot:(128)word->(128)word->(128)word)
-         ((polyval_dot:(128)word->(128)word->(128)word)
-          ((polyval_dot:(128)word->(128)word->(128)word)
-           ((byteswap128:(128)word->(128)word) (h:(128)word))
-          ((byteswap128:(128)word->(128)word) (h:(128)word)))
-         ((byteswap128:(128)word->(128)word) (h:(128)word)))
-        ((byteswap128:(128)word->(128)word) (h:(128)word)))
-       ((byteswap128:(128)word->(128)word) (h:(128)word)))
-      ((byteswap128:(128)word->(128)word) (h:(128)word)))
-     ((byteswap128:(128)word->(128)word) (h:(128)word)))
-    ((byteswap128:(128)word->(128)word) (h:(128)word))) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X16:(armstate,(64)word)component)
-    (s:armstate) =
-    (ivec_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X10:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_add:(64)word->(64)word->(64)word) (stackpointer:(64)word)
-    ((word:num->(64)word) 64) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X15:(armstate,(64)word)component)
-    (s:armstate) =
-    (word:num->(64)word) 4294967296 /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q31:(armstate,(128)word)component)
-    (s:armstate) =
-    (word:num->(128)word) 79228162514264337593543950336 /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q19:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_bytereverse:(128)word->(128)word) (xi':(128)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X4:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-    ((word:num->(64)word) (16 * (nblk:num))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q27:(armstate,(128)word)component)
-    (s:armstate) =
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q26:(armstate,(128)word)component)
-    (s:armstate) =
-    (k12:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q28:(armstate,(128)word)component)
-    (s:armstate) =
-    (k14:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q5:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-    ((gcm_ctr_add:(32)word->(128)word->(128)word)
-     ((word:num->(32)word) (8 * ((nblk:num) - 9) DIV 8 + 13))
-    (ctr0:(128)word))
-    (k0:(128)word)
-    (k1:(128)word)
-    (k2:(128)word)
-    (k3:(128)word)
-    (k4:(128)word)
-    (k5:(128)word)
-    (k6:(128)word)
-    (k7:(128)word)
-    (k8:(128)word)
-    (k9:(128)word)
-    (k10:(128)word)
-    (k11:(128)word)
-    (k12:(128)word)
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q2:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-    ((gcm_ctr_add:(32)word->(128)word->(128)word)
-     ((word:num->(32)word) (8 * ((nblk:num) - 9) DIV 8 + 10))
-    (ctr0:(128)word))
-    (k0:(128)word)
-    (k1:(128)word)
-    (k2:(128)word)
-    (k3:(128)word)
-    (k4:(128)word)
-    (k5:(128)word)
-    (k6:(128)word)
-    (k7:(128)word)
-    (k8:(128)word)
-    (k9:(128)word)
-    (k10:(128)word)
-    (k11:(128)word)
-    (k12:(128)word)
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q4:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-    ((gcm_ctr_add:(32)word->(128)word->(128)word)
-     ((word:num->(32)word) (8 * ((nblk:num) - 9) DIV 8 + 12))
-    (ctr0:(128)word))
-    (k0:(128)word)
-    (k1:(128)word)
-    (k2:(128)word)
-    (k3:(128)word)
-    (k4:(128)word)
-    (k5:(128)word)
-    (k6:(128)word)
-    (k7:(128)word)
-    (k8:(128)word)
-    (k9:(128)word)
-    (k10:(128)word)
-    (k11:(128)word)
-    (k12:(128)word)
-    (k13:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q3:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes13:(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word->(128)word)
-    ((gcm_ctr_add:(32)word->(128)word->(128)word)
-     ((word:num->(32)word) (8 * ((nblk:num) - 9) DIV 8 + 11))
-    (ctr0:(128)word))
-    (k0:(128)word)
-    (k1:(128)word)
-    (k2:(128)word)
-    (k3:(128)word)
-    (k4:(128)word)
-    (k5:(128)word)
-    (k6:(128)word)
-    (k7:(128)word)
-    (k8:(128)word)
-    (k9:(128)word)
-    (k10:(128)word)
-    (k11:(128)word)
-    (k12:(128)word)
-    (k13:(128)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X5:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_sub:(64)word->(64)word->(64)word)
-    ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-    ((word:num->(64)word) (16 * (nblk:num))))
-    ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-    ((word:num->(64)word) (128 * (((nblk:num) - 9) DIV 8 + 1)))) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X0:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_add:(64)word->(64)word->(64)word)
-    ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-    ((word:num->(64)word) (128 * (((nblk:num) - 9) DIV 8 + 1))))
-    ((word:num->(64)word) 16)|};;
+let wbn_prepretail_post_raw =
+  let ctr j = subst [mk_small_numeral j,`jjj:num`]
+    `gcm_ctr_add (word (8 * (nblk - 9) DIV 8 + jjj)) ctr0` in
+  wbp_post
+  ([`aligned_bytes_loaded s (word pc) aesv8_gcm_8x_dec_256_wb_mc`;
+    `read PC s = word (pc + 3828)`;
+    wbp_rd `Q24` (wbp_hmid 7);
+    wbp_rd `Q25` (wbp_hpow 8)] @
+   wbp_cmpi_flags `word_sub (word_add in_p (word (16 * nblk)))
+                            (word_add in_p (word (128 * ((nblk - 9) DIV 8 + 1)))):int64` 112 @
+   [`read Q16 s = word_subword (word_join (word_bytereverse (xi':int128)) (word_bytereverse xi'):256 word) (64,128)`;
+    wbp_rd `Q7` (wbp_aes13 (ctr 15));
+    wbp_rd `Q6` (wbp_aes13 (ctr 14));
+    wbp_rd `Q0` (wbp_aes13 (ctr 8));
+    wbp_rd `Q1` (wbp_aes13 (ctr 9));
+    `read (memory :> bytes64 (word_add stackpointer (word 64))) s = word 13979173243358019584`;
+    `read X11 s = key_p`;
+    `read X9 s = word (16 * nblk)`;
+    `read SP s = stackpointer`;
+    `read X1 s = word (128 * nblk)`;
+    `read X2 s = word_add out_p (word (128 * ((nblk - 9) DIV 8 + 1)))`;
+    `read X3 s = xi_p`;
+    `read X6 s = htbl_p`;
+    `read (memory :> bytes (in_p,16 * nblk)) s = num_of_bytelist ibytes`] @
+   wbp_key_reads @ wbp_htable_reads @ wbp_ctx `xi':int128` @
+   [wbp_rd `Q5` (wbp_aes13 (ctr 13));
+    wbp_rd `Q2` (wbp_aes13 (ctr 10));
+    wbp_rd `Q4` (wbp_aes13 (ctr 12));
+    wbp_rd `Q3` (wbp_aes13 (ctr 11));
+    `read X5 s = word_sub (word_add in_p (word (16 * nblk)))
+                          (word_add in_p (word (128 * ((nblk - 9) DIV 8 + 1))))`;
+    `read X0 s = word_add (word_add in_p (word (128 * ((nblk - 9) DIV 8 + 1)))) (word 16)`]);;
 
 (* The caught-up GHASH tag: the loop invariant's Q19 shape at index
    i := k+1 = (nblk-9)DIV8 + 1, i.e. the fold over ALL 8*(k+1) processed blocks.
@@ -12597,7 +8684,7 @@ let wbn_caught_up = `ghash_polyval_acc (byteswap128 (h:int128)) (word_byterevers
     (list_of_seq (\k. bytes_to_int128 (SUB_LIST (16 * k,16) (ibytes:byte list)))
                  (8 * (((nblk:num) - 9) DIV 8 + 1))))`;;
 
-(* Replace the raw literal's fresh `word_bytereverse xi'` (which occurs ONLY in the Q16
+(* Replace the raw postcondition's fresh `word_bytereverse xi'` (which occurs ONLY in the Q16
    staging and Q19 conjuncts) with the caught-up accumulator.  This drops
    xi' entirely (so the post's frees are exactly wb_front_vars) and turns:
      Q19 = word_bytereverse xi'  -->  Q19 = wbn_caught_up   (matches the i:=k+1 invariant shape)
@@ -12681,10 +8768,10 @@ let wbn_prepretail_post_ext =
 (*  -- WBN_Q9_SPEC: the first-tail-block resolver for the seam.                *)
 (*                                                                            *)
 (* At the prepretail seam (pc+3828) the code has just executed                 *)
-(*   ecc:  ldr q9, [x0], #16     (x0 = in_p + 128*(k+1) pre-increment)         *)
+(*   eec:  ldr q9, [x0], #16     (x0 = in_p + 128*(k+1) pre-increment)         *)
 (* so the sim carries  read Q9 s313 = read (memory :> bytes128                 *)
 (*   (word_add in_p (word (128*(k+1))))) s311  -- a RAW memory read.            *)
-(* The tail's FIRST instruction eor3 v12,v9,v0,v29 @0xedc reads                 *)
+(* The tail's FIRST instruction eor3 v12,v9,v0,v29 @0xefc reads                 *)
 (* this Q9 (objdump-confirmed: incoming Q9 is consumed BEFORE any tail reload   *)
 (* at 0xfc4), so it MUST reach the tail seam in spec form.  This lemma resolves  *)
 (* that raw read to bytes_to_int128 (SUB_LIST (16*8*(k+1),16) ibytes) = the      *)
@@ -12723,7 +8810,7 @@ let WBN_Q9_SPEC = prove
 (* (from EXT) AND the incoming Q9 (first tail block, global block 8*(k+1)).    *)
 (*                                                                            *)
 (* GAP: besides the output forall (carried by EXT), the tail's                 *)
-(* FIRST instruction eor3 v12,v9,v0,v29 @0xedc consumes the INCOMING Q9 BEFORE  *)
+(* FIRST instruction eor3 v12,v9,v0,v29 @0xefc consumes the INCOMING Q9 BEFORE  *)
 (* any tail reload (WBN_Q9_SPEC comment) -- so Q9 must reach the seam in spec   *)
 (* form.  wbn_prepretail_post_ext2 = wbn_prepretail_post_ext /\ the Q9 conjunct *)
 (* (read Q9 s = bytes_to_int128 (SUB_LIST (16 * 8 * ((nblk-9) DIV 8 + 1),16)    *)
@@ -14038,36 +10125,24 @@ let EL_GCM_DEC_BLOCKS_FROM = prove
     SUBGOAL_THEN `(base + 1) + n = base + SUC n` SUBST1_TAC THENL
      [ARITH_TAC; REFL_TAC]]);;
 
-(* Whole-blocks (tail=16) collapse of gcm_dec_pt_bytes at symbolic nblk:        *)
-(*   nfull=(16*nblk-1)DIV 16=nblk-1, tail=16, so aes_ctr_full_tail_bytes -> ctr. *)
+(* gcm_dec_pt_bytes at symbolic nblk: (16 * nblk) DIV 16 = nblk whole blocks.  *)
 let GCM_DEC_PT_BYTES_WHOLE_SYM = prove
  (`!nblk ibytes ctr0 rk. 1 <= nblk
      ==> gcm_dec_pt_bytes (16 * nblk) ibytes ctr0 rk =
          aes_ctr_bytes ctr0 (gcm_dec_blocks_from 0 nblk ibytes) rk`,
   REPEAT STRIP_TAC THEN REWRITE_TAC[gcm_dec_pt_bytes] THEN
-  SUBGOAL_THEN `(16 * nblk - 1) DIV 16 = nblk - 1` SUBST1_TAC THENL
-   [ASM_SIMP_TAC[ARITH_RULE `1 <= nblk ==> 16 * nblk - 1 = 16 * (nblk - 1) + 15`] THEN
-    SIMP_TAC[DIV_MULT_ADD; ARITH_EQ] THEN ARITH_TAC; ALL_TAC] THEN
-  CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
-  SUBGOAL_THEN `nblk - 1 + 1 = nblk /\ 16 * nblk - 16 * (nblk - 1) = 16`
-    (CONJUNCTS_THEN SUBST1_TAC) THENL [ASM_ARITH_TAC; ALL_TAC] THEN
-  MATCH_MP_TAC AES_CTR_FULL_TAIL_BYTES_WHOLE THEN
-  REWRITE_TAC[LENGTH_GCM_DEC_BLOCKS_FROM] THEN ASM_ARITH_TAC);;
+  SIMP_TAC[DIV_MULT; ARITH_EQ]);;
 
 (* ------------------------------------------------------------------------- *)
 (* POINTWISE data-output support.                                              *)
 (*                                                                             *)
-(* WHY these exist: the exported data postcondition is otherwise ONLY the      *)
-(* whole-buffer byte-list form byte_list_at(gcm_dec_pt_bytes(16*nblk)..).      *)
-(* gcm_dec_pt_bytes INTERNALLY computes nfull=(len-1)DIV 16 and tail=len-16    *)
-(* nfull -- partial-block machinery that is DEAD at whole-block lengths (it    *)
-(* degenerates to nfull=nblk-1, tail=16, GCM_DEC_PT_BYTES_WHOLE_SYM).  A       *)
-(* reader must re-derive that to see the routine only handles whole blocks;    *)
-(* the statement reads as though arbitrary byte lengths are accepted.          *)
-(* The pointwise form                                                         *)
+(* WHY these exist: the spine's data postcondition is the whole-buffer        *)
+(* byte-list form byte_list_at(gcm_dec_pt_bytes(16*nblk)..), which reads as    *)
+(* though arbitrary byte lengths were accepted.  The pointwise form           *)
 (*   !j. j<nblk ==> read(memory:>bytes128(out_p+16j)) s = EL j (aes_ctr ...)    *)
-(* removes that ambiguity and matches the sibling AES-GCM proofs' shape.  Do   *)
-(* NOT "simplify" it away by folding it back into the byte-list form.          *)
+(* says the routine handles whole blocks and matches the sibling AES-GCM      *)
+(* proofs' shape, which the exported theorems use.  Do NOT "simplify" it away *)
+(* by folding it back into the byte-list form.                                *)
 
 (* 16 bytes at offset 16*j of int128_list_to_bytes repack to EL j.  The reverse
    direction of the int128-list/byte-list correspondence; no such lemma existed. *)
@@ -14106,9 +10181,9 @@ let SUB_LIST_INT128_LIST_TO_BYTES_EL = prove
     REWRITE_TAC[BYTES_TO_INT128_OF_INT128_TO_BYTES]]);;
 
 (* byte_list_at(gcm_dec_pt_bytes ...) -> the per-block bytes128 reads.  At
-   whole-block lengths the partial-block machinery in gcm_dec_pt_bytes is dead
-   (GCM_DEC_PT_BYTES_WHOLE_SYM), so each 16-byte slice is exactly EL j of the
-   counter-mode stream.  The reverse direction:
+   16 * nblk bytes gcm_dec_pt_bytes is the flattened counter-mode stream over
+   the nblk input blocks (GCM_DEC_PT_BYTES_WHOLE_SYM), so each 16-byte slice is
+   exactly EL j of it.  The reverse direction:
    BYTE_LIST_AT_1BLOCKS gives byte_list_at -> per-block bytes128, and the repack
    lemma above closes the 16-byte slice back to EL j. *)
 let WBN_OUTPUT_POINTWISE = prove
