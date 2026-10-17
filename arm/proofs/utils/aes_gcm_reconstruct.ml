@@ -36,7 +36,7 @@ let AES256_XOR_ENCRYPT_RECONSTRUCT = prove
    xor happens per-block in the tail eor3).  Naming it collapses in-flight
    front-postcondition Q towers from ~2.6k chars each to one application, and
    the reconstruct lemma below keeps every tail capture site working on the
-   folded form.  #470's XOR_AES256_CIPHER_RECONSTRUCT folds only the complete
+   folded form.  The shared XOR_AES256_CIPHER_RECONSTRUCT folds only the complete
    cipher; this partial tower is what the 8x schedule holds in registers
    between the front and the per-block final xor, so aes13 stays private
    machine-level vocabulary, and the exported theorems mention only

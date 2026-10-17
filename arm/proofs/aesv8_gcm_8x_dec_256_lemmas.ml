@@ -36,11 +36,7 @@ needs "arm/proofs/utils/aes_ctr_spec.ml";;
 (* Nothing below this banner (until the DECRYPT-SPECIFIC section at the end)  *)
 (* is decrypt-specific: it is word/SIMD algebra, the GHASH/Karatsuba bridge   *)
 (* layer, exec-parameterized steppers, and N-block byteform merge/close       *)
-(* tactics equally valid for the ENCRYPT binaries.  The enc proof files       *)
-(* (aesv8_gcm_8x_enc_256_*.ml) currently carry their own private copies of    *)
-(* much of this (REV64_*, KARATSUBA_LIMBS, GCM_SIMD_SIMPLIFY_TAC, QQ0SPLIT,   *)
-(* MERGE_2BLK_TAC, ...); pointing them here and deleting the copies is a      *)
-(* planned cleanup (needs enc re-verification).                               *)
+(* tactics equally valid for the ENCRYPT binaries.                            *)
 (* ========================================================================= *)
 
 (* ------------------------------------------------------------------------- *)
@@ -96,14 +92,14 @@ let WORD_SWAP_HALVES_INVOLUTION = prove(
    `word_subword (word_join vN vN:256 word) (64,128):128 word` (a rot-by-64).
    Every one of the 9 sites consumes ONLY lane 0 downstream (via `eor .8b` or
    `pmull .1d`), i.e. the projection `word_subword (<ext form>) (0,64)`, which
-   is exactly the plain lane `word_subword vN (64,64)` the old `ins` form gave.
+   is exactly the plain lane `word_subword vN (64,64)` that AWS-LC's `ins` gives.
    Collapsing this COMPOSED projection (NOT the standalone register -- that would
    false-fire on the byteswap/REV64 machinery, which uses the same
-   word_subword(word_join a a)(64,128) shape) restores the pre-opt syntactic
-   form, so ABBREV_INNER_PMULS's setify qq-numbering and every downstream tail
-   bridge match unchanged.  This is the same identity as SJ_COLLAPSE in
-   aesv8_gcm_8x_dec_256_wb.ml, stated here so the per-step normalizer below
-   can fire it. *)
+   word_subword(word_join a a)(64,128) shape) restores the syntactic form of
+   the `ins` lane, so ABBREV_INNER_PMULS's setify qq-numbering and every
+   downstream tail bridge match as with `ins`.  This is the same identity as
+   SJ_COLLAPSE in aesv8_gcm_8x_dec_256_wb.ml, stated here so the per-step
+   normalizer below can fire it. *)
 let EXT8_LANE0_IS_SUBWORD_HI = prove(
   `!(w:(128)word).
     word_subword (word_subword (word_join w w:(256)word) (64,128):(128)word) (0,64):(64)word =
@@ -227,7 +223,7 @@ let GMULT_REDUCE_PROP3 = prove(
 
 (* The full GHASH multiply+reduce bridge: the byte-level Karatsuba/Prop3 the   *)
 (* assembly computes (left-hand side, in terms of 64-bit pmul limbs) equals    *)
-(* the spec-level polyval_dot.  Now derived from (a) PMUL_KARATSUBA + (b)       *)
+(* the spec-level polyval_dot.  Derived from (a) PMUL_KARATSUBA + (b)         *)
 (* GMULT_REDUCE_PROP3 + KARATSUBA_LIMBS (lanes of word_pmul a b = the limbs),   *)
 (* instead of a single monolithic BITBLAST.                                     *)
 let GMULT_FULL_CORRECT_BA = prove(
@@ -275,20 +271,20 @@ let SIMD_SIMPLIFY_ASSUM_TAC =
 (* ------------------------------------------------------------------------- *)
 (* REV32 (vector) per-32-bit-lane reversefields bridge.                        *)
 (*                                                                             *)
-(* Upstream f4ff9971 (#406) defines arm_REV32_VEC via                          *)
+(* The ISA model (arm/proofs/instruction.ml) defines arm_REV32_VEC via        *)
 (*   usimd4 (word_reversefields esize) n,                                      *)
 (* so arm_REV32_VEC_ALT (= EXPAND_SIMD_RULE) leaves, per 32-bit lane,          *)
 (*   word_reversefields esize (word_subword n (32k,32)).                       *)
 (* WORD_SIMPLE_SUBWORD_CONV is a NO-OP on word_reversefields (it does not      *)
 (* reduce through it), so the wrapper stays stuck; a downstream positional     *)
 (* RAND_CONV then lands on a non-combination and raises "RAND_CONV: Not a      *)
-(* combination" (the failure at front step s267, the                         *)
-(* 0x448 aese before the 0x44c b.ge).  The decoder only ever emits esize in    *)
+(* combination" (without the rewrites below, at front step s267, the          *)
+(* 0x448 aese before the 0x44c b.ge).  The decoder only ever emits esize in   *)
 (* {8,16} (decode.ml: esize = 8 << size, size in {0,1}; 2,3 -> UNDEFINED), so  *)
 (* these two per-lane rewrites -- typed at :(32)word so they never touch the   *)
 (* REV64 64-bit-lane word_reversefields above -- cover every REV32 the decoder *)
-(* can produce and let the subword chain reduce fully to the same canonical    *)
-(* byte form the older local (staged word_join/word_subword) model gave.       *)
+(* can produce and let the subword chain reduce fully to the staged           *)
+(* word_join/word_subword byte form the downstream bridges expect.            *)
 (* ------------------------------------------------------------------------- *)
 let WORD_REVERSEFIELDS_8_32 = prove
  (`word_reversefields 8 (x:(32)word) =
@@ -367,7 +363,7 @@ let ARM_VSTEPS_FOLD_TAC exec range =
    Folding before discarding is essential: the fold collapses the ~49k-char byte-tree into the
    bounded GHASH accumulator term in Q19, which then survives the discard.  Discarding per step
    holds the hypothesis pile flat at ~77 (vs ~1357 if old states were kept), so each step is
-   cheap; measured region 333-348 ~8.8s (was ~90s with the original keep-everything ARM_VSTEPS_FOLD).
+   cheap; measured region 333-348 ~8.8s (vs ~90s when every state is kept).
    This is the XTS-style "step and simplify as we go" -- bare ARM_STEPS_TAC already does the
    step+discard; we only add the byte-tree fold that GHASH's REV64s require. *)
 let ARM_STEPS_FOLD_DISCARD_TAC exec snums =
@@ -474,8 +470,8 @@ let QQ0SPLIT = prove(
 (* this file harmlessly shadow the identical library ones.                    *)
 (* ========================================================================= *)
 (* ========================================================================= *)
-(* Helper lemmas for the 2-product GHASH bridge (copied verbatim from the      *)
-(* encrypt 2-block proof; they are byte-form-agnostic so transfer unchanged).  *)
+(* Helper lemmas for the 2-product GHASH bridge (byte-form-agnostic, so they  *)
+(* hold for either direction).                                                *)
 (* ========================================================================= *)
 
 (* word_join lane split: reduces a 128-bit word_join equality to two 64-bit   *)
@@ -661,8 +657,8 @@ let LANE_CLOSE_TAC : tactic = fun (asl,w) ->
 (* SECTION 2: DECRYPT-SPECIFIC LEMMAS AND TACTICS.                            *)
 (*                                                                            *)
 (* Everything below is keyed to the DECRYPT dataflow (GHASH input = the RAW   *)
-(* loaded ciphertext blocks cph_i; the masked less_than_1 path ANDs the       *)
-(* loaded block).  The encrypt analogues differ in which term feeds the       *)
+(* loaded ciphertext blocks cph_i, the last block included: no block is       *)
+(* masked).  The encrypt analogues differ in which term feeds the             *)
 (* GHASH multiply (computed ciphertext), so these do NOT transfer.            *)
 (* ========================================================================= *)
 
